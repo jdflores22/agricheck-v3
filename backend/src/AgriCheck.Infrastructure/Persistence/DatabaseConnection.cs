@@ -17,7 +17,7 @@ public static class DatabaseConnection
             && !string.IsNullOrWhiteSpace(database)
             && !string.IsNullOrWhiteSpace(user))
         {
-            return $"Server={host};Port={port};Database={database};User={user};Password={password};SslMode={sslMode};AllowPublicKeyRetrieval=True;Connection Timeout=10;";
+            return $"Server={host};Port={port};Database={database};User={Quote(user)};Password={Quote(password)};SslMode={sslMode};AllowPublicKeyRetrieval=True;Connection Timeout=10;";
         }
 
         return configuration.GetConnectionString("DefaultConnection")
@@ -38,4 +38,7 @@ public static class DatabaseConnection
 
         return null;
     }
+
+    private static string Quote(string value) =>
+        "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
 }
