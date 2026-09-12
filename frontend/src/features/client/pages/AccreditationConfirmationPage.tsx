@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Alert, Box, Button, Stack, Typography } from '@mui/material'
 import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
@@ -5,11 +6,16 @@ import { Link as RouterLink, useParams } from 'react-router-dom'
 import { PortalPanel } from '../../../components/portal/PortalPanel'
 import { portalColors } from '../../../components/portal/portalTheme'
 import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
-import { useGetAccreditationSubmissionQuery, useGetClientFormQuery, useGetClientFormsQuery } from '../api/clientApi'
+import { clientApi, useGetAccreditationSubmissionQuery, useGetClientFormQuery, useGetClientFormsQuery } from '../api/clientApi'
 
 export function AccreditationConfirmationPage() {
   const { uuid = '' } = useParams()
+  const prefetchDashboard = clientApi.usePrefetch('getDashboard')
   const { data, isLoading } = useGetAccreditationSubmissionQuery(uuid, { skip: !uuid })
+
+  useEffect(() => {
+    prefetchDashboard(undefined, { force: true })
+  }, [prefetchDashboard])
   const { data: formsData } = useGetClientFormsQuery({ formType: 'ACCREDITATION' })
   const selectedFormUuid = formsData?.data?.[0]?.uuid
   const { data: formSchemaData } = useGetClientFormQuery(selectedFormUuid ?? '', { skip: !selectedFormUuid })

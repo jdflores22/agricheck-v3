@@ -1,4 +1,5 @@
-import { configureStore } from '@reduxjs/toolkit'
+import { configureStore, type Middleware } from '@reduxjs/toolkit'
+import { setupListeners } from '@reduxjs/toolkit/query'
 import { healthApi } from '../features/health/api/healthApi'
 import { authApi } from '../features/auth/api/authApi'
 import { clientApi } from '../features/client/api/clientApi'
@@ -12,7 +13,15 @@ import { accreditationOfficerApi } from '../features/accreditation-officer/api/a
 import { daApi } from '../features/da/api/daApi'
 import { systemBrandingApi } from '../features/system/systemBrandingApi'
 import { publicApi } from '../features/public/api/publicApi'
-import authReducer from '../features/auth/authSlice'
+import authReducer, { logout } from '../features/auth/authSlice'
+
+const resetClientCacheOnLogout: Middleware = (storeApi) => (next) => (action) => {
+  const result = next(action)
+  if (logout.match(action)) {
+    storeApi.dispatch(clientApi.util.resetApiState())
+  }
+  return result
+}
 
 export const store = configureStore({
   reducer: {
@@ -33,6 +42,7 @@ export const store = configureStore({
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(
+      resetClientCacheOnLogout,
       healthApi.middleware,
       authApi.middleware,
       clientApi.middleware,
@@ -48,6 +58,8 @@ export const store = configureStore({
       publicApi.middleware,
     ),
 })
+
+setupListeners(store.dispatch)
 
 export type RootState = ReturnType<typeof store.getState>
 export type AppDispatch = typeof store.dispatch

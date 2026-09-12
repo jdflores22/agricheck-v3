@@ -18,6 +18,8 @@ import {
   Box,
   Button,
   Chip,
+  LinearProgress,
+  Skeleton,
   Stack,
   Table,
   TableBody,
@@ -27,7 +29,9 @@ import {
   Typography,
 } from '@mui/material'
 import type { ReactNode } from 'react'
+import { useSelector } from 'react-redux'
 import { Link as RouterLink } from 'react-router-dom'
+import { selectCurrentUser } from '../../auth/authSlice'
 import { portalColors } from '../../../components/portal/portalTheme'
 import { portalStatusChipSx } from '../../../components/portal/PortalTablePanel'
 import { getStatusBadgeStyle } from '../../../components/portal/portalUtils'
@@ -36,6 +40,7 @@ import { resolveAgencyLogoUrl } from '../../admin/components/adminAgencyUtils'
 import { ClientDashboardStatCard } from '../components/ClientDashboardStatCard'
 import { useGetDashboardQuery } from '../api/clientApi'
 import type { ClientDashboardAccreditation, ClientDashboardLogisticsStats } from '../api/clientApi'
+import { resolveDashboardAccreditation } from '../optimisticAccreditation'
 import { isResubmittedForReview, resolveAccreditationListItemStatus } from '../../accreditation/accreditationStatusUtils'
 
 function formatCurrency(amount: number) {
@@ -311,6 +316,30 @@ function AccreditationPanel({ accreditation }: { accreditation: ClientDashboardA
         )}
       </Box>
     </SectionCard>
+  )
+}
+
+function DashboardAccreditationSkeleton() {
+  return (
+    <Box
+      sx={{
+        mb: 3,
+        border: `1px solid ${portalColors.border}`,
+        borderRadius: '0.75rem',
+        bgcolor: portalColors.bgWhite,
+        overflow: 'hidden',
+      }}
+    >
+      <Box sx={{ px: 2.5, py: 1.75, borderBottom: `1px solid ${portalColors.border}` }}>
+        <Skeleton variant="text" width={180} height={28} />
+      </Box>
+      <Box sx={{ p: 2.5 }}>
+        <Skeleton variant="rounded" width={110} height={24} sx={{ mb: 2 }} />
+        <Skeleton variant="text" width="88%" />
+        <Skeleton variant="text" width="70%" />
+        <Skeleton variant="rounded" width={160} height={40} sx={{ mt: 2 }} />
+      </Box>
+    </Box>
   )
 }
 
@@ -838,9 +867,23 @@ function PaymentRequiredSection({
   )
 }
 
+const liveAccreditationStatuses = new Set(['Submitted', 'UnderReview', 'RevisionRequired'])
+
 export function ClientDashboardPage() {
-  const { data, isLoading } = useGetDashboardQuery()
+  const { data, isLoading, isFetching } = useGetDashboardQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  })
+  const currentUser = useSelector(selectCurrentUser)
   const dashboard = data?.data
+  const accreditationStatus = dashboard?.accreditation?.status
+  useGetDashboardQuery(undefined, {
+    skip: !accreditationStatus || !liveAccreditationStatuses.has(accreditationStatus),
+    pollingInterval: 5000,
+  })
+  const showSkeleton = isLoading || (isFetching && !dashboard)
+  const showRefreshFlash = Boolean(isFetching && dashboard)
   const workflow = dashboard?.workflow
   const workflowCounts = {
     DaIssueBilling: workflow?.daIssueBilling ?? 0,
@@ -852,7 +895,7 @@ export function ClientDashboardPage() {
   }
   const workflowLoading = isLoading
   const profile = dashboard?.profile
-  const accreditation = dashboard?.accreditation
+  const accreditation = resolveDashboardAccreditation(dashboard?.accreditation, currentUser?.uuid)
   const isAccredited =
     accreditation?.isAccredited === true || accreditation?.status === 'Approved'
   const displayName = profile?.firstName
@@ -904,7 +947,21 @@ export function ClientDashboardPage() {
         </Box>
       </Box>
 
-      {isAccredited ? (
+      {showRefreshFlash && (
+        <LinearProgress
+          sx={{
+            mb: 1.25,
+            height: 2,
+            borderRadius: 999,
+            bgcolor: 'transparent',
+            '& .MuiLinearProgress-bar': { bgcolor: portalColors.primary },
+          }}
+        />
+      )}
+
+      {showSkeleton ? (
+        <DashboardAccreditationSkeleton />
+      ) : isAccredited ? (
         <Box
           sx={{
             mb: 2.5,
@@ -978,7 +1035,7 @@ export function ClientDashboardPage() {
         recentBills={dashboard?.recentBills ?? []}
       />
 
-      {!dashboard && !isLoading && (
+      {!dashboard && !isLoading && !isFetching && (
         <Typography sx={portalEmptyStateSx}>Unable to load dashboard data.</Typography>
       )}
     </Box>

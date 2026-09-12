@@ -1,6 +1,11 @@
 import { createApi } from '@reduxjs/toolkit/query/react'
 import type { ApiEnvelope } from '../../auth/types'
 import { baseQueryWithReauth } from '../../auth/api/baseQuery'
+import { clearOptimisticAccreditation, writeOptimisticAccreditation } from '../optimisticAccreditation'
+
+function currentUserUuid(getState: () => unknown) {
+  return (getState() as { auth?: { user?: { uuid?: string } } }).auth?.user?.uuid
+}
 
 export interface PagedResult<T> {
   items: T[]
@@ -308,6 +313,7 @@ export const clientApi = createApi({
     getDashboard: builder.query<ApiEnvelope<ClientDashboard>, void>({
       query: () => '/client/dashboard',
       providesTags: ['Dashboard'],
+      keepUnusedDataFor: 120,
     }),
     getAgencies: builder.query<ApiEnvelope<Array<{ id: number; code: string; name: string }>>, void>({
       query: () => '/commodities/agencies',
@@ -377,10 +383,52 @@ export const clientApi = createApi({
     }),
     createAccreditation: builder.mutation<ApiEnvelope<unknown>, { companyName: string; submissionType: string; formDataJson?: string }>({
       query: (body) => ({ url: '/accreditation/submissions', method: 'POST', body }),
+      async onQueryStarted(body, { dispatch, getState, queryFulfilled }) {
+        const next: ClientDashboardAccreditation = {
+          status: 'Draft',
+          displayStatus: 'Draft',
+          companyName: body.companyName,
+          submissionType: body.submissionType,
+          isAccredited: false,
+        }
+        writeOptimisticAccreditation(next, currentUserUuid(getState))
+        const patch = dispatch(
+          clientApi.util.updateQueryData('getDashboard', undefined, (draft) => {
+            if (!draft.data) return
+            draft.data.accreditation = { ...draft.data.accreditation, ...next }
+          }),
+        )
+        try {
+          await queryFulfilled
+        } catch {
+          patch.undo()
+          clearOptimisticAccreditation()
+        }
+      },
       invalidatesTags: ['Accreditation', 'Dashboard'],
     }),
     submitAccreditation: builder.mutation<ApiEnvelope<unknown>, string>({
       query: (uuid) => ({ url: `/accreditation/submissions/${uuid}/submit`, method: 'POST' }),
+      async onQueryStarted(_uuid, { dispatch, getState, queryFulfilled }) {
+        const next: ClientDashboardAccreditation = {
+          status: 'Submitted',
+          displayStatus: 'Submitted',
+          isAccredited: false,
+        }
+        writeOptimisticAccreditation(next, currentUserUuid(getState))
+        const patch = dispatch(
+          clientApi.util.updateQueryData('getDashboard', undefined, (draft) => {
+            if (!draft.data) return
+            draft.data.accreditation = { ...draft.data.accreditation, ...next }
+          }),
+        )
+        try {
+          await queryFulfilled
+        } catch {
+          patch.undo()
+          clearOptimisticAccreditation()
+        }
+      },
       invalidatesTags: ['Accreditation', 'Dashboard'],
     }),
     getCertificates: builder.query<ApiEnvelope<PagedResult<{ uuid: string; certificateNumber: string; title: string; status: string; issuedAt: string; expiresAt?: string; entryReferenceNo?: string }>>, number | void>({
@@ -687,6 +735,26 @@ export const clientApi = createApi({
     }),
     resubmitAccreditationCompliance: builder.mutation<ApiEnvelope<unknown>, string>({
       query: (uuid) => ({ url: `/accreditation/submissions/${uuid}/compliance/resubmit`, method: 'POST' }),
+      async onQueryStarted(_uuid, { dispatch, getState, queryFulfilled }) {
+        const next: ClientDashboardAccreditation = {
+          status: 'Submitted',
+          displayStatus: 'Resubmitted for Review',
+          isAccredited: false,
+        }
+        writeOptimisticAccreditation(next, currentUserUuid(getState))
+        const patch = dispatch(
+          clientApi.util.updateQueryData('getDashboard', undefined, (draft) => {
+            if (!draft.data) return
+            draft.data.accreditation = { ...draft.data.accreditation, ...next }
+          }),
+        )
+        try {
+          await queryFulfilled
+        } catch {
+          patch.undo()
+          clearOptimisticAccreditation()
+        }
+      },
       invalidatesTags: ['Accreditation', 'Dashboard'],
     }),
     resubmitCompliance: builder.mutation<ApiEnvelope<Entry>, string>({

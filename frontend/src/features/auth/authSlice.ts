@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import type { AuthTokens, UserSummary } from './types'
+import { clearOptimisticAccreditation } from '../client/optimisticAccreditation'
 
 const ACCESS_KEY = 'agricheck_v3_access'
 const REFRESH_KEY = 'agricheck_v3_refresh'
@@ -51,6 +52,7 @@ const authSlice = createSlice({
       state.redirectPath = null
       localStorage.removeItem(ACCESS_KEY)
       localStorage.removeItem(REFRESH_KEY)
+      clearOptimisticAccreditation()
     },
   },
 })

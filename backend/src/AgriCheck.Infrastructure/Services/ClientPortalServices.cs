@@ -1356,6 +1356,7 @@ public class ClientDashboardService : IClientDashboardService
         var inspections = _db.Inspections.Where(i => entryIds.Contains(i.EntryId));
 
         var latestAccreditation = await _db.AccreditationSubmissions
+            .AsNoTracking()
             .Include(s => s.History)
             .Where(s => s.UserId == user.Id)
             .OrderByDescending(s => s.CreatedAt)
@@ -1419,6 +1420,28 @@ public class ClientDashboardService : IClientDashboardService
                 c.IssuedAt))
             .ToListAsync(cancellationToken);
 
+        var entryStatusCounts = await entries
+            .GroupBy(e => e.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        var entryCountByStatus = entryStatusCounts.ToDictionary(x => x.Status, x => x.Count);
+        int EntryCount(EntryStatus status) => entryCountByStatus.GetValueOrDefault(status);
+
+        var pendingPayments = await entries.CountAsync(e => e.PaymentStatus == PaymentStatus.Pending, cancellationToken);
+        var pendingAgencyBillings = await _db.AgencyBillings.CountAsync(
+            b => b.Entry != null && b.Entry.UserId == user.Id && b.Status == AgencyBillingStatus.PaymentPending,
+            cancellationToken);
+        var unpaidBillCount = await openBills.CountAsync(cancellationToken);
+        var overdueBillCount = await openBills.CountAsync(b => b.Status == ClientBillStatus.Overdue, cancellationToken);
+        var unpaidBillTotal = await openBills.SumAsync(b => (decimal?)b.Amount, cancellationToken) ?? 0m;
+        var approvedContainers = await containers.CountAsync(
+            c => c.Status == ContainerStatus.AtWarehouse || c.Status == ContainerStatus.Released,
+            cancellationToken);
+        var assignedContainers = await containers.CountAsync(c => c.AssignedDriverUserId != null, cancellationToken);
+        var pendingInspections = await inspections.CountAsync(
+            i => i.Status == InspectionStatus.Scheduled || i.Status == InspectionStatus.InProgress,
+            cancellationToken);
+
         return new ClientDashboardDto(
             new ClientDashboardProfileDto(
                 user.Profile?.FirstName ?? string.Empty,
@@ -1433,27 +1456,25 @@ public class ClientDashboardService : IClientDashboardService
                 latestAccreditation?.ReviewComments,
                 isAccredited),
             new ClientDashboardEntryStatsDto(
-                await entries.CountAsync(cancellationToken),
-                await entries.CountAsync(e => e.Status == EntryStatus.Submitted || e.Status == EntryStatus.UnderReview, cancellationToken),
-                await entries.CountAsync(e => EntryStatusRules.OperationalPipelineStatuses.Contains(e.Status), cancellationToken),
-                await entries.CountAsync(e => e.Status == EntryStatus.ForCompliance, cancellationToken)),
+                entryCountByStatus.Values.Sum(),
+                EntryCount(EntryStatus.Submitted) + EntryCount(EntryStatus.UnderReview),
+                EntryStatusRules.OperationalPipelineStatuses.Sum(EntryCount),
+                EntryCount(EntryStatus.ForCompliance)),
             new ClientDashboardWorkflowStatsDto(
-                await entries.CountAsync(e => e.Status == EntryStatus.DaIssueBilling, cancellationToken),
-                await entries.CountAsync(e => e.Status == EntryStatus.ForInspection, cancellationToken),
-                await entries.CountAsync(e => e.Status == EntryStatus.ReadyForTransport, cancellationToken),
-                await entries.CountAsync(e => e.Status == EntryStatus.AwaitingTransport || e.Status == EntryStatus.PartiallyConfirmed, cancellationToken),
-                await entries.CountAsync(e => e.Status == EntryStatus.InTransit, cancellationToken),
-                await _db.AgencyBillings.CountAsync(
-                    b => b.Entry != null && b.Entry.UserId == user.Id && b.Status == AgencyBillingStatus.PaymentPending,
-                    cancellationToken)),
+                EntryCount(EntryStatus.DaIssueBilling),
+                EntryCount(EntryStatus.ForInspection),
+                EntryCount(EntryStatus.ReadyForTransport),
+                EntryCount(EntryStatus.AwaitingTransport) + EntryCount(EntryStatus.PartiallyConfirmed),
+                EntryCount(EntryStatus.InTransit),
+                pendingAgencyBillings),
             new ClientDashboardLogisticsStatsDto(
-                await entries.CountAsync(e => e.PaymentStatus == PaymentStatus.Pending, cancellationToken),
-                await openBills.CountAsync(cancellationToken),
-                await openBills.CountAsync(b => b.Status == ClientBillStatus.Overdue, cancellationToken),
-                await openBills.SumAsync(b => (decimal?)b.Amount, cancellationToken) ?? 0m,
-                await containers.CountAsync(c => c.Status == ContainerStatus.AtWarehouse || c.Status == ContainerStatus.Released, cancellationToken),
-                await containers.CountAsync(c => c.AssignedDriverUserId != null, cancellationToken),
-                await inspections.CountAsync(i => i.Status == InspectionStatus.Scheduled || i.Status == InspectionStatus.InProgress, cancellationToken)),
+                pendingPayments,
+                unpaidBillCount,
+                overdueBillCount,
+                unpaidBillTotal,
+                approvedContainers,
+                assignedContainers,
+                pendingInspections),
             agencies,
             recentBills,
             recentEntries,
