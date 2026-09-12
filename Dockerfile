@@ -1,13 +1,16 @@
-FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:7.0-bookworm-slim AS build
 WORKDIR /src
 COPY backend/ ./
 WORKDIR /src/src/AgriCheck.Api
 RUN dotnet publish -c Release -o /app/publish
 
-FROM mcr.microsoft.com/dotnet/aspnet:7.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:7.0-bookworm-slim AS runtime
 WORKDIR /app
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends fontconfig fonts-liberation fonts-dejavu-core \
+RUN apt-get -o Acquire::Check-Valid-Until=false update \
+    && apt-get -o Acquire::Check-Valid-Until=false install -y --no-install-recommends \
+        fontconfig \
+        fonts-liberation \
+        fonts-dejavu-core \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/publish .
