@@ -11,7 +11,7 @@ import {
 } from 'react-native'
 import { checkHealth } from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import { defaultApiBaseUrl } from '../config'
+import { defaultApiBaseUrl, resolveApiBaseUrl } from '../config'
 import { getApiBaseUrl } from '../storage/session'
 import { colors } from '../theme'
 
@@ -25,8 +25,7 @@ export function LoginScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
 
   useEffect(() => {
     void (async () => {
-      const base = (await getApiBaseUrl()) ?? defaultApiBaseUrl()
-      setApiHint(base)
+      setApiHint(resolveApiBaseUrl(await getApiBaseUrl()))
     })()
   }, [])
 

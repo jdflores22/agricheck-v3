@@ -1,4 +1,5 @@
 using AgriCheck.Application.ClientPortal;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
 namespace AgriCheck.Infrastructure.Services;
@@ -7,10 +8,9 @@ public class LocalFileStorageService : IFileStorageService
 {
     private readonly string _root;
 
-    public LocalFileStorageService(IHostEnvironment environment)
+    public LocalFileStorageService(IHostEnvironment environment, IConfiguration configuration)
     {
-        _root = Path.Combine(environment.ContentRootPath, "storage");
-        Directory.CreateDirectory(_root);
+        _root = UploadStorage.ResolveRoot(configuration, environment);
     }
 
     public async Task<(string storedFileName, long size)> SaveAsync(Stream stream, string folder, string originalFileName, CancellationToken cancellationToken = default)

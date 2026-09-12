@@ -1,4 +1,4 @@
-import { defaultApiBaseUrl } from '../config'
+import { resolveApiBaseUrl } from '../config'
 import { getApiBaseUrl, loadSession, saveSession } from '../storage/session'
 import type { ApiEnvelope, AuthResponse, AuthTokens } from '../types/api'
 
@@ -11,8 +11,8 @@ export class ApiError extends Error {
   }
 }
 
-async function resolveBaseUrl() {
-  return (await getApiBaseUrl()) ?? defaultApiBaseUrl()
+export async function resolveBaseUrl() {
+  return resolveApiBaseUrl(await getApiBaseUrl())
 }
 
 async function refreshTokens(refreshToken: string, baseUrl: string): Promise<AuthTokens | null> {

@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity() {
 
                 var apiBaseUrl by remember { mutableStateOf(BuildConfig.API_BASE_URL) }
                 LaunchedEffect(Unit) {
-                    apiBaseUrl = container.settingsStore.getApiBaseUrl() ?: BuildConfig.API_BASE_URL
+                    apiBaseUrl = container.resolveApiBaseUrl(container.settingsStore.getApiBaseUrl())
                 }
 
                 val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -185,7 +185,7 @@ class MainActivity : ComponentActivity() {
                                 scope.launch {
                                     container.settingsStore.setApiBaseUrl(url)
                                     container.invalidateNetwork()
-                                    apiBaseUrl = url
+                                    apiBaseUrl = container.resolveApiBaseUrl(url)
                                 }
                             },
                             onBack = { rootNav.popBackStack() },

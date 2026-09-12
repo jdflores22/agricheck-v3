@@ -28,7 +28,7 @@ android {
         versionCode = 2
         versionName = "1.1.0"
 
-        val apiBaseUrl = localProperties.getProperty("API_BASE_URL") ?: "http://10.0.2.2:5000"
+        val apiBaseUrl = localProperties.getProperty("API_BASE_URL") ?: "https://agricheck-v3-production.up.railway.app"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("boolean", "FIREBASE_ENABLED", firebaseEnabled.toString())
     }

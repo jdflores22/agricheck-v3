@@ -32,6 +32,7 @@ import { portalColors } from '../../../components/portal/portalTheme'
 import { portalStatusChipSx } from '../../../components/portal/PortalTablePanel'
 import { getStatusBadgeStyle } from '../../../components/portal/portalUtils'
 import { portalEmptyStateSx, portalPrimaryButtonSx, portalTableHeadCellSx } from '../../../components/portal/portalStyles'
+import { resolveAgencyLogoUrl } from '../../admin/components/adminAgencyUtils'
 import { ClientDashboardStatCard } from '../components/ClientDashboardStatCard'
 import { useGetDashboardQuery } from '../api/clientApi'
 import type { ClientDashboardAccreditation, ClientDashboardLogisticsStats } from '../api/clientApi'
@@ -377,6 +378,7 @@ function AgencyCard({
   locked?: boolean
 }) {
   const noForm = !locked && !agency.hasEntryForm
+  const logoUrl = resolveAgencyLogoUrl(agency.logoUrl)
   const cardBody = (
     <>
       <Box
@@ -393,8 +395,8 @@ function AgencyCard({
           overflow: 'hidden',
         }}
       >
-        {agency.logoUrl ? (
-          <Box component="img" src={agency.logoUrl} alt={agency.name} sx={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+        {logoUrl ? (
+          <Box component="img" src={logoUrl} alt={agency.name} sx={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
         ) : (
           <BusinessOutlinedIcon sx={{ fontSize: 24, color: portalColors.primary }} />
         )}

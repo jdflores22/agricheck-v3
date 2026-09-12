@@ -21,6 +21,7 @@ import { PortalPanel } from '../../../components/portal/PortalPanel'
 import { portalColors } from '../../../components/portal/portalTheme'
 import { getStatusBadgeStyle } from '../../../components/portal/portalUtils'
 import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
+import { resolveAgencyLogoUrl } from '../../admin/components/adminAgencyUtils'
 import { parseFormSchema, serializeFormDataJson } from '../../forms/formSchema'
 import {
   useCreateEntryMutation,
@@ -114,7 +115,7 @@ export function EntryFormPage() {
   const useDynamicForm = schemaFields.length > 0
   const noFormConfigured = !isEdit && agencyIdNum > 0 && !isLoadingForms && (formsData?.data?.length ?? 0) === 0
   const selectedAgency = (agenciesData?.data ?? []).find((a) => String(a.id) === form.agencyId)
-  const agencyLogo = dashboardData?.data?.agencies.find((a) => a.id === agencyIdNum)?.logoUrl
+  const agencyLogo = resolveAgencyLogoUrl(dashboardData?.data?.agencies.find((a) => a.id === agencyIdNum)?.logoUrl)
 
   useBreadcrumbLabel(isEdit ? entryData?.data?.referenceNo : selectedAgency?.code ?? 'New')
 

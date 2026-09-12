@@ -1,10 +1,9 @@
 import type { FetchBaseQueryError } from '@reduxjs/toolkit/query/react'
+import { resolveUploadUrl } from '../../../app/apiBase'
 import type { ApiEnvelope } from '../../auth/types'
 
-export function resolveAgencyLogoUrl(logoUrl?: string | null) {
-  if (!logoUrl) return null
-  if (logoUrl.startsWith('http://') || logoUrl.startsWith('https://')) return logoUrl
-  return logoUrl.startsWith('/') ? logoUrl : `/${logoUrl}`
+export function resolveAgencyLogoUrl(logoUrl?: string | null): string | null {
+  return resolveUploadUrl(logoUrl)
 }
 
 export const AGENCY_LOGO_ACCEPT = 'image/png,image/jpeg,image/jpg,image/gif,image/svg+xml,image/webp'

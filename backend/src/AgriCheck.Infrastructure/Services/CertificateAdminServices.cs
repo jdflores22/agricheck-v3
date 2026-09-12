@@ -373,7 +373,7 @@ public class CertificateTemplateService : ICertificateTemplateService
     private readonly ICurrentUserService _currentUser;
     private readonly IFileStorageService _fileStorage;
     private readonly IConfiguration _configuration;
-    private readonly IHostEnvironment _environment;
+    private readonly string _storageRoot;
 
     public CertificateTemplateService(
         AgriCheckDbContext db,
@@ -386,7 +386,7 @@ public class CertificateTemplateService : ICertificateTemplateService
         _currentUser = currentUser;
         _fileStorage = fileStorage;
         _configuration = configuration;
-        _environment = environment;
+        _storageRoot = UploadStorage.ResolveRoot(configuration, environment);
     }
 
     public async Task<IReadOnlyList<CertificateTemplateListItemDto>> ListAsync(CancellationToken cancellationToken = default)
@@ -526,7 +526,7 @@ public class CertificateTemplateService : ICertificateTemplateService
         var publicBase = _configuration["App:PublicBaseUrl"] ?? "http://localhost:5173";
         var verifyUrl = $"{publicBase.TrimEnd('/')}/verify?code=PREVIEW-12345";
         var qrData = QrCodeGenerator.ToBase64Png(verifyUrl);
-        var storageRoot = Path.Combine(_environment.ContentRootPath, "storage");
+        var storageRoot = _storageRoot;
         var variables = BuildPreviewVariables();
 
         return CertificateTemplatePdfGenerator.Generate(version, elements, variables, verifyUrl, qrData, storageRoot);

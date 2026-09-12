@@ -148,29 +148,16 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("Frontend");
 
-var systemUploadsPath = Path.Combine(app.Environment.ContentRootPath, "storage", "system");
-Directory.CreateDirectory(systemUploadsPath);
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(systemUploadsPath),
-    RequestPath = "/uploads/system"
-});
+var uploadsRoot = AgriCheck.Infrastructure.Services.UploadStorage.ResolveRoot(app.Configuration, app.Environment);
+Directory.CreateDirectory(Path.Combine(uploadsRoot, "system"));
+Directory.CreateDirectory(Path.Combine(uploadsRoot, "agency-logos"));
+Directory.CreateDirectory(Path.Combine(uploadsRoot, "certificate-templates"));
 
-var certificateAssetsPath = Path.Combine(app.Environment.ContentRootPath, "storage", "certificate-templates");
-Directory.CreateDirectory(certificateAssetsPath);
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(certificateAssetsPath),
-    RequestPath = "/uploads/certificates"
-});
+app.Logger.LogInformation("Serving uploads from {UploadsRoot}", uploadsRoot);
 
-var agencyLogosPath = Path.Combine(app.Environment.ContentRootPath, "storage", "agency-logos");
-Directory.CreateDirectory(agencyLogosPath);
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(agencyLogosPath),
-    RequestPath = "/uploads/agency-logos"
-});
+MapPublicUploads(Path.Combine(uploadsRoot, "certificate-templates"), "/uploads/certificates");
+MapPublicUploads(Path.Combine(uploadsRoot, "system"), "/uploads/system");
+MapPublicUploads(Path.Combine(uploadsRoot, "agency-logos"), "/uploads/agency-logos");
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -180,3 +167,17 @@ app.MapHealthChecks("/health");
 app.MapGet("/", () => Results.Redirect("/swagger"));
 
 app.Run();
+
+void MapPublicUploads(string physicalPath, string requestPath)
+{
+    Directory.CreateDirectory(physicalPath);
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(physicalPath),
+        RequestPath = requestPath,
+        OnPrepareResponse = ctx =>
+        {
+            ctx.Context.Response.Headers.CacheControl = "public,max-age=86400";
+        }
+    });
+}

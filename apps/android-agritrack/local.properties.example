@@ -1,8 +1,8 @@
 # Copy to local.properties
 sdk.dir=C\:\\Users\\YourName\\AppData\\Local\\Android\\Sdk
 
-# AgriCheck V3 API (Android emulator → host machine)
-API_BASE_URL=http://10.0.2.2:5000
+# AgriCheck V3 API
+API_BASE_URL=https://agricheck-v3-production.up.railway.app
 
-# Physical device on same LAN
-# API_BASE_URL=http://192.168.1.100:5000
+# Local API (emulator → host machine)
+# API_BASE_URL=http://10.0.2.2:5000

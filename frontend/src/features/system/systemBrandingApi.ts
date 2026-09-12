@@ -1,5 +1,5 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
-import { getApiV1Base } from '../../app/apiBase'
+import { getApiV1Base, resolveUploadUrl } from '../../app/apiBase'
 import type { ApiEnvelope } from '../auth/types'
 
 export interface SystemBranding {
@@ -27,7 +27,5 @@ export const systemBrandingApi = createApi({
 export const { useGetSystemBrandingQuery } = systemBrandingApi
 
 export function resolveBrandingAssetUrl(path?: string | null): string | null {
-  if (!path) return null
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  return path.startsWith('/') ? path : `/${path}`
+  return resolveUploadUrl(path)
 }

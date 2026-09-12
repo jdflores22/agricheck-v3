@@ -28,7 +28,7 @@ Production-grade native Android app for AgriCheck V3 transport operations. Built
 ## Setup
 
 1. Copy `local.properties.example` → `local.properties`
-2. Set `sdk.dir` and `API_BASE_URL` (emulator: `http://10.0.2.2:5000`)
+2. Set `sdk.dir`. Default API is `https://agricheck-v3-production.up.railway.app`. For a local API, set `API_BASE_URL=http://10.0.2.2:5000`.
 3. Start AgriCheck V3 API:
 
 ```powershell

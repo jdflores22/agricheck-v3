@@ -1,5 +1,3 @@
-import { defaultApiBaseUrl } from '../config'
-import { getApiBaseUrl } from '../storage/session'
 import type {
   AuthResponse,
   ContainerListItem,
@@ -8,14 +6,10 @@ import type {
   MobileSyncPullResult,
 } from '../types/api'
 import type { ContainerTrack } from '../types/tracking'
-import { apiRequest } from './client'
-
-async function baseUrl() {
-  return (await getApiBaseUrl()) ?? defaultApiBaseUrl()
-}
+import { apiRequest, resolveBaseUrl } from './client'
 
 export async function login(email: string, password: string) {
-  const url = await baseUrl()
+  const url = await resolveBaseUrl()
   const response = await fetch(`${url}/api/mobile/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },

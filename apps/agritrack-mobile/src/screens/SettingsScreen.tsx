@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { checkHealth } from '../api/client'
-import { defaultApiBaseUrl } from '../config'
+import { defaultApiBaseUrl, resolveApiBaseUrl } from '../config'
 import { getApiBaseUrl, setApiBaseUrl } from '../storage/session'
 import { colors } from '../theme'
 
@@ -11,8 +11,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 
   useEffect(() => {
     void (async () => {
-      const stored = await getApiBaseUrl()
-      if (stored) setUrl(stored)
+      setUrl(resolveApiBaseUrl(await getApiBaseUrl()))
     })()
   }, [])
 
@@ -26,8 +25,8 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
     <View style={styles.container}>
       <Text style={styles.title}>API Settings</Text>
       <Text style={styles.help}>
-        Android emulator: http://10.0.2.2:5000{'\n'}
-        Physical device: http://YOUR-PC-LAN-IP:5000
+        Production: https://agricheck-v3-production.up.railway.app{'\n'}
+        Local emulator: http://10.0.2.2:5000
       </Text>
       <TextInput style={styles.input} value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false} />
       {status ? <Text style={styles.status}>{status}</Text> : null}

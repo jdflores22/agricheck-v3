@@ -18,22 +18,40 @@ public class HealthController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {
-        var canConnect = await _dbContext.Database.CanConnectAsync(cancellationToken);
-
-        var response = new
+        try
         {
-            success = canConnect,
-            data = new
+            var canConnect = await _dbContext.Database.CanConnectAsync(cancellationToken);
+            var response = new
             {
-                status = canConnect ? "healthy" : "unhealthy",
-                service = "AgriCheck V3 API",
-                version = "0.1.0",
-                database = canConnect ? "connected" : "disconnected",
-                timestamp = DateTime.UtcNow
-            },
-            errors = canConnect ? null : new[] { new { code = "DB_UNREACHABLE", message = "Database connection failed." } }
-        };
+                success = canConnect,
+                data = new
+                {
+                    status = canConnect ? "healthy" : "unhealthy",
+                    service = "AgriCheck V3 API",
+                    version = "0.1.0",
+                    database = canConnect ? "connected" : "disconnected",
+                    timestamp = DateTime.UtcNow
+                },
+                errors = canConnect ? null : new[] { new { code = "DB_UNREACHABLE", message = "Database connection failed." } }
+            };
 
-        return canConnect ? Ok(response) : StatusCode(503, response);
+            return canConnect ? Ok(response) : StatusCode(503, response);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(503, new
+            {
+                success = false,
+                data = new
+                {
+                    status = "unhealthy",
+                    service = "AgriCheck V3 API",
+                    version = "0.1.0",
+                    database = "disconnected",
+                    timestamp = DateTime.UtcNow
+                },
+                errors = new[] { new { code = "DB_UNREACHABLE", message = ex.GetBaseException().Message } }
+            });
+        }
     }
 }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AgriCheck.Domain.Entities;
 using AgriCheck.Domain.Enums;
+using AgriCheck.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
@@ -56,7 +57,7 @@ public static class CertificateTemplateMigrationSeeder
         }
 
         var v2PublicRoot = ResolveV2PublicRoot(configuration, environment);
-        var assetFolder = Path.Combine(environment.ContentRootPath, "storage", "certificate-templates", "assets");
+        var assetFolder = Path.Combine(UploadStorage.ResolveRoot(configuration, environment), "certificate-templates", "assets");
         Directory.CreateDirectory(assetFolder);
 
         var layoutJson = JsonSerializer.Serialize(new

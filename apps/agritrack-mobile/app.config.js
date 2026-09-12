@@ -7,7 +7,7 @@ export default {
     icon: './assets/icon.png',
     userInterfaceStyle: 'light',
     extra: {
-      apiBaseUrl: process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.2.2:5000',
+      apiBaseUrl: process.env.EXPO_PUBLIC_API_URL ?? 'https://agricheck-v3-production.up.railway.app',
     },
     plugins: [
       [

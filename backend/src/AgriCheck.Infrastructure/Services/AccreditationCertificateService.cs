@@ -18,7 +18,7 @@ public class AccreditationCertificateService : IAccreditationCertificateService
     private readonly AgriCheckDbContext _db;
     private readonly IFileStorageService _fileStorage;
     private readonly IConfiguration _configuration;
-    private readonly IHostEnvironment _environment;
+    private readonly string _storageRoot;
     private readonly INotificationService _notifications;
     private readonly ILogger<AccreditationCertificateService> _logger;
 
@@ -33,7 +33,7 @@ public class AccreditationCertificateService : IAccreditationCertificateService
         _db = db;
         _fileStorage = fileStorage;
         _configuration = configuration;
-        _environment = environment;
+        _storageRoot = UploadStorage.ResolveRoot(configuration, environment);
         _notifications = notifications;
         _logger = logger;
     }
@@ -177,7 +177,7 @@ public class AccreditationCertificateService : IAccreditationCertificateService
 
         holderName ??= submissionUser.Email;
         var title = $"Accreditation Certificate - {holderName}";
-        var storageRoot = Path.Combine(_environment.ContentRootPath, "storage");
+        var storageRoot = _storageRoot;
         var elements = version.Elements.OrderBy(e => e.SortOrder).ToList();
 
         byte[] pdfBytes;

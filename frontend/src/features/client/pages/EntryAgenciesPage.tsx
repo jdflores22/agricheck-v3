@@ -5,6 +5,7 @@ import { Link as RouterLink } from 'react-router-dom'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { portalColors } from '../../../components/portal/portalTheme'
 import { getStatusBadgeStyle } from '../../../components/portal/portalUtils'
+import { resolveAgencyLogoUrl } from '../../admin/components/adminAgencyUtils'
 import { useGetDashboardQuery } from '../api/clientApi'
 
 function AgencyEntryCard({
@@ -15,12 +16,13 @@ function AgencyEntryCard({
   locked?: boolean
 }) {
   const noForm = !locked && !agency.hasEntryForm
+  const logoUrl = resolveAgencyLogoUrl(agency.logoUrl)
 
   const cardBody = (
     <>
       <Box sx={{ width: 52, height: 52, mb: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${portalColors.border}`, borderRadius: '0.625rem', bgcolor: '#fafaf9' }}>
-        {agency.logoUrl ? (
-          <Box component="img" src={agency.logoUrl} alt={agency.name} sx={{ maxWidth: '100%', maxHeight: '100%' }} />
+        {logoUrl ? (
+          <Box component="img" src={logoUrl} alt={agency.name} sx={{ maxWidth: '100%', maxHeight: '100%' }} />
         ) : (
           <BusinessOutlinedIcon sx={{ color: portalColors.primary }} />
         )}

@@ -135,7 +135,7 @@ fun SettingsScreen(
             AgriSectionTitle("API connection")
             AgriOutlinedField(apiUrl, { apiUrl = it }, "AgriCheck API base URL")
             Text(
-                "Emulator: http://10.0.2.2:5000 · Device: http://<PC-LAN-IP>:5000",
+                "Production: https://agricheck-v3-production.up.railway.app",
                 style = MaterialTheme.typography.bodySmall,
                 color = AgriColors.TextSecondary,
             )

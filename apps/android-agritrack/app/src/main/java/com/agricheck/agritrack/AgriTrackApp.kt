@@ -35,14 +35,29 @@ class AppContainer(private val app: Application) {
     private var cachedBaseUrl: String? = null
 
     suspend fun services(): NetworkServices {
-        val base = settingsStore.getApiBaseUrl()?.trim()?.trimEnd('/')
-            ?: BuildConfig.API_BASE_URL.trim().trimEnd('/')
+        val base = resolveApiBaseUrl(settingsStore.getApiBaseUrl())
         val existing = cachedServices
         if (existing != null && cachedBaseUrl == base) return existing
         val created = NetworkModule.create(tokenStore, base)
         cachedServices = created
         cachedBaseUrl = base
         return created
+    }
+
+    fun resolveApiBaseUrl(stored: String?): String {
+        val fallback = BuildConfig.API_BASE_URL.trim().trimEnd('/')
+        val value = stored?.trim()?.trimEnd('/')
+        if (value.isNullOrBlank()) return fallback
+        if (isLocalDevApiUrl(value) && !isLocalDevApiUrl(fallback)) return fallback
+        return value
+    }
+
+    private fun isLocalDevApiUrl(url: String): Boolean {
+        val normalized = url.trim().lowercase()
+        return normalized.startsWith("http://")
+            || normalized.contains("localhost")
+            || normalized.contains("127.0.0.1")
+            || normalized.contains("10.0.2.2")
     }
 
     suspend fun invalidateNetwork() {

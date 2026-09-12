@@ -36,7 +36,7 @@ Expo React Native app for **drivers** and **operators**, connected to the AgriCh
 
 - Node.js 20+
 
-- AgriCheck V3 API running on port **5000**
+- AgriCheck V3 API (defaults to Railway production; local API on port **5000** is optional)
 
 - Expo Go app (phone) or Android emulator
 
@@ -82,11 +82,11 @@ Press `a` for Android emulator, or scan the QR code with Expo Go.
 
 |-------------|----------|
 
-| Android emulator | `http://10.0.2.2:5000` |
+| Production (default) | `https://agricheck-v3-production.up.railway.app` |
 
-| iOS simulator | `http://localhost:5000` |
+| Local Android emulator | `EXPO_PUBLIC_API_URL=http://10.0.2.2:5000` |
 
-| Physical phone | `http://<your-pc-lan-ip>:5000` |
+| Local iOS simulator | `EXPO_PUBLIC_API_URL=http://localhost:5000` |
 
 
 
