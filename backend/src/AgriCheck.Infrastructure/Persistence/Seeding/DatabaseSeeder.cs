@@ -23,7 +23,13 @@ public class DatabaseSeeder : IHostedService
         _logger = logger;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _ = Task.Run(() => SeedAsync(cancellationToken), cancellationToken);
+        return Task.CompletedTask;
+    }
+
+    private async Task SeedAsync(CancellationToken cancellationToken)
     {
         using var scope = _serviceProvider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AgriCheckDbContext>();
