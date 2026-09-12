@@ -133,6 +133,10 @@ public class AuthController : ControllerBase
         {
             return BadRequest(ApiResponse<T>.Fail(ex.Code, ex.Message));
         }
+        catch (OperationCanceledException)
+        {
+            return BadRequest(ApiResponse<T>.Fail("REQUEST_CANCELLED", "The request was cancelled."));
+        }
     }
 
     private Guid? GetUserUuid()

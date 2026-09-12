@@ -8,6 +8,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.Extensions.FileProviders;
 
@@ -46,6 +47,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
+
+var dataProtectionRoot = AgriCheck.Infrastructure.Services.UploadStorage.ResolveRoot(builder.Configuration, builder.Environment);
+var dataProtectionKeys = Path.Combine(dataProtectionRoot, ".aspnet", "DataProtection-Keys");
+Directory.CreateDirectory(dataProtectionKeys);
+builder.Services.AddDataProtection()
+    .SetApplicationName("AgriCheckV3")
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeys));
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -117,9 +125,12 @@ app.UseExceptionHandler(errorApp =>
             context.Response.Headers.AccessControlAllowCredentials = "true";
         }
 
-        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        context.Response.ContentType = "application/json";
         var error = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+        var cancelled = error is OperationCanceledException || context.RequestAborted.IsCancellationRequested;
+        context.Response.StatusCode = cancelled
+            ? StatusCodes.Status400BadRequest
+            : StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
         await context.Response.WriteAsJsonAsync(new
         {
             success = false,
@@ -127,8 +138,10 @@ app.UseExceptionHandler(errorApp =>
             {
                 new
                 {
-                    code = "SERVER_ERROR",
-                    message = error?.GetBaseException().Message ?? "Unexpected error."
+                    code = cancelled ? "REQUEST_CANCELLED" : "SERVER_ERROR",
+                    message = cancelled
+                        ? "The request was cancelled."
+                        : error?.GetBaseException().Message ?? "Unexpected error."
                 }
             }
         });

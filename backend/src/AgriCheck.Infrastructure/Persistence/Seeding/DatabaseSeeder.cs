@@ -53,9 +53,16 @@ public class DatabaseSeeder : IHostedService
             await SyncDaAccreditationOfficersAsync(db, passwordService, cancellationToken);
             await SyncDaLeadershipAsync(db, passwordService, cancellationToken);
             await SeedAdminPortalDataAsync(db, cancellationToken);
-            await CertificateTemplateMigrationSeeder.MigrateFromV2Async(db, configuration, environment, _logger, cancellationToken);
-            await EntryFormMigrationSeeder.MigrateFromV2Async(db, configuration, _logger, force: false, cancellationToken);
-            await ContainerFormMigrationSeeder.MigrateFromV2Async(db, configuration, _logger, force: false, cancellationToken);
+            if (ShouldImportFromV2(configuration, environment))
+            {
+                await CertificateTemplateMigrationSeeder.MigrateFromV2Async(db, configuration, environment, _logger, cancellationToken);
+                await EntryFormMigrationSeeder.MigrateFromV2Async(db, configuration, _logger, force: false, cancellationToken);
+                await ContainerFormMigrationSeeder.MigrateFromV2Async(db, configuration, _logger, force: false, cancellationToken);
+            }
+            else
+            {
+                _logger.LogInformation("Skipping V2 database imports in this environment.");
+            }
             await ContainerFormSchemaSeeder.EnsureContainerTypeFieldAsync(db, _logger, cancellationToken);
             await ContainerFormSchemaSeeder.EnsureWarehouseNameFieldAsync(db, _logger, cancellationToken);
             await SeedMavStaffAsync(db, passwordService, cancellationToken);
@@ -70,6 +77,23 @@ public class DatabaseSeeder : IHostedService
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    private static bool ShouldImportFromV2(IConfiguration configuration, IHostEnvironment environment)
+    {
+        var v2 = configuration.GetConnectionString("V2Connection");
+        if (string.IsNullOrWhiteSpace(v2))
+        {
+            return false;
+        }
+
+        if (!environment.IsProduction())
+        {
+            return true;
+        }
+
+        return !v2.Contains("localhost", StringComparison.OrdinalIgnoreCase)
+            && !v2.Contains("127.0.0.1");
+    }
 
     private static async Task SeedRolesAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
     {

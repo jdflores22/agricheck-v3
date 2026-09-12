@@ -26,7 +26,10 @@ public static class DependencyInjection
         var connectionString = DatabaseConnection.Resolve(configuration);
 
         services.AddDbContext<AgriCheckDbContext>(options =>
-            options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+            options.UseMySql(
+                connectionString,
+                ServerVersion.AutoDetect(connectionString),
+                mysql => mysql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)));
 
         services.AddMemoryCache();
 
