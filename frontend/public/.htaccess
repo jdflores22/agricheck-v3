@@ -1,7 +1,7 @@
 <IfModule mod_headers.c>
-  <Files "config.js">
+  <FilesMatch "^(index\.html|config\.js)$">
     Header set Cache-Control "no-store, no-cache, must-revalidate"
-  </Files>
+  </FilesMatch>
 </IfModule>
 <IfModule mod_rewrite.c>
   RewriteEngine On
