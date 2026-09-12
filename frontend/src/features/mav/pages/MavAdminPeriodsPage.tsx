@@ -1,0 +1,125 @@
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Stack,
+  TableCell,
+  TableRow,
+  TextField,
+} from '@mui/material'
+import { FormEvent, useState } from 'react'
+import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
+import { PortalTablePanel } from '../../../components/portal/PortalTablePanel'
+import { portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
+import {
+  useCloseMavPeriodMutation,
+  useCreateMavPeriodMutation,
+  useGetMavAdminPeriodsQuery,
+  useOpenMavPeriodMutation,
+  useUpsertMavAllocationMutation,
+} from '../api/mavApi'
+
+export function MavAdminPeriodsPage() {
+  const { data, isLoading } = useGetMavAdminPeriodsQuery()
+  const [createPeriod] = useCreateMavPeriodMutation()
+  const [openPeriod] = useOpenMavPeriodMutation()
+  const [closePeriod] = useCloseMavPeriodMutation()
+  const [upsertAllocation] = useUpsertMavAllocationMutation()
+  const [createOpen, setCreateOpen] = useState(false)
+  const [allocOpen, setAllocOpen] = useState<string | null>(null)
+  const [periodForm, setPeriodForm] = useState({ mavYear: 2026, poolType: 'BYP', openingDate: '2026-01-01', closingDate: '2026-03-31' })
+  const [allocForm, setAllocForm] = useState({ commodityId: 1, hsCode: '0201', commodityName: 'Beef Products', totalVolume: 10000, minimumImportVolume: 10 })
+
+  const periods = data?.data ?? []
+
+  const handleCreatePeriod = async (e: FormEvent) => {
+    e.preventDefault()
+    await createPeriod(periodForm).unwrap()
+    setCreateOpen(false)
+  }
+
+  const handleAlloc = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!allocOpen) return
+    await upsertAllocation({ periodUuid: allocOpen, ...allocForm }).unwrap()
+    setAllocOpen(null)
+  }
+
+  return (
+    <Box>
+      <PortalPageHeader
+        eyebrow="Administration"
+        title="Application Periods"
+        subtitle="Create and manage MAV application periods and allocations."
+        actions={
+          <Button variant="contained" sx={portalPrimaryButtonSx} onClick={() => setCreateOpen(true)}>
+            New Period
+          </Button>
+        }
+      />
+
+      <PortalTablePanel
+        title="All periods"
+        columns={['Year', 'Pool', 'Status', 'Applications', 'Allocations', 'Actions']}
+        isLoading={isLoading}
+        isEmpty={!isLoading && periods.length === 0}
+        emptyMessage="No application periods yet."
+      >
+        {periods.map((p) => (
+          <TableRow key={p.uuid} hover>
+            <TableCell>{p.mavYear}</TableCell>
+            <TableCell>{p.poolType}</TableCell>
+            <TableCell>{p.status}</TableCell>
+            <TableCell>{p.applicationCount}</TableCell>
+            <TableCell>{p.allocationCount}</TableCell>
+            <TableCell align="right">
+              {p.status !== 'Open' && <Button size="small" onClick={() => openPeriod(p.uuid)}>Open</Button>}
+              {p.status === 'Open' && <Button size="small" onClick={() => closePeriod(p.uuid)}>Close</Button>}
+              <Button size="small" onClick={() => setAllocOpen(p.uuid)}>Allocation</Button>
+            </TableCell>
+          </TableRow>
+        ))}
+      </PortalTablePanel>
+
+      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
+        <Box component="form" onSubmit={handleCreatePeriod}>
+          <DialogTitle>Create Period</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              <TextField label="MAV Year" type="number" value={periodForm.mavYear} onChange={(e) => setPeriodForm({ ...periodForm, mavYear: Number(e.target.value) })} fullWidth />
+              <TextField label="Pool Type (BYP/MYP)" value={periodForm.poolType} onChange={(e) => setPeriodForm({ ...periodForm, poolType: e.target.value })} fullWidth />
+              <TextField label="Opening Date" type="date" value={periodForm.openingDate} onChange={(e) => setPeriodForm({ ...periodForm, openingDate: e.target.value })} fullWidth />
+              <TextField label="Closing Date" type="date" value={periodForm.closingDate} onChange={(e) => setPeriodForm({ ...periodForm, closingDate: e.target.value })} fullWidth />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="contained">Create</Button>
+          </DialogActions>
+        </Box>
+      </Dialog>
+
+      <Dialog open={!!allocOpen} onClose={() => setAllocOpen(null)} maxWidth="sm" fullWidth>
+        <Box component="form" onSubmit={handleAlloc}>
+          <DialogTitle>Commodity Allocation</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              <TextField label="Commodity ID" type="number" value={allocForm.commodityId} onChange={(e) => setAllocForm({ ...allocForm, commodityId: Number(e.target.value) })} fullWidth />
+              <TextField label="HS Code" value={allocForm.hsCode} onChange={(e) => setAllocForm({ ...allocForm, hsCode: e.target.value })} fullWidth />
+              <TextField label="Commodity Name" value={allocForm.commodityName} onChange={(e) => setAllocForm({ ...allocForm, commodityName: e.target.value })} fullWidth />
+              <TextField label="Total Volume" type="number" value={allocForm.totalVolume} onChange={(e) => setAllocForm({ ...allocForm, totalVolume: Number(e.target.value) })} fullWidth />
+              <TextField label="Minimum Import Volume" type="number" value={allocForm.minimumImportVolume} onChange={(e) => setAllocForm({ ...allocForm, minimumImportVolume: Number(e.target.value) })} fullWidth />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setAllocOpen(null)}>Cancel</Button>
+            <Button type="submit" variant="contained">Save</Button>
+          </DialogActions>
+        </Box>
+      </Dialog>
+    </Box>
+  )
+}

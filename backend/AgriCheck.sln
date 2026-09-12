@@ -1,0 +1,57 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{1625B3C1-CEA6-4BC6-AAC3-4A9D0C092099}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgriCheck.Api", "src\AgriCheck.Api\AgriCheck.Api.csproj", "{E205CD28-AD80-4168-8E21-374E4AA5A676}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgriCheck.Domain", "src\AgriCheck.Domain\AgriCheck.Domain.csproj", "{C6213C53-C36D-4F59-A905-CF12D26B1E38}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgriCheck.Application", "src\AgriCheck.Application\AgriCheck.Application.csproj", "{7B57AF08-7EEA-4432-AEC6-CA89A182D9AF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgriCheck.Infrastructure", "src\AgriCheck.Infrastructure\AgriCheck.Infrastructure.csproj", "{7F30CED4-DA5F-4233-B57D-B09AF9ECD172}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{EBA7CB52-7C84-41B6-BF14-221C3464A8F0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgriCheck.IntegrationTests", "tests\AgriCheck.IntegrationTests\AgriCheck.IntegrationTests.csproj", "{E2E78045-9268-4348-8C11-40AC88396625}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E205CD28-AD80-4168-8E21-374E4AA5A676}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E205CD28-AD80-4168-8E21-374E4AA5A676}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E205CD28-AD80-4168-8E21-374E4AA5A676}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E205CD28-AD80-4168-8E21-374E4AA5A676}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C6213C53-C36D-4F59-A905-CF12D26B1E38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C6213C53-C36D-4F59-A905-CF12D26B1E38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C6213C53-C36D-4F59-A905-CF12D26B1E38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C6213C53-C36D-4F59-A905-CF12D26B1E38}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7B57AF08-7EEA-4432-AEC6-CA89A182D9AF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7B57AF08-7EEA-4432-AEC6-CA89A182D9AF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7B57AF08-7EEA-4432-AEC6-CA89A182D9AF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7B57AF08-7EEA-4432-AEC6-CA89A182D9AF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7F30CED4-DA5F-4233-B57D-B09AF9ECD172}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7F30CED4-DA5F-4233-B57D-B09AF9ECD172}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7F30CED4-DA5F-4233-B57D-B09AF9ECD172}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7F30CED4-DA5F-4233-B57D-B09AF9ECD172}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E2E78045-9268-4348-8C11-40AC88396625}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E2E78045-9268-4348-8C11-40AC88396625}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E2E78045-9268-4348-8C11-40AC88396625}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E2E78045-9268-4348-8C11-40AC88396625}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{E205CD28-AD80-4168-8E21-374E4AA5A676} = {1625B3C1-CEA6-4BC6-AAC3-4A9D0C092099}
+		{C6213C53-C36D-4F59-A905-CF12D26B1E38} = {1625B3C1-CEA6-4BC6-AAC3-4A9D0C092099}
+		{7B57AF08-7EEA-4432-AEC6-CA89A182D9AF} = {1625B3C1-CEA6-4BC6-AAC3-4A9D0C092099}
+		{7F30CED4-DA5F-4233-B57D-B09AF9ECD172} = {1625B3C1-CEA6-4BC6-AAC3-4A9D0C092099}
+		{E2E78045-9268-4348-8C11-40AC88396625} = {EBA7CB52-7C84-41B6-BF14-221C3464A8F0}
+	EndGlobalSection
+EndGlobal

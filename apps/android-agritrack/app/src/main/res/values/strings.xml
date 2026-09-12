@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AgriTrack</string>
+    <string name="login_title">Sign in to AgriTrack</string>
+    <string name="login_subtitle">Official AgriCheck V3 transport companion for drivers and operators</string>
+    <string name="email">Email</string>
+    <string name="password">Password</string>
+    <string name="sign_in">Sign in</string>
+    <string name="home_title">Dashboard</string>
+    <string name="containers_title">My Loads</string>
+    <string name="profile_title">Profile</string>
+    <string name="more_title">More</string>
+    <string name="retry">Retry</string>
+    <string name="logout">Log out</string>
+    <string name="push_channel_assignments">Container assignments</string>
+    <string name="push_channel_tracking">GPS tracking</string>
+    <string name="tracking_notification_title">AgriTrack GPS active</string>
+    <string name="tracking_notification_body">Recording container location while in transit</string>
+    <string name="assignment_notification_title">New container assignment</string>
+    <string name="assignment_notification_body">You were assigned container %1$s</string>
+</resources>

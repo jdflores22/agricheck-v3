@@ -1,0 +1,11 @@
+using System.Drawing;
+const float MmToPx = 300f / 25.4f;
+var text = "Department of Agriculture";
+using var font = new Font("Arial", 50);
+using var bmp = new Bitmap(1, 1);
+using var g = Graphics.FromImage(bmp);
+var size = g.MeasureString(text, font);
+Console.WriteLine($"Measured: {size.Width:F1}px x {size.Height:F1}px");
+Console.WriteLine($"Element: {203*MmToPx:F1}px x {25*MmToPx:F1}px");
+Console.WriteLine($"Fits width: {size.Width <= 203*MmToPx}");
+Console.WriteLine($"Fits height: {size.Height <= 25*MmToPx}");

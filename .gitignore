@@ -1,0 +1,33 @@
+# .NET
+backend/**/bin/
+backend/**/obj/
+backend/.vs/
+backend/**/*.user
+backend/**/logs/
+backend/**/appsettings.Development.json
+
+# Node / React
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Secrets
+.env
+*.pfx
+*.pem
+
+# Local dumps / scratch files
+tmp_*.json
+*.tsbuildinfo
+
+# Mobile
+apps/**/node_modules/

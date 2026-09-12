@@ -1,0 +1,11 @@
+# Local Android SDK + API URL (do not commit secrets)
+local.properties
+*.iml
+.idea/
+.gradle/
+build/
+app/build/
+captures/
+*.apk
+*.aab
+keystore/
