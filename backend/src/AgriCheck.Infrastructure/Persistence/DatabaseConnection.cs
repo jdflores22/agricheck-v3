@@ -11,13 +11,13 @@ public static class DatabaseConnection
         var user = First(configuration, "MYSQL_USER", "MYSQLUSER");
         var password = First(configuration, "MYSQL_PASSWORD", "MYSQLPASSWORD") ?? "";
         var port = First(configuration, "MYSQL_PORT", "MYSQLPORT") ?? "3306";
-        var sslMode = First(configuration, "MYSQL_SSL_MODE") ?? "Preferred";
+        var sslMode = First(configuration, "MYSQL_SSL_MODE") ?? "None";
 
         if (!string.IsNullOrWhiteSpace(host)
             && !string.IsNullOrWhiteSpace(database)
             && !string.IsNullOrWhiteSpace(user))
         {
-            return $"Server={host};Port={port};Database={database};User={user};Password={password};SslMode={sslMode};Connection Timeout=10;";
+            return $"Server={host};Port={port};Database={database};User={user};Password={password};SslMode={sslMode};AllowPublicKeyRetrieval=True;Connection Timeout=10;";
         }
 
         return configuration.GetConnectionString("DefaultConnection")

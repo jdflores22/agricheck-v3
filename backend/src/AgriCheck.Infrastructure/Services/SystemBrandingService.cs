@@ -12,8 +12,23 @@ public class SystemBrandingService : ISystemBrandingService
 
     public async Task<SystemBrandingDto> GetPublicBrandingAsync(CancellationToken cancellationToken = default)
     {
-        var settings = await _db.SystemSettings.AsNoTracking()
-            .ToDictionaryAsync(x => x.SettingKey, x => x.SettingValue, StringComparer.OrdinalIgnoreCase, cancellationToken);
+        Dictionary<string, string> settings;
+        try
+        {
+            settings = await _db.SystemSettings.AsNoTracking()
+                .ToDictionaryAsync(x => x.SettingKey, x => x.SettingValue, StringComparer.OrdinalIgnoreCase, cancellationToken);
+        }
+        catch
+        {
+            return new SystemBrandingDto(
+                "AgriCheck System",
+                null,
+                null,
+                null,
+                "#166534",
+                "#166534",
+                "© 2025 Department of Agriculture. All rights reserved.");
+        }
 
         string Get(string key, string fallback = "") =>
             settings.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value) ? value : fallback;
