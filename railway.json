@@ -5,9 +5,8 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "dotnet AgriCheck.Api.dll --urls http://0.0.0.0:${PORT:-8080}",
     "healthcheckPath": "/health",
-    "healthcheckTimeout": 30,
+    "healthcheckTimeout": 60,
     "restartPolicyType": "ON_FAILURE"
   }
 }
