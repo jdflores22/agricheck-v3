@@ -73,11 +73,19 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-builder.Services.AddHealthChecks()
-    .AddDbContextCheck<AgriCheckDbContext>("database");
+builder.Services.AddHealthChecks();
 
-var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? new[] { "http://localhost:5173" };
+var corsOrigins = (builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>())
+    .Concat(new[]
+    {
+        builder.Configuration["App:PublicBaseUrl"],
+        "https://dimgrey-hummingbird-677957.hostingersite.com",
+        "http://localhost:5173"
+    })
+    .Where(origin => !string.IsNullOrWhiteSpace(origin))
+    .Select(origin => origin!.TrimEnd('/'))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
 
 builder.Services.AddCors(options =>
 {

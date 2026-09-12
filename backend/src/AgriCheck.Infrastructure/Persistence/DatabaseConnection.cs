@@ -17,7 +17,7 @@ public static class DatabaseConnection
             && !string.IsNullOrWhiteSpace(database)
             && !string.IsNullOrWhiteSpace(user))
         {
-            return $"Server={host};Port={port};Database={database};User={user};Password={password};SslMode={sslMode};";
+            return $"Server={host};Port={port};Database={database};User={user};Password={password};SslMode={sslMode};Connection Timeout=10;";
         }
 
         return configuration.GetConnectionString("DefaultConnection")

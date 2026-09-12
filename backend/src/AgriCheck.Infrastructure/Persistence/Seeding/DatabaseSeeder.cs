@@ -31,29 +31,36 @@ public class DatabaseSeeder : IHostedService
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         var environment = scope.ServiceProvider.GetRequiredService<IHostEnvironment>();
 
-        await db.Database.MigrateAsync(cancellationToken);
-        await WarehouseProfilingSchemaSeeder.EnsureAsync(db, cancellationToken);
-        await SeedRolesAsync(db, cancellationToken);
-        await SeedSystemSettingsAsync(db, cancellationToken);
-        await SeedAgenciesAsync(db, cancellationToken);
-        await SeedAdminUserAsync(db, passwordService, cancellationToken);
-        await SeedReferenceDataAsync(db, cancellationToken);
-        await PhilippineAddressSeeder.SeedAsync(db, cancellationToken);
-        await WarehouseFacilitySeeder.SeedAsync(db, cancellationToken);
-        await SeedDemoClientUserAsync(db, passwordService, cancellationToken);
-        await SeedAgencyStaffAsync(db, passwordService, cancellationToken);
-        await SyncDaAccreditationOfficersAsync(db, passwordService, cancellationToken);
-        await SyncDaLeadershipAsync(db, passwordService, cancellationToken);
-        await SeedAdminPortalDataAsync(db, cancellationToken);
-        await CertificateTemplateMigrationSeeder.MigrateFromV2Async(db, configuration, environment, _logger, cancellationToken);
-        await EntryFormMigrationSeeder.MigrateFromV2Async(db, configuration, _logger, force: false, cancellationToken);
-        await ContainerFormMigrationSeeder.MigrateFromV2Async(db, configuration, _logger, force: false, cancellationToken);
-        await ContainerFormSchemaSeeder.EnsureContainerTypeFieldAsync(db, _logger, cancellationToken);
-        await ContainerFormSchemaSeeder.EnsureWarehouseNameFieldAsync(db, _logger, cancellationToken);
-        await SeedMavStaffAsync(db, passwordService, cancellationToken);
-        await SeedMavDemoDataAsync(db, cancellationToken);
-        await SeedOpsStaffAsync(db, passwordService, cancellationToken);
-        await WorkflowDemoSeeder.SeedAsync(db, _logger, cancellationToken);
+        try
+        {
+            await db.Database.MigrateAsync(cancellationToken);
+            await WarehouseProfilingSchemaSeeder.EnsureAsync(db, cancellationToken);
+            await SeedRolesAsync(db, cancellationToken);
+            await SeedSystemSettingsAsync(db, cancellationToken);
+            await SeedAgenciesAsync(db, cancellationToken);
+            await SeedAdminUserAsync(db, passwordService, cancellationToken);
+            await SeedReferenceDataAsync(db, cancellationToken);
+            await PhilippineAddressSeeder.SeedAsync(db, cancellationToken);
+            await WarehouseFacilitySeeder.SeedAsync(db, cancellationToken);
+            await SeedDemoClientUserAsync(db, passwordService, cancellationToken);
+            await SeedAgencyStaffAsync(db, passwordService, cancellationToken);
+            await SyncDaAccreditationOfficersAsync(db, passwordService, cancellationToken);
+            await SyncDaLeadershipAsync(db, passwordService, cancellationToken);
+            await SeedAdminPortalDataAsync(db, cancellationToken);
+            await CertificateTemplateMigrationSeeder.MigrateFromV2Async(db, configuration, environment, _logger, cancellationToken);
+            await EntryFormMigrationSeeder.MigrateFromV2Async(db, configuration, _logger, force: false, cancellationToken);
+            await ContainerFormMigrationSeeder.MigrateFromV2Async(db, configuration, _logger, force: false, cancellationToken);
+            await ContainerFormSchemaSeeder.EnsureContainerTypeFieldAsync(db, _logger, cancellationToken);
+            await ContainerFormSchemaSeeder.EnsureWarehouseNameFieldAsync(db, _logger, cancellationToken);
+            await SeedMavStaffAsync(db, passwordService, cancellationToken);
+            await SeedMavDemoDataAsync(db, cancellationToken);
+            await SeedOpsStaffAsync(db, passwordService, cancellationToken);
+            await WorkflowDemoSeeder.SeedAsync(db, _logger, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Database migrate/seed failed. API will still listen.");
+        }
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
