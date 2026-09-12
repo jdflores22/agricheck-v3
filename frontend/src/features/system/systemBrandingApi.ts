@@ -1,4 +1,5 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
+import { getApiV1Base } from '../../app/apiBase'
 import type { ApiEnvelope } from '../auth/types'
 
 export interface SystemBranding {
@@ -13,7 +14,7 @@ export interface SystemBranding {
 
 export const systemBrandingApi = createApi({
   reducerPath: 'systemBrandingApi',
-  baseQuery: fetchBaseQuery({ baseUrl: '/api/v1' }),
+  baseQuery: fetchBaseQuery({ baseUrl: getApiV1Base() }),
   tagTypes: ['SystemBranding'],
   endpoints: (builder) => ({
     getSystemBranding: builder.query<ApiEnvelope<SystemBranding>, void>({

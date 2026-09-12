@@ -1,4 +1,5 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
+import { getApiV1Base } from '../../../app/apiBase'
 
 export interface HealthResponse {
   success: boolean
@@ -14,7 +15,7 @@ export interface HealthResponse {
 
 export const healthApi = createApi({
   reducerPath: 'healthApi',
-  baseQuery: fetchBaseQuery({ baseUrl: '/api/v1' }),
+  baseQuery: fetchBaseQuery({ baseUrl: getApiV1Base() }),
   endpoints: (builder) => ({
     getHealth: builder.query<HealthResponse, void>({
       query: () => '/health',

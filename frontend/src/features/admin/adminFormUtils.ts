@@ -1,3 +1,4 @@
+import { apiUrl } from '../../app/apiBase'
 import { portalColors } from '../../components/portal/portalTheme'
 import type { FormType } from '../forms/formSchema'
 
@@ -40,7 +41,7 @@ export function formatFormDate(iso: string) {
 }
 
 export async function downloadAdminFormExport(uuid: string, fileName: string, accessToken?: string | null) {
-  const response = await fetch(`/api/v1/admin/forms/${uuid}/export`, {
+  const response = await fetch(apiUrl(`/admin/forms/${uuid}/export`), {
     headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
   })
 

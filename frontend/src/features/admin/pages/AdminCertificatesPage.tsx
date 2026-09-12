@@ -17,6 +17,7 @@ import {
   TextField,
 } from '@mui/material'
 import { FormEvent, useState } from 'react'
+import { apiUrl } from '../../../app/apiBase'
 import { useAppSelector } from '../../../app/hooks'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalTablePanel, portalStatusChipSx } from '../../../components/portal/PortalTablePanel'
@@ -40,7 +41,7 @@ export function AdminCertificatesPage() {
   const accessToken = useAppSelector((state) => state.auth.accessToken)
 
   const downloadPdf = async (uuid: string, fileName: string) => {
-    const res = await fetch(`/api/v1/admin/certificates/${uuid}/pdf`, {
+    const res = await fetch(apiUrl(`/admin/certificates/${uuid}/pdf`), {
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
     })
     if (!res.ok) return

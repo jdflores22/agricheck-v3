@@ -1,4 +1,5 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
+import { getApiV1Base } from '../../../app/apiBase'
 import type { ApiEnvelope } from '../../auth/types'
 
 export interface CertificateVerifyResult {
@@ -21,7 +22,7 @@ export interface CertificateVerifyResult {
 
 export const publicApi = createApi({
   reducerPath: 'publicApi',
-  baseQuery: fetchBaseQuery({ baseUrl: '/api/v1' }),
+  baseQuery: fetchBaseQuery({ baseUrl: getApiV1Base() }),
   endpoints: (builder) => ({
     verifyCertificate: builder.query<ApiEnvelope<CertificateVerifyResult>, string>({
       query: (code) => `/certificates/verify/${encodeURIComponent(code)}`,

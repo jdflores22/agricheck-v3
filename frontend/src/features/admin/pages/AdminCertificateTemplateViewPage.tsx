@@ -10,6 +10,7 @@ import {
 } from '@mui/material'
 import { useSelector } from 'react-redux'
 import { Link as RouterLink, useParams } from 'react-router-dom'
+import { apiUrl } from '../../../app/apiBase'
 import type { RootState } from '../../../app/store'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalPanel } from '../../../components/portal/PortalPanel'
@@ -36,7 +37,7 @@ export function AdminCertificateTemplateViewPage() {
   const layout = parseLayout(template?.layoutJson)
 
   const handlePreview = async () => {
-    const response = await fetch(`/api/v1/admin/certificate-templates/${uuid}/preview`, {
+    const response = await fetch(apiUrl(`/admin/certificate-templates/${uuid}/preview`), {
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
     })
     if (!response.ok) return

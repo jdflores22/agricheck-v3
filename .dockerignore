@@ -1,0 +1,11 @@
+.git
+.gitignore
+frontend/node_modules
+frontend/dist
+apps
+docs
+scripts
+tmp_*.json
+**/.env
+**/bin
+**/obj

@@ -1,3 +1,4 @@
+import { getApiOrigin } from '../../../../app/apiBase'
 import type { CertificateElement } from '../../api/adminApi'
 
 export const MM_TO_PX = 3.7795
@@ -131,7 +132,7 @@ export function resolveCertificateAssetUrl(imagePath?: string | null) {
   if (!imagePath) return undefined
   if (imagePath.startsWith('http') || imagePath.startsWith('data:')) return imagePath
   const normalized = imagePath.replace(/^certificate-templates\//, '')
-  return `/uploads/certificates/${normalized}`
+  return `${getApiOrigin()}/uploads/certificates/${normalized}`
 }
 
 function normalizeElementType(type: string): BuilderElementType {

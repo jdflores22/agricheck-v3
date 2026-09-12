@@ -1,4 +1,5 @@
 import { Box, Typography } from '@mui/material'
+import { apiUrl } from '../../../app/apiBase'
 import { useSelector } from 'react-redux'
 import { useParams } from 'react-router-dom'
 import type { RootState } from '../../../app/store'
@@ -11,7 +12,7 @@ import {
 import { CertificateBuilder } from '../components/certificateBuilder/CertificateBuilder'
 
 async function fetchCertificatePreview(uuid: string, token: string | null) {
-  const response = await fetch(`/api/v1/admin/certificate-templates/${uuid}/preview`, {
+  const response = await fetch(apiUrl(`/admin/certificate-templates/${uuid}/preview`), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   if (!response.ok) {
@@ -25,7 +26,7 @@ async function fetchCertificatePreview(uuid: string, token: string | null) {
 async function uploadCertificateImage(uuid: string, file: File, token: string | null) {
   const formData = new FormData()
   formData.append('image', file)
-  const response = await fetch(`/api/v1/admin/certificate-templates/${uuid}/upload-image`, {
+  const response = await fetch(apiUrl(`/admin/certificate-templates/${uuid}/upload-image`), {
     method: 'POST',
     body: formData,
     headers: token ? { Authorization: `Bearer ${token}` } : {},

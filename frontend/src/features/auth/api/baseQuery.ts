@@ -4,12 +4,13 @@ import {
   FetchBaseQueryError,
   fetchBaseQuery,
 } from '@reduxjs/toolkit/query/react'
+import { getApiV1Base } from '../../../app/apiBase'
 import type { RootState } from '../../../app/store'
 import { logout, setCredentials } from '../authSlice'
 import type { ApiEnvelope, AuthResponse } from '../types'
 
 export const rawBaseQuery = fetchBaseQuery({
-  baseUrl: '/api/v1',
+  baseUrl: getApiV1Base(),
   prepareHeaders: (headers, { getState }) => {
     const token = (getState() as RootState).auth.accessToken
     if (token) headers.set('Authorization', `Bearer ${token}`)

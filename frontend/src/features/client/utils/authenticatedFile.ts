@@ -1,3 +1,4 @@
+import { apiUrl } from '../../../app/apiBase'
 import { store } from '../../../app/store'
 
 export type AuthenticatedFile = {
@@ -8,7 +9,7 @@ export type AuthenticatedFile = {
 
 export async function fetchAuthenticatedFile(path: string): Promise<AuthenticatedFile> {
   const token = store.getState().auth.accessToken
-  const response = await fetch(`/api/v1${path}`, {
+  const response = await fetch(apiUrl(path), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   if (!response.ok) {
