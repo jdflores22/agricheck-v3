@@ -9,4 +9,5 @@ public interface IAgriTrackPushService
     Task RegisterCurrentUserDeviceAsync(RegisterMobilePushDeviceRequest request, CancellationToken cancellationToken = default);
     Task RemoveCurrentUserDeviceAsync(string expoPushToken, CancellationToken cancellationToken = default);
     Task NotifyDriverAssignmentAsync(long driverUserId, string containerNumber, Guid containerUuid, CancellationToken cancellationToken = default);
+    Task NotifyWarehouseArrivalAsync(string containerNumber, Guid containerUuid, string warehouseName, CancellationToken cancellationToken = default);
 }

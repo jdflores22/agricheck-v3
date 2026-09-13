@@ -29,6 +29,7 @@ import com.agricheck.agritrack.ui.navigation.Routes
 import com.agricheck.agritrack.ui.navigation.tabsForRoles
 import com.agricheck.agritrack.ui.screens.*
 import com.agricheck.agritrack.ui.screens.auth.LoginScreen
+import com.agricheck.agritrack.ui.screens.auth.RegisterScreen
 import com.agricheck.agritrack.ui.theme.AgriTrackTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -109,6 +110,20 @@ class MainActivity : ComponentActivity() {
                                     popUpTo(Routes.LOGIN) { inclusive = true }
                                 }
                             },
+                            onRegister = { rootNav.navigate(Routes.REGISTER) },
+                        )
+                    }
+
+                    composable(Routes.REGISTER) {
+                        RegisterScreen(
+                            authRepository = container.authRepository,
+                            driverRepository = container.driverRepository,
+                            onRegistered = {
+                                rootNav.navigate(Routes.MAIN) {
+                                    popUpTo(Routes.LOGIN) { inclusive = true }
+                                }
+                            },
+                            onBackToLogin = { rootNav.popBackStack() },
                         )
                     }
 
@@ -137,6 +152,19 @@ class MainActivity : ComponentActivity() {
                                 composable(MainTab.Home.route) {
                                     currentTab = MainTab.Home.route
                                     DashboardScreen(authState.user, container.driverRepository)
+                                }
+                                composable(MainTab.Scan.route) {
+                                    currentTab = MainTab.Scan.route
+                                    QrScanScreen(
+                                        repository = container.driverRepository,
+                                        onAccepted = {
+                                            tabNav.navigate(MainTab.Containers.route) {
+                                                popUpTo(tabNav.graph.startDestinationId) { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
+                                        },
+                                    )
                                 }
                                 composable(MainTab.Containers.route) {
                                     currentTab = MainTab.Containers.route

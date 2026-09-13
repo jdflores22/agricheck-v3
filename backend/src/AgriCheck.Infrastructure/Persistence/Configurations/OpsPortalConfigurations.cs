@@ -98,7 +98,23 @@ public class DriverProfileConfiguration : IEntityTypeConfiguration<DriverProfile
         builder.Property(x => x.EmergencyContact).HasMaxLength(255);
         builder.Property(x => x.EmergencyPhone).HasMaxLength(30);
         builder.Property(x => x.Address).HasMaxLength(500);
+        builder.Property(x => x.ZipCode).HasMaxLength(16);
+        builder.Property(x => x.StreetAddress).HasMaxLength(255);
         builder.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
+        builder.HasOne(x => x.OperatorUser).WithMany().HasForeignKey(x => x.OperatorUserId);
+    }
+}
+
+public class OperatorInviteCodeConfiguration : IEntityTypeConfiguration<OperatorInviteCode>
+{
+    public void Configure(EntityTypeBuilder<OperatorInviteCode> builder)
+    {
+        builder.ToTable("operator_invite_codes");
+        builder.HasKey(x => x.Id);
+        builder.HasIndex(x => x.Code).IsUnique();
+        builder.Property(x => x.Code).HasMaxLength(32).IsRequired();
+        builder.Property(x => x.Label).HasMaxLength(128);
+        builder.HasOne(x => x.OperatorUser).WithMany().HasForeignKey(x => x.OperatorUserId);
     }
 }
 

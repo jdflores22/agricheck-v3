@@ -72,6 +72,7 @@ public class DatabaseSeeder : IHostedService
             await SeedMavStaffAsync(db, passwordService, cancellationToken);
             await SeedMavDemoDataAsync(db, cancellationToken);
             await SeedOpsStaffAsync(db, passwordService, cancellationToken);
+            await SeedOperatorInviteCodesAsync(db, cancellationToken);
             await WorkflowDemoSeeder.SeedAsync(db, _logger, cancellationToken);
         }
         catch (Exception ex)
@@ -772,6 +773,31 @@ public class DatabaseSeeder : IHostedService
     private async Task SeedMavHsLibraryAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
     {
         await MavHsLibrarySeeder.SeedAsync(db, _logger, cancellationToken);
+    }
+
+    private static async Task SeedOperatorInviteCodesAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
+    {
+        const string demoCode = "AGRITRACK-DEMO";
+        if (await db.OperatorInviteCodes.AnyAsync(i => i.Code == demoCode, cancellationToken))
+        {
+            return;
+        }
+
+        var operatorUser = await db.Users.FirstOrDefaultAsync(u => u.Email == "operator@agricheck.local", cancellationToken);
+        if (operatorUser is null)
+        {
+            return;
+        }
+
+        db.OperatorInviteCodes.Add(new OperatorInviteCode
+        {
+            Code = demoCode,
+            OperatorUserId = operatorUser.Id,
+            Label = "AgriTrack demo fleet",
+            MaxUses = 0,
+            IsActive = true,
+        });
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private async Task SeedOpsStaffAsync(AgriCheckDbContext db, IPasswordService passwordService, CancellationToken cancellationToken)

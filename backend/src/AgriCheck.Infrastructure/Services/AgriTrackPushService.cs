@@ -144,6 +144,65 @@ public class AgriTrackPushService : IAgriTrackPushService
         await RemoveDeviceAsync(user.Id, expoPushToken, cancellationToken);
     }
 
+    public async Task NotifyWarehouseArrivalAsync(
+        string containerNumber,
+        Guid containerUuid,
+        string warehouseName,
+        CancellationToken cancellationToken = default)
+    {
+        var doctorUserIds = await _db.UserRoles
+            .Where(ur => ur.Role.Code == "ROLE_DOCTOR")
+            .Select(ur => ur.UserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var title = "Driver arrived at warehouse";
+        var message = $"Container {containerNumber} checked in at {warehouseName}.";
+        foreach (var userId in doctorUserIds)
+        {
+            await _notifications.NotifyAsync(
+                userId,
+                "agritrack_arrival",
+                title,
+                message,
+                "container",
+                containerUuid.ToString(),
+                cancellationToken);
+        }
+
+        var tokens = await _db.MobilePushDevices
+            .Where(d => doctorUserIds.Contains(d.UserId))
+            .Select(d => d.ExpoPushToken)
+            .ToListAsync(cancellationToken);
+        if (tokens.Count == 0)
+        {
+            return;
+        }
+
+        var payload = tokens.Select(t => new ExpoPushMessage
+        {
+            To = t,
+            Title = title,
+            Body = message,
+            Data = new Dictionary<string, string>
+            {
+                ["type"] = "agritrack_arrival",
+                ["containerUuid"] = containerUuid.ToString(),
+                ["containerNumber"] = containerNumber,
+            }
+        }).ToList();
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient("ExpoPush");
+            await client.PostAsJsonAsync("https://exp.host/--/api/v2/push/send", payload, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send warehouse arrival push for container {ContainerUuid}", containerUuid);
+        }
+    }
+
     private sealed class ExpoPushMessage
     {
         [JsonPropertyName("to")]

@@ -120,7 +120,7 @@ fun ContainersScreen(
             Modifier.padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { AgriGuidanceBanner("Set In Transit to start background GPS. Tap a load for the live OSRM map.") }
+            item { AgriGuidanceBanner("Scan a transport QR to accept a delivery, then set In Transit for GPS. Use Live Map for routing and I'M HERE at the warehouse.") }
             actionMessage?.let { item { Text(it, color = AgriColors.Success, fontWeight = FontWeight.SemiBold) } }
             if (error != null && containers.isEmpty()) item { ErrorState(error ?: "Failed") { load() } }
             if (!loading && containers.isEmpty() && error == null) item { EmptyState("No assigned containers.") }
@@ -208,8 +208,13 @@ fun ProfileScreen(
             if (!loading && profile != null) {
                 AgriSectionTitle("Driver profile")
                 MetricCard("Completion", "${profile?.completionPercentage ?: 0}%")
+                profile?.operatorName?.let { Text("Fleet: $it") }
+                profile?.licenseNumber?.let { Text("License: $it") }
                 profile?.phoneNumber?.let { Text("Phone: $it") }
-                profile?.vehicleRegistration?.let { Text("Vehicle: $it") }
+                Text(
+                    if (profile?.faceVerified == true) "Face verified" else "Face verification pending",
+                    color = if (profile?.faceVerified == true) AgriColors.Success else AgriColors.TextSecondary,
+                )
             }
             OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
                 Text("API settings")

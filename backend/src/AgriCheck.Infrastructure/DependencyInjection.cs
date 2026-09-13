@@ -102,6 +102,7 @@ public static class DependencyInjection
         services.AddScoped<IDoctorInspectionService, DoctorInspectionService>();
         services.AddScoped<IWarehouseOpsService, WarehouseOpsService>();
         services.AddScoped<IDriverOpsService, DriverOpsService>();
+        services.AddScoped<IMobileDriverAuthService, MobileDriverAuthService>();
         services.AddScoped<IMobileSyncService, MobileSyncService>();
         services.AddScoped<IAgriTrackPushService, AgriTrackPushService>();
         services.AddHttpClient("ExpoPush");

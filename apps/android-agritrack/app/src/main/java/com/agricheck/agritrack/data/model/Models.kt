@@ -86,7 +86,16 @@ data class DriverDashboardDto(
 )
 
 @Serializable
+data class DriverDocumentDto(
+    val documentType: String,
+    val originalFileName: String,
+    val uploadedAt: String,
+)
+
+@Serializable
 data class DriverProfileDto(
+    val fullName: String? = null,
+    val birthDate: String? = null,
     val licenseNumber: String? = null,
     val licenseExpiryDate: String? = null,
     val vehicleType: String? = null,
@@ -95,10 +104,92 @@ data class DriverProfileDto(
     val emergencyContact: String? = null,
     val emergencyPhone: String? = null,
     val address: String? = null,
+    val regionId: Long? = null,
+    val provinceId: Long? = null,
+    val cityId: Long? = null,
+    val barangayId: Long? = null,
+    val zipCode: String? = null,
+    val streetAddress: String? = null,
+    val operatorName: String? = null,
+    val documents: List<DriverDocumentDto> = emptyList(),
     val completionPercentage: Int = 0,
     val faceVerified: Boolean = false,
     val submittedAt: String? = null,
     val approvedAt: String? = null,
+)
+
+@Serializable
+data class ValidateInviteCodeRequest(val inviteCode: String)
+
+@Serializable
+data class InviteCodeValidationDto(
+    val isValid: Boolean,
+    val operatorName: String? = null,
+    val label: String? = null,
+)
+
+@Serializable
+data class RegisterDriverRequest(
+    val email: String,
+    val password: String,
+    val fullName: String,
+    val birthDate: String,
+    val inviteCode: String,
+    val regionId: Long,
+    val provinceId: Long,
+    val cityId: Long,
+    val barangayId: Long,
+    val zipCode: String,
+    val streetAddress: String,
+    val licenseNumber: String,
+    val licenseExpiryDate: String,
+    val phoneNumber: String,
+)
+
+@Serializable
+data class DriverTransportQrPreviewDto(
+    val containerUuid: String,
+    val containerNumber: String,
+    val entryReference: String,
+    val warehouseName: String,
+    val warehouseAddress: String? = null,
+    val warehouseLatitude: Double? = null,
+    val warehouseLongitude: Double? = null,
+    val scheduledWarehouseDate: String? = null,
+    val containerStatus: String,
+    val canAccept: Boolean,
+    val blockReason: String? = null,
+)
+
+@Serializable
+data class DriverWarehouseCheckInRequest(val latitude: Double, val longitude: Double)
+
+@Serializable
+data class DriverWarehouseCheckInResultDto(
+    val withinGeofence: Boolean,
+    val distanceMeters: Double,
+    val container: ContainerListItemDto,
+)
+
+@Serializable
+data class SubmitFaceVerificationRequest(
+    val confidence: Double? = null,
+    val notes: String? = null,
+)
+
+@Serializable
+data class AddressOptionDto(
+    val id: Long,
+    val code: String,
+    val name: String,
+)
+
+@Serializable
+data class AddressBarangayOptionDto(
+    val id: Long,
+    val code: String,
+    val name: String,
+    val zipCode: String? = null,
 )
 
 @Serializable

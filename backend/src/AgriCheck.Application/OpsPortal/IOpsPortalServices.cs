@@ -23,6 +23,17 @@ public interface IDriverOpsService
     Task<ContainerListItemDto> UpdateContainerStatusAsync(Guid containerUuid, UpdateContainerStatusRequest request, CancellationToken cancellationToken = default);
     Task RecordContainerLocationAsync(Guid containerUuid, RecordContainerLocationRequest request, CancellationToken cancellationToken = default);
     Task<ContainerTrackDto> GetContainerTrackAsync(Guid containerUuid, CancellationToken cancellationToken = default);
+    Task<DriverTransportQrPreviewDto> PreviewTransportQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
+    Task<ContainerListItemDto> AcceptDeliveryFromQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
+    Task<DriverWarehouseCheckInResultDto> CheckInAtWarehouseAsync(Guid containerUuid, DriverWarehouseCheckInRequest request, CancellationToken cancellationToken = default);
+    Task<DriverDocumentDto> UploadDocumentAsync(string documentType, Stream fileStream, string fileName, CancellationToken cancellationToken = default);
+    Task<DriverProfileDto> SubmitFaceVerificationAsync(SubmitFaceVerificationRequest request, CancellationToken cancellationToken = default);
+}
+
+public interface IMobileDriverAuthService
+{
+    Task<AgriCheck.Application.Auth.Dtos.AuthResponseDto> RegisterDriverAsync(RegisterDriverRequest request, string? ipAddress, CancellationToken cancellationToken = default);
+    Task<InviteCodeValidationDto> ValidateInviteCodeAsync(ValidateInviteCodeRequest request, CancellationToken cancellationToken = default);
 }
 
 public interface IMobileSyncService

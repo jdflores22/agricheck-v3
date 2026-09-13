@@ -53,6 +53,8 @@ public record DriverDashboardDto(
     bool FaceVerified);
 
 public record DriverProfileDto(
+    string? FullName,
+    DateTime? BirthDate,
     string? LicenseNumber,
     DateTime? LicenseExpiryDate,
     string? VehicleType,
@@ -61,12 +63,27 @@ public record DriverProfileDto(
     string? EmergencyContact,
     string? EmergencyPhone,
     string? Address,
+    long? RegionId,
+    long? ProvinceId,
+    long? CityId,
+    long? BarangayId,
+    string? ZipCode,
+    string? StreetAddress,
+    string? OperatorName,
+    IReadOnlyList<DriverDocumentDto> Documents,
     int CompletionPercentage,
     bool FaceVerified,
     DateTime? SubmittedAt,
     DateTime? ApprovedAt);
 
+public record DriverDocumentDto(
+    string DocumentType,
+    string OriginalFileName,
+    DateTime UploadedAt);
+
 public record UpdateDriverProfileRequest(
+    string? FullName,
+    DateTime? BirthDate,
     string? LicenseNumber,
     DateTime? LicenseExpiryDate,
     string? VehicleType,
@@ -74,7 +91,60 @@ public record UpdateDriverProfileRequest(
     string? PhoneNumber,
     string? EmergencyContact,
     string? EmergencyPhone,
-    string? Address);
+    string? Address,
+    long? RegionId,
+    long? ProvinceId,
+    long? CityId,
+    long? BarangayId,
+    string? ZipCode,
+    string? StreetAddress);
+
+public record RegisterDriverRequest(
+    string Email,
+    string Password,
+    string FullName,
+    DateTime BirthDate,
+    string InviteCode,
+    long RegionId,
+    long ProvinceId,
+    long CityId,
+    long BarangayId,
+    string ZipCode,
+    string StreetAddress,
+    string LicenseNumber,
+    DateTime LicenseExpiryDate,
+    string PhoneNumber);
+
+public record ValidateInviteCodeRequest(string InviteCode);
+
+public record InviteCodeValidationDto(
+    bool IsValid,
+    string? OperatorName,
+    string? Label);
+
+public record DriverTransportQrPreviewDto(
+    Guid ContainerUuid,
+    string ContainerNumber,
+    string EntryReference,
+    string WarehouseName,
+    string? WarehouseAddress,
+    decimal? WarehouseLatitude,
+    decimal? WarehouseLongitude,
+    DateOnly? ScheduledWarehouseDate,
+    string ContainerStatus,
+    bool CanAccept,
+    string? BlockReason);
+
+public record DriverWarehouseCheckInRequest(decimal Latitude, decimal Longitude);
+
+public record DriverWarehouseCheckInResultDto(
+    bool WithinGeofence,
+    double DistanceMeters,
+    ContainerListItemDto Container);
+
+public record SubmitFaceVerificationRequest(
+    decimal? Confidence,
+    string? Notes);
 
 public record ContainerListItemDto(
     Guid Uuid,

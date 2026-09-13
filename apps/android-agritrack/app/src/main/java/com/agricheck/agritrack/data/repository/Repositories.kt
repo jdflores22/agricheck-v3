@@ -7,6 +7,9 @@ import com.agricheck.agritrack.data.api.userMessage
 import com.agricheck.agritrack.data.local.TokenStore
 import com.agricheck.agritrack.data.model.*
 import com.agricheck.agritrack.data.api.AgriCheckApiService
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 
 class AuthRepository(
     private val container: AppContainer,
@@ -44,6 +47,25 @@ class AuthRepository(
         tokenStore.clear()
         authInterceptor().resetSession()
     }
+
+    suspend fun validateInvite(code: String): Result<InviteCodeValidationDto> = try {
+        Result.success(api().validateInvite(ValidateInviteCodeRequest(code.trim())).requireData())
+    } catch (error: Throwable) {
+        Result.failure(IllegalStateException(error.userMessage("Invite validation failed.")))
+    }
+
+    suspend fun registerDriver(request: RegisterDriverRequest): Result<UserSummaryDto> {
+        return try {
+            val response = api().registerDriver(request).requireData()
+            tokenStore.saveAuth(response.tokens, response.user)
+            authInterceptor().resetSession()
+            Result.success(response.user)
+        } catch (error: Throwable) {
+            tokenStore.clear()
+            authInterceptor().resetSession()
+            Result.failure(IllegalStateException(error.userMessage("Registration failed.")))
+        }
+    }
 }
 
 class DriverRepository(private val container: AppContainer) {
@@ -59,6 +81,31 @@ class DriverRepository(private val container: AppContainer) {
         api().recordLocation(uuid, RecordContainerLocationRequest(latitude, longitude)).requireData()
     suspend fun track(uuid: String) = api().containerTrack(uuid).requireData()
     suspend fun healthCheck(): Boolean = runCatching { api().health().requireData() }.isSuccess
+    suspend fun previewTransportQr(qrData: String) =
+        api().previewTransportQr(ScanTransportQrRequest(qrData)).requireData()
+    suspend fun acceptTransportQr(qrData: String) =
+        api().acceptTransportQr(ScanTransportQrRequest(qrData)).requireData()
+    suspend fun checkInAtWarehouse(uuid: String, latitude: Double, longitude: Double) =
+        api().checkInAtWarehouse(uuid, DriverWarehouseCheckInRequest(latitude, longitude)).requireData()
+    suspend fun uploadDocument(documentType: String, bytes: ByteArray, fileName: String) {
+        val part = MultipartBody.Part.createFormData(
+            "file",
+            fileName,
+            bytes.toRequestBody("image/jpeg".toMediaType()),
+        )
+        api().uploadDriverDocument(documentType, part).requireData()
+    }
+    suspend fun submitFaceVerification(confidence: Float?) =
+        api().submitFaceVerification(
+            SubmitFaceVerificationRequest(
+                confidence = confidence?.toDouble(),
+                notes = if (confidence != null) "ML Kit face detected on device" else null,
+            ),
+        ).requireData()
+    suspend fun listRegions() = api().listRegions().requireData()
+    suspend fun listProvinces(regionId: Long) = api().listProvinces(regionId).requireData()
+    suspend fun listCities(provinceId: Long) = api().listCities(provinceId).requireData()
+    suspend fun listBarangays(cityId: Long) = api().listBarangays(cityId).requireData()
 }
 
 class OperatorRepository(private val container: AppContainer) {

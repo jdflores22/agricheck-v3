@@ -1,12 +1,15 @@
 using AgriCheck.Application.ClientPortal;
 using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Application.Common;
+using AgriCheck.Application.Notifications;
 using AgriCheck.Application.OpsPortal;
 using AgriCheck.Application.OpsPortal.Dtos;
 using AgriCheck.Domain.Entities;
 using AgriCheck.Domain.Enums;
+using AgriCheck.Infrastructure.Helpers;
 using AgriCheck.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace AgriCheck.Infrastructure.Services;
 
@@ -218,11 +221,25 @@ public class DriverOpsService : IDriverOpsService
 {
     private readonly AgriCheckDbContext _db;
     private readonly ICurrentUserService _currentUser;
+    private readonly IConfiguration _configuration;
+    private readonly IFileStorageService _fileStorage;
+    private readonly IAgriTrackPushService _push;
+    private readonly INotificationService _notifications;
 
-    public DriverOpsService(AgriCheckDbContext db, ICurrentUserService currentUser)
+    public DriverOpsService(
+        AgriCheckDbContext db,
+        ICurrentUserService currentUser,
+        IConfiguration configuration,
+        IFileStorageService fileStorage,
+        IAgriTrackPushService push,
+        INotificationService notifications)
     {
         _db = db;
         _currentUser = currentUser;
+        _configuration = configuration;
+        _fileStorage = fileStorage;
+        _push = push;
+        _notifications = notifications;
     }
 
     public async Task<DriverDashboardDto> GetDashboardAsync(CancellationToken cancellationToken = default)
@@ -240,30 +257,54 @@ public class DriverOpsService : IDriverOpsService
     public async Task<DriverProfileDto?> GetProfileAsync(CancellationToken cancellationToken = default)
     {
         var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
-        var profile = await _db.DriverProfiles.FirstOrDefaultAsync(p => p.UserId == driver.Id, cancellationToken);
-        return profile is null ? null : MapProfile(profile);
+        var profile = await _db.DriverProfiles
+            .Include(p => p.Documents)
+            .Include(p => p.User).ThenInclude(u => u.Profile)
+            .Include(p => p.OperatorUser).ThenInclude(u => u!.Profile)
+            .FirstOrDefaultAsync(p => p.UserId == driver.Id, cancellationToken);
+        return profile is null ? null : await MapProfileAsync(profile, cancellationToken);
     }
 
     public async Task<DriverProfileDto> UpdateProfileAsync(UpdateDriverProfileRequest request, CancellationToken cancellationToken = default)
     {
         var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
-        var profile = await _db.DriverProfiles.FirstOrDefaultAsync(p => p.UserId == driver.Id, cancellationToken);
+        var profile = await _db.DriverProfiles
+            .Include(p => p.Documents)
+            .Include(p => p.User).ThenInclude(u => u.Profile)
+            .Include(p => p.OperatorUser).ThenInclude(u => u!.Profile)
+            .FirstOrDefaultAsync(p => p.UserId == driver.Id, cancellationToken);
         if (profile is null)
         {
             profile = new DriverProfile { UserId = driver.Id };
             _db.DriverProfiles.Add(profile);
         }
 
-        profile.LicenseNumber = request.LicenseNumber?.Trim();
-        profile.LicenseExpiryDate = request.LicenseExpiryDate;
-        profile.VehicleType = request.VehicleType?.Trim();
-        profile.VehicleRegistration = request.VehicleRegistration?.Trim();
-        profile.PhoneNumber = request.PhoneNumber?.Trim();
-        profile.EmergencyContact = request.EmergencyContact?.Trim();
-        profile.EmergencyPhone = request.EmergencyPhone?.Trim();
-        profile.Address = request.Address?.Trim();
+        if (!string.IsNullOrWhiteSpace(request.FullName) && driver.Profile is not null)
+        {
+            var parts = request.FullName.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            driver.Profile.FirstName = parts.Length > 0 ? parts[0] : request.FullName.Trim();
+            driver.Profile.LastName = parts.Length > 1 ? parts[1] : string.Empty;
+        }
+
+        profile.BirthDate = request.BirthDate?.Date ?? profile.BirthDate;
+        profile.LicenseNumber = request.LicenseNumber?.Trim() ?? profile.LicenseNumber;
+        profile.LicenseExpiryDate = request.LicenseExpiryDate ?? profile.LicenseExpiryDate;
+        profile.VehicleType = request.VehicleType?.Trim() ?? profile.VehicleType;
+        profile.VehicleRegistration = request.VehicleRegistration?.Trim() ?? profile.VehicleRegistration;
+        profile.PhoneNumber = request.PhoneNumber?.Trim() ?? profile.PhoneNumber;
+        profile.EmergencyContact = request.EmergencyContact?.Trim() ?? profile.EmergencyContact;
+        profile.EmergencyPhone = request.EmergencyPhone?.Trim() ?? profile.EmergencyPhone;
+        profile.RegionId = request.RegionId ?? profile.RegionId;
+        profile.ProvinceId = request.ProvinceId ?? profile.ProvinceId;
+        profile.CityId = request.CityId ?? profile.CityId;
+        profile.BarangayId = request.BarangayId ?? profile.BarangayId;
+        profile.ZipCode = request.ZipCode?.Trim() ?? profile.ZipCode;
+        profile.StreetAddress = request.StreetAddress?.Trim() ?? profile.StreetAddress;
+        profile.Address = request.Address?.Trim()
+            ?? string.Join(", ", new[] { profile.StreetAddress, profile.ZipCode }.Where(x => !string.IsNullOrWhiteSpace(x)));
         profile.CompletionPercentage = CalculateCompletion(profile);
         profile.SubmittedAt ??= DateTime.UtcNow;
+        profile.ApprovedAt ??= DateTime.UtcNow;
 
         _db.DriverProfileHistories.Add(new DriverProfileHistory
         {
@@ -273,7 +314,7 @@ public class DriverOpsService : IDriverOpsService
         });
 
         await _db.SaveChangesAsync(cancellationToken);
-        return MapProfile(profile);
+        return await MapProfileAsync(profile, cancellationToken);
     }
 
     public async Task<IReadOnlyList<ContainerListItemDto>> ListAssignedContainersAsync(CancellationToken cancellationToken = default)
@@ -385,10 +426,269 @@ public class DriverOpsService : IDriverOpsService
         return new ContainerTrackDestinationDto(facility.Name, facility.Latitude.Value, facility.Longitude.Value);
     }
 
+    public async Task<DriverTransportQrPreviewDto> PreviewTransportQrAsync(
+        ScanTransportQrRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        var payload = VerifyTransportQr(request.QrData);
+        var container = await LoadContainerForTransportAsync(payload.ContainerUuid, cancellationToken);
+        var destination = await ResolveTrackDestinationAsync(container, cancellationToken);
+        var (canAccept, blockReason) = EvaluateDriverAcceptance(container);
+
+        return new DriverTransportQrPreviewDto(
+            container.Uuid,
+            container.ContainerNumber,
+            container.Entry.ReferenceNo,
+            destination.Name,
+            null,
+            destination.Latitude,
+            destination.Longitude,
+            payload.ScheduledWarehouseDate,
+            container.Status.ToString(),
+            canAccept,
+            blockReason);
+    }
+
+    public async Task<ContainerListItemDto> AcceptDeliveryFromQrAsync(
+        ScanTransportQrRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        var payload = VerifyTransportQr(request.QrData);
+        var container = await LoadContainerForTransportAsync(payload.ContainerUuid, cancellationToken);
+        var (canAccept, blockReason) = EvaluateDriverAcceptance(container);
+        if (!canAccept)
+        {
+            throw new ClientPortalException("CANNOT_ACCEPT", blockReason ?? "This delivery cannot be accepted.");
+        }
+
+        container.AssignedDriverUserId = driver.Id;
+        container.Status = ContainerStatus.Assigned;
+        if (container.ClaimedByUserId is null)
+        {
+            container.ClaimedByUserId = driver.Id;
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        await _push.NotifyDriverAssignmentAsync(driver.Id, container.ContainerNumber, container.Uuid, cancellationToken);
+        return OpsDtoMapper.MapContainer(container);
+    }
+
+    public async Task<DriverWarehouseCheckInResultDto> CheckInAtWarehouseAsync(
+        Guid containerUuid,
+        DriverWarehouseCheckInRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        var container = await _db.Containers
+            .Include(c => c.Entry)
+            .Include(c => c.Locations)
+            .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
+
+        var destination = await ResolveTrackDestinationAsync(container, cancellationToken);
+        var distance = GeoDistanceHelper.DistanceMeters(
+            request.Latitude,
+            request.Longitude,
+            destination.Latitude,
+            destination.Longitude);
+        var withinGeofence = distance <= GeoDistanceHelper.DefaultWarehouseGeofenceMeters;
+        if (!withinGeofence)
+        {
+            return new DriverWarehouseCheckInResultDto(false, distance, OpsDtoMapper.MapContainer(container));
+        }
+
+        container.Status = ContainerStatus.AtWarehouse;
+        container.ArrivalTime = DateTime.UtcNow;
+        _db.ContainerLocations.Add(new ContainerLocation
+        {
+            ContainerId = container.Id,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+            RecordedAt = DateTime.UtcNow
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        await _push.NotifyWarehouseArrivalAsync(container.ContainerNumber, container.Uuid, destination.Name, cancellationToken);
+        return new DriverWarehouseCheckInResultDto(true, distance, OpsDtoMapper.MapContainer(container));
+    }
+
+    public async Task<DriverDocumentDto> UploadDocumentAsync(
+        string documentType,
+        Stream fileStream,
+        string fileName,
+        CancellationToken cancellationToken = default)
+    {
+        var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        if (!Enum.TryParse<DriverDocumentType>(documentType, true, out var parsedType))
+        {
+            throw new ClientPortalException("INVALID_DOCUMENT", "Unsupported document type.");
+        }
+
+        var profile = await _db.DriverProfiles
+            .Include(p => p.Documents)
+            .FirstOrDefaultAsync(p => p.UserId == driver.Id, cancellationToken)
+            ?? throw new ClientPortalException("PROFILE_REQUIRED", "Complete driver profile before uploading documents.");
+
+        var (storedFileName, _) = await _fileStorage.SaveAsync(
+            fileStream,
+            $"driver-documents/{driver.Uuid}",
+            fileName,
+            cancellationToken);
+
+        var existing = profile.Documents.FirstOrDefault(d => d.DocumentType == parsedType);
+        if (existing is null)
+        {
+            existing = new DriverDocument
+            {
+                DriverProfileId = profile.Id,
+                DocumentType = parsedType,
+                OriginalFileName = fileName,
+                StoredFileName = storedFileName,
+            };
+            profile.Documents.Add(existing);
+        }
+        else
+        {
+            existing.OriginalFileName = fileName;
+            existing.StoredFileName = storedFileName;
+        }
+
+        profile.CompletionPercentage = CalculateCompletion(profile);
+        await _db.SaveChangesAsync(cancellationToken);
+        return new DriverDocumentDto(parsedType.ToString(), fileName, existing.CreatedAt);
+    }
+
+    public async Task<DriverProfileDto> SubmitFaceVerificationAsync(
+        SubmitFaceVerificationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        var profile = await _db.DriverProfiles
+            .Include(p => p.Documents)
+            .Include(p => p.User).ThenInclude(u => u.Profile)
+            .Include(p => p.OperatorUser).ThenInclude(u => u!.Profile)
+            .FirstOrDefaultAsync(p => p.UserId == driver.Id, cancellationToken)
+            ?? throw new ClientPortalException("PROFILE_REQUIRED", "Driver profile not found.");
+
+        var hasLicenseFront = profile.Documents.Any(d => d.DocumentType == DriverDocumentType.LicenseFront);
+        var hasSelfie = profile.Documents.Any(d => d.DocumentType == DriverDocumentType.Selfie);
+        if (!hasLicenseFront || !hasSelfie)
+        {
+            throw new ClientPortalException("DOCUMENTS_REQUIRED", "Upload license front and selfie before face verification.");
+        }
+
+        profile.FaceVerified = true;
+        profile.FaceVerifiedAt = DateTime.UtcNow;
+        profile.CompletionPercentage = CalculateCompletion(profile);
+        _db.FaceVerificationLogs.Add(new FaceVerificationLog
+        {
+            UserId = driver.Id,
+            Success = true,
+            Confidence = request.Confidence,
+            Notes = request.Notes,
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return await MapProfileAsync(profile, cancellationToken);
+    }
+
+    private TransportQrPayload VerifyTransportQr(string qrData)
+    {
+        if (string.IsNullOrWhiteSpace(qrData))
+        {
+            throw new ClientPortalException("QR_REQUIRED", "QR data is required.");
+        }
+
+        try
+        {
+            return TransportQrCodec.Verify(qrData.Trim(), TransportQrSigningKeyResolver.Resolve(_configuration));
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new ClientPortalException("INVALID_QR", ex.Message);
+        }
+    }
+
+    private async Task<Container> LoadContainerForTransportAsync(Guid containerUuid, CancellationToken cancellationToken)
+    {
+        var container = await _db.Containers
+            .Include(c => c.Entry)
+            .Include(c => c.Locations)
+            .Include(c => c.TransportTags)
+            .FirstOrDefaultAsync(c => c.Uuid == containerUuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Container not found.");
+
+        var tag = container.TransportTags.OrderByDescending(t => t.TaggedAt).FirstOrDefault();
+        if (tag is null || string.IsNullOrWhiteSpace(tag.QrPayload))
+        {
+            throw new ClientPortalException("NOT_TAGGED", "Container does not have an active transport tag.");
+        }
+
+        return container;
+    }
+
+    private static (bool CanAccept, string? BlockReason) EvaluateDriverAcceptance(Container container)
+    {
+        if (container.Status is ContainerStatus.Released)
+        {
+            return (false, "Container has already been released.");
+        }
+
+        if (container.Status is ContainerStatus.AtWarehouse or ContainerStatus.Inspected)
+        {
+            return (false, "Container has already arrived at the warehouse.");
+        }
+
+        if (container.AssignedDriverUserId is not null
+            && container.Status is not ContainerStatus.Assigned and not ContainerStatus.AwaitingConfirmation)
+        {
+            return (false, "Another driver is already assigned to this container.");
+        }
+
+        if (container.Status is not ContainerStatus.AwaitingConfirmation and not ContainerStatus.Assigned and not ContainerStatus.ReadyForTransport)
+        {
+            return (false, "Container is not ready for driver acceptance.");
+        }
+
+        return (true, null);
+    }
+
     private static int CalculateCompletion(DriverProfile profile)
     {
         var fields = new object?[]
         {
+            profile.LicenseNumber,
+            profile.LicenseExpiryDate,
+            profile.PhoneNumber,
+            profile.StreetAddress,
+            profile.RegionId,
+            profile.BirthDate,
+            profile.Documents.Any(d => d.DocumentType == DriverDocumentType.LicenseFront),
+            profile.Documents.Any(d => d.DocumentType == DriverDocumentType.LicenseBack),
+            profile.Documents.Any(d => d.DocumentType == DriverDocumentType.Selfie),
+            profile.FaceVerified,
+        };
+        var filled = fields.Count(f => f is not null && f is not false && (f is not string s || !string.IsNullOrWhiteSpace(s)));
+        return (int)Math.Round(filled * 100.0 / fields.Length);
+    }
+
+    private static Task<DriverProfileDto> MapProfileAsync(DriverProfile profile, CancellationToken cancellationToken)
+    {
+        var fullName = profile.User.Profile is null
+            ? profile.User.Email
+            : $"{profile.User.Profile.FirstName} {profile.User.Profile.LastName}".Trim();
+        var operatorName = profile.OperatorUser?.Profile is null
+            ? null
+            : $"{profile.OperatorUser.Profile.FirstName} {profile.OperatorUser.Profile.LastName}".Trim();
+
+        var documents = profile.Documents
+            .OrderByDescending(d => d.CreatedAt)
+            .Select(d => new DriverDocumentDto(d.DocumentType.ToString(), d.OriginalFileName, d.CreatedAt))
+            .ToList();
+
+        return Task.FromResult(new DriverProfileDto(
+            fullName,
+            profile.BirthDate,
             profile.LicenseNumber,
             profile.LicenseExpiryDate,
             profile.VehicleType,
@@ -396,25 +696,20 @@ public class DriverOpsService : IDriverOpsService
             profile.PhoneNumber,
             profile.EmergencyContact,
             profile.EmergencyPhone,
-            profile.Address
-        };
-        var filled = fields.Count(f => f is not null && (f is not string s || !string.IsNullOrWhiteSpace(s)));
-        return (int)Math.Round(filled * 100.0 / fields.Length);
+            profile.Address,
+            profile.RegionId,
+            profile.ProvinceId,
+            profile.CityId,
+            profile.BarangayId,
+            profile.ZipCode,
+            profile.StreetAddress,
+            operatorName,
+            documents,
+            profile.CompletionPercentage,
+            profile.FaceVerified,
+            profile.SubmittedAt,
+            profile.ApprovedAt));
     }
-
-    private static DriverProfileDto MapProfile(DriverProfile profile) => new(
-        profile.LicenseNumber,
-        profile.LicenseExpiryDate,
-        profile.VehicleType,
-        profile.VehicleRegistration,
-        profile.PhoneNumber,
-        profile.EmergencyContact,
-        profile.EmergencyPhone,
-        profile.Address,
-        profile.CompletionPercentage,
-        profile.FaceVerified,
-        profile.SubmittedAt,
-        profile.ApprovedAt);
 
 }
 

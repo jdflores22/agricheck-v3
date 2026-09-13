@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -15,6 +16,7 @@ import com.agricheck.agritrack.ui.theme.AgriColors
 sealed class MainTab(val route: String, val label: String, val icon: ImageVector) {
     data object Home : MainTab("home", "Home", Icons.Default.Home)
     data object Containers : MainTab("containers", "Loads", Icons.Default.LocalShipping)
+    data object Scan : MainTab("scan", "Scan", Icons.Default.QrCodeScanner)
     data object Operator : MainTab("operator", "Claim", Icons.AutoMirrored.Filled.Assignment)
     data object Profile : MainTab("profile", "Profile", Icons.Default.Person)
     data object More : MainTab("more", "More", Icons.Default.Menu)
@@ -22,6 +24,7 @@ sealed class MainTab(val route: String, val label: String, val icon: ImageVector
 
 object Routes {
     const val LOGIN = "login"
+    const val REGISTER = "register"
     const val MAIN = "main"
     const val SETTINGS = "settings"
     const val MAP = "map/{uuid}/{number}"
@@ -34,7 +37,10 @@ fun tabsForRoles(roles: List<String>): List<MainTab> {
     val isOperator = roles.any { it.equals("ROLE_OPERATOR", true) || it.equals("ROLE_ADMIN", true) }
     return buildList {
         add(MainTab.Home)
-        if (isDriver) add(MainTab.Containers)
+        if (isDriver) {
+            add(MainTab.Scan)
+            add(MainTab.Containers)
+        }
         if (isOperator) add(MainTab.Operator)
         add(MainTab.Profile)
         add(MainTab.More)

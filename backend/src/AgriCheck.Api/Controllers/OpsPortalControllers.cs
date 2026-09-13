@@ -115,7 +115,7 @@ public class DriverProfileController : OpsPortalControllerBase
     public async Task<ActionResult<ApiResponse<DriverProfileDto>>> Get(CancellationToken cancellationToken)
     {
         var profile = await _service.GetProfileAsync(cancellationToken);
-        if (profile is null) return Ok(ApiResponse<DriverProfileDto>.Ok(new DriverProfileDto(null, null, null, null, null, null, null, null, 0, false, null, null)));
+        if (profile is null) return Ok(ApiResponse<DriverProfileDto>.Ok(new DriverProfileDto(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, Array.Empty<DriverDocumentDto>(), 0, false, null, null)));
         return Ok(ApiResponse<DriverProfileDto>.Ok(profile));
     }
 
@@ -173,6 +173,43 @@ public class MobileAuthController : ControllerBase
         var result = await _authService.LoginAsync(request, ip, cancellationToken);
         return Ok(ApiResponse<AuthResponseDto>.Ok(result));
     }
+
+    [HttpPost("register-driver")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<AuthResponseDto>>> RegisterDriver(
+        [FromBody] RegisterDriverRequest request,
+        [FromServices] IMobileDriverAuthService driverAuth,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+            var result = await driverAuth.RegisterDriverAsync(request, ip, cancellationToken);
+            return Ok(ApiResponse<AuthResponseDto>.Ok(result));
+        }
+        catch (ClientPortalException ex)
+        {
+            return BadRequest(ApiResponse<AuthResponseDto>.Fail(ex.Code, ex.Message));
+        }
+    }
+
+    [HttpPost("validate-invite")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<InviteCodeValidationDto>>> ValidateInvite(
+        [FromBody] ValidateInviteCodeRequest request,
+        [FromServices] IMobileDriverAuthService driverAuth,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await driverAuth.ValidateInviteCodeAsync(request, cancellationToken);
+            return Ok(ApiResponse<InviteCodeValidationDto>.Ok(result));
+        }
+        catch (ClientPortalException ex)
+        {
+            return BadRequest(ApiResponse<InviteCodeValidationDto>.Fail(ex.Code, ex.Message));
+        }
+    }
 }
 
 [ApiController]
@@ -210,6 +247,68 @@ public class MobileContainersController : OpsPortalControllerBase
         Guid uuid,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.GetContainerTrackAsync(uuid, cancellationToken));
+
+    [HttpPost("scan/preview")]
+    [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<DriverTransportQrPreviewDto>>> PreviewTransportQr(
+        [FromBody] ScanTransportQrRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.PreviewTransportQrAsync(request, cancellationToken));
+
+    [HttpPost("scan/accept")]
+    [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> AcceptTransportQr(
+        [FromBody] ScanTransportQrRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.AcceptDeliveryFromQrAsync(request, cancellationToken));
+
+    [HttpPost("{uuid:guid}/check-in")]
+    [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<DriverWarehouseCheckInResultDto>>> CheckInAtWarehouse(
+        Guid uuid,
+        [FromBody] DriverWarehouseCheckInRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.CheckInAtWarehouseAsync(uuid, request, cancellationToken));
+}
+
+[ApiController]
+[Route("api/mobile/driver")]
+[Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+public class MobileDriverController : OpsPortalControllerBase
+{
+    private readonly IDriverOpsService _service;
+
+    public MobileDriverController(IDriverOpsService service) => _service = service;
+
+    [HttpPost("documents/{documentType}")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<DriverDocumentDto>>> UploadDocument(
+        string documentType,
+        IFormFile file,
+        CancellationToken cancellationToken)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(ApiResponse<DriverDocumentDto>.Fail("FILE_REQUIRED", "Document file is required."));
+        }
+
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            var result = await _service.UploadDocumentAsync(documentType, stream, file.FileName, cancellationToken);
+            return Ok(ApiResponse<DriverDocumentDto>.Ok(result));
+        }
+        catch (ClientPortalException ex)
+        {
+            return BadRequest(ApiResponse<DriverDocumentDto>.Fail(ex.Code, ex.Message));
+        }
+    }
+
+    [HttpPost("face-verification")]
+    public async Task<ActionResult<ApiResponse<DriverProfileDto>>> SubmitFaceVerification(
+        [FromBody] SubmitFaceVerificationRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.SubmitFaceVerificationAsync(request, cancellationToken));
 }
 
 [ApiController]

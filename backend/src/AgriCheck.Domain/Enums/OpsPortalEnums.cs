@@ -30,8 +30,11 @@ public enum OfflineSyncStatus
 public enum DriverDocumentType
 {
     License,
+    LicenseFront,
+    LicenseBack,
     IdCard,
     VehicleRegistration,
     Insurance,
-    ProfilePhoto
+    ProfilePhoto,
+    Selfie
 }
