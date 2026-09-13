@@ -75,6 +75,9 @@ data class RegisterMobilePushDeviceRequest(val expoPushToken: String, val platfo
 data class AssignDriverRequest(val driverUserUuid: String)
 
 @Serializable
+data class ScanTransportQrRequest(val qrData: String)
+
+@Serializable
 data class DriverDashboardDto(
     val assignedContainers: Int,
     val inTransitContainers: Int,

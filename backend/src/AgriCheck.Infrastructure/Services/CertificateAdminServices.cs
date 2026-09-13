@@ -7,6 +7,7 @@ using AgriCheck.Application.ClientPortal;
 using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Domain.Entities;
 using AgriCheck.Domain.Enums;
+using AgriCheck.Infrastructure.Helpers;
 using AgriCheck.Infrastructure.Persistence;
 using AgriCheck.Infrastructure.Persistence.Seeding;
 using Microsoft.EntityFrameworkCore;
@@ -88,6 +89,48 @@ public class FormBuilderService : IFormBuilderService
         }
 
         AuditLogHelper.Write(_db, admin.Id, "form_template_saved", "form_template", template.Uuid.ToString());
+        await _db.SaveChangesAsync(cancellationToken);
+        return Map(await _db.FormTemplates.Include(t => t.Versions).Include(t => t.AgencyTags).FirstAsync(t => t.Id == template.Id, cancellationToken));
+    }
+
+    public async Task<FormTemplateDetailDto> SetActiveAsync(Guid uuid, bool isActive, CancellationToken cancellationToken = default)
+    {
+        var admin = await AdminContextHelper.RequireAdminAsync(_db, _currentUser, cancellationToken);
+        var template = await _db.FormTemplates
+            .Include(t => t.Versions)
+            .Include(t => t.AgencyTags)
+            .FirstOrDefaultAsync(t => t.Uuid == uuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Form template not found.");
+
+        if (isActive)
+        {
+            var latest = template.Versions.OrderByDescending(v => v.VersionNumber).FirstOrDefault()
+                ?? throw new ClientPortalException("EMPTY_FORM", "Add fields and save the template before activating it.");
+
+            if (CountFields(latest.SchemaJson) == 0)
+            {
+                throw new ClientPortalException("EMPTY_FORM", "Add fields and save the template before activating it.");
+            }
+
+            if (!template.Versions.Any(v => v.IsPublished))
+            {
+                latest.IsPublished = true;
+            }
+
+            template.Status = FormTemplateStatus.Published;
+            template.IsActive = true;
+        }
+        else
+        {
+            template.IsActive = false;
+        }
+
+        AuditLogHelper.Write(
+            _db,
+            admin.Id,
+            isActive ? "form_template_activated" : "form_template_deactivated",
+            "form_template",
+            template.Uuid.ToString());
         await _db.SaveChangesAsync(cancellationToken);
         return Map(await _db.FormTemplates.Include(t => t.Versions).Include(t => t.AgencyTags).FirstAsync(t => t.Id == template.Id, cancellationToken));
     }
@@ -407,13 +450,15 @@ public class CertificateTemplateService : ICertificateTemplateService
                 t.Agency?.Code,
                 t.IsActive,
                 version?.VersionNumber ?? 0,
+                t.Versions.Any(v => v.IsPublished),
                 version?.Elements.Count ?? 0,
                 t.ProcessAssignments
                     .Where(a => a.IsActive)
                     .Select(a => a.ProcessType.ToString())
                     .Distinct()
                     .OrderBy(x => x)
-                    .ToList());
+                    .ToList(),
+                t.CreatedAt);
         }).ToList();
     }
 
@@ -513,6 +558,222 @@ public class CertificateTemplateService : ICertificateTemplateService
         return Map(await QueryGraph().FirstAsync(t => t.Id == template.Id, cancellationToken));
     }
 
+    public async Task<CertificateTemplateDetailDto> CloneAsync(Guid uuid, CloneFormTemplateRequest request, CancellationToken cancellationToken = default)
+    {
+        var source = await GetAsync(uuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Certificate template not found.");
+
+        var name = string.IsNullOrWhiteSpace(request.Name) ? $"{source.Name} (Copy)" : request.Name.Trim();
+        var elements = source.Elements
+            .Select(e => new CertificateElementInput(e.ElementType, e.Label, e.ConfigJson, e.SortOrder))
+            .ToList();
+
+        var cloned = await SaveAsync(null, new SaveCertificateTemplateRequest(
+            name,
+            source.Description,
+            source.AgencyId,
+            elements,
+            source.ProcessTypes.ToList(),
+            false,
+            false,
+            source.LayoutJson), cancellationToken);
+
+        return cloned;
+    }
+
+    public async Task<CertificateTemplateDetailDto> SetActiveAsync(Guid uuid, bool isActive, CancellationToken cancellationToken = default)
+    {
+        var admin = await AdminContextHelper.RequireAdminAsync(_db, _currentUser, cancellationToken);
+        var template = await QueryGraph().FirstOrDefaultAsync(t => t.Uuid == uuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Certificate template not found.");
+
+        if (isActive)
+        {
+            var latest = template.Versions.OrderByDescending(v => v.VersionNumber).FirstOrDefault()
+                ?? throw new ClientPortalException("EMPTY_TEMPLATE", "Add elements and save the template before activating it.");
+
+            if (latest.Elements.Count == 0)
+            {
+                throw new ClientPortalException("EMPTY_TEMPLATE", "Add elements and save the template before activating it.");
+            }
+
+            if (!template.Versions.Any(v => v.IsPublished))
+            {
+                latest.IsPublished = true;
+            }
+
+            template.IsActive = true;
+        }
+        else
+        {
+            template.IsActive = false;
+        }
+
+        AuditLogHelper.Write(
+            _db,
+            admin.Id,
+            isActive ? "certificate_template_activated" : "certificate_template_deactivated",
+            "certificate_template",
+            template.Uuid.ToString());
+        await _db.SaveChangesAsync(cancellationToken);
+        return Map(template);
+    }
+
+    public async Task DeleteAsync(Guid uuid, CancellationToken cancellationToken = default)
+    {
+        var admin = await AdminContextHelper.RequireAdminAsync(_db, _currentUser, cancellationToken);
+        var template = await QueryGraph().FirstOrDefaultAsync(t => t.Uuid == uuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Certificate template not found.");
+
+        var hasPublishedVersion = template.Versions.Any(v => v.IsPublished);
+        if (template.IsActive && hasPublishedVersion)
+        {
+            throw new ClientPortalException(
+                "CANNOT_DELETE_LIVE",
+                "Cannot delete a live certificate template. Deactivate it first.");
+        }
+
+        var versionIds = template.Versions.Select(v => v.Id).ToList();
+        if (versionIds.Count > 0)
+        {
+            var issuedCount = await _db.Certificates
+                .CountAsync(
+                    c => c.TemplateVersionId != null && versionIds.Contains(c.TemplateVersionId.Value),
+                    cancellationToken);
+            if (issuedCount > 0)
+            {
+                throw new ClientPortalException(
+                    "CANNOT_DELETE_HAS_CERTIFICATES",
+                    issuedCount == 1
+                        ? "Cannot delete this template because 1 certificate was issued from it."
+                        : $"Cannot delete this template because {issuedCount} certificates were issued from it.");
+            }
+        }
+
+        _db.CertificateTemplates.Remove(template);
+        AuditLogHelper.Write(_db, admin.Id, "certificate_template_deleted", "certificate_template", template.Uuid.ToString());
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<string> ExportAsync(Guid uuid, CancellationToken cancellationToken = default)
+    {
+        await AdminContextHelper.RequireAdminAsync(_db, _currentUser, cancellationToken);
+        var template = await QueryGraph().FirstOrDefaultAsync(t => t.Uuid == uuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Certificate template not found.");
+
+        var version = template.Versions.OrderByDescending(v => v.VersionNumber).FirstOrDefault();
+        var elements = new JsonArray(
+            (version?.Elements.OrderBy(e => e.SortOrder) ?? Enumerable.Empty<CertificateElement>())
+            .Select(e => new JsonObject
+            {
+                ["elementType"] = e.ElementType.ToString(),
+                ["label"] = e.Label,
+                ["configJson"] = e.ConfigJson,
+                ["sortOrder"] = e.SortOrder,
+            })
+            .ToArray<JsonNode?>());
+
+        var export = new JsonObject
+        {
+            ["format"] = "agricheck-certificate-template",
+            ["formatVersion"] = "3.0",
+            ["exportedAt"] = DateTime.UtcNow,
+            ["name"] = template.Name,
+            ["description"] = template.Description,
+            ["agencyId"] = template.AgencyId,
+            ["agencyCode"] = template.Agency?.Code,
+            ["isActive"] = template.IsActive,
+            ["processTypes"] = new JsonArray(
+                template.ProcessAssignments
+                    .Where(a => a.IsActive)
+                    .Select(a => a.ProcessType.ToString())
+                    .Distinct()
+                    .Select(value => JsonValue.Create(value))
+                    .ToArray<JsonNode?>()),
+            ["layoutJson"] = version?.LayoutJson,
+            ["isPublished"] = version?.IsPublished ?? false,
+            ["elements"] = elements,
+        };
+
+        return export.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    public async Task<CertificateTemplateDetailDto> ImportAsync(JsonElement payload, CancellationToken cancellationToken = default)
+    {
+        await AdminContextHelper.RequireAdminAsync(_db, _currentUser, cancellationToken);
+
+        string name;
+        string? description;
+        long? agencyId;
+        IReadOnlyList<string> processTypes;
+        string? layoutJson;
+        IReadOnlyList<CertificateElementInput> elements;
+
+        if (payload.TryGetProperty("format", out var formatProp)
+            && formatProp.GetString() == "agricheck-certificate-template")
+        {
+            name = payload.TryGetProperty("name", out var nameProp) ? nameProp.GetString() ?? "Imported Template" : "Imported Template";
+            description = payload.TryGetProperty("description", out var descProp) ? descProp.GetString() : null;
+            agencyId = payload.TryGetProperty("agencyId", out var agencyIdProp) && agencyIdProp.ValueKind != JsonValueKind.Null
+                ? agencyIdProp.GetInt64()
+                : null;
+            layoutJson = payload.TryGetProperty("layoutJson", out var layoutProp) ? layoutProp.GetString() : null;
+            processTypes = payload.TryGetProperty("processTypes", out var processProp)
+                ? processProp.EnumerateArray().Select(item => item.GetString() ?? string.Empty).Where(x => x.Length > 0).Distinct().ToList()
+                : new List<string> { "ImportEntry" };
+            elements = ParseImportedElements(payload);
+        }
+        else if (payload.TryGetProperty("template", out var templateProp))
+        {
+            name = templateProp.TryGetProperty("name", out var v2Name) ? v2Name.GetString() ?? "Imported Template" : "Imported Template";
+            description = templateProp.TryGetProperty("description", out var v2Desc) ? v2Desc.GetString() : null;
+            layoutJson = BuildLayoutJsonFromV2Template(templateProp);
+            processTypes = ResolveV2CertificateProcessTypes(templateProp, payload);
+            agencyId = await ResolveV2CertificateAgencyIdAsync(templateProp, payload, cancellationToken);
+            elements = payload.TryGetProperty("elements", out var elementsProp)
+                ? ParseV2CertificateElements(elementsProp)
+                : Array.Empty<CertificateElementInput>();
+        }
+        else
+        {
+            throw new ClientPortalException("INVALID_IMPORT", "Unrecognized import format. Upload a V3 export file or compatible V2 JSON export.");
+        }
+
+        if (agencyId is null && payload.TryGetProperty("agencyCode", out var agencyCodeProp))
+        {
+            var agencyCode = agencyCodeProp.GetString();
+            if (!string.IsNullOrWhiteSpace(agencyCode))
+            {
+                agencyId = await _db.Agencies
+                    .Where(a => a.Code == agencyCode.Trim().ToUpperInvariant())
+                    .Select(a => (long?)a.Id)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ClientPortalException("INVALID_IMPORT", "Template name is required.");
+        }
+
+        if (processTypes.Count == 0)
+        {
+            processTypes = new List<string> { "ImportEntry" };
+        }
+
+        var imported = await SaveAsync(null, new SaveCertificateTemplateRequest(
+            name.Trim(),
+            description,
+            agencyId,
+            elements,
+            processTypes,
+            false,
+            false,
+            layoutJson), cancellationToken);
+
+        return imported;
+    }
+
     public async Task<byte[]> PreviewAsync(Guid uuid, CancellationToken cancellationToken = default)
     {
         await AdminContextHelper.RequireAdminAsync(_db, _currentUser, cancellationToken);
@@ -527,7 +788,7 @@ public class CertificateTemplateService : ICertificateTemplateService
         var verifyUrl = $"{publicBase.TrimEnd('/')}/verify?code=PREVIEW-12345";
         var qrData = QrCodeGenerator.ToBase64Png(verifyUrl);
         var storageRoot = _storageRoot;
-        var variables = BuildPreviewVariables();
+        var variables = BuildPreviewVariables(template);
 
         return CertificateTemplatePdfGenerator.Generate(version, elements, variables, verifyUrl, qrData, storageRoot);
     }
@@ -547,7 +808,24 @@ public class CertificateTemplateService : ICertificateTemplateService
         return $"certificate-templates/assets/{storedFileName}";
     }
 
-    private static Dictionary<string, object?> BuildPreviewVariables() => new()
+    private static Dictionary<string, object?> BuildPreviewVariables(CertificateTemplate template)
+    {
+        var processTypes = template.ProcessAssignments
+            .Where(a => a.IsActive)
+            .Select(a => a.ProcessType)
+            .Distinct()
+            .ToList();
+
+        if (processTypes.Contains(CertificateProcessType.ImportEntry) ||
+            processTypes.Contains(CertificateProcessType.ExportEntry))
+        {
+            return EntryCertificateVariableBuilder.BuildPreviewVariables();
+        }
+
+        return BuildAccreditationPreviewVariables();
+    }
+
+    private static Dictionary<string, object?> BuildAccreditationPreviewVariables() => new()
     {
         ["certificate"] = new Dictionary<string, object?>
         {
@@ -582,6 +860,200 @@ public class CertificateTemplateService : ICertificateTemplateService
         },
     };
 
+    private static IReadOnlyList<CertificateElementInput> ParseImportedElements(JsonElement payload)
+    {
+        if (!payload.TryGetProperty("elements", out var elementsProp) || elementsProp.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<CertificateElementInput>();
+        }
+
+        return elementsProp.EnumerateArray()
+            .Select((element, index) => new CertificateElementInput(
+                element.TryGetProperty("elementType", out var typeProp) ? typeProp.GetString() ?? "Text" : "Text",
+                element.TryGetProperty("label", out var labelProp) ? labelProp.GetString() ?? $"Element {index + 1}" : $"Element {index + 1}",
+                element.TryGetProperty("configJson", out var configProp) ? configProp.GetString() : null,
+                element.TryGetProperty("sortOrder", out var sortProp) ? sortProp.GetInt32() : index + 1))
+            .ToList();
+    }
+
+    private static IReadOnlyList<CertificateElementInput> ParseV2CertificateElements(JsonElement elementsProp)
+    {
+        var sortOrder = 1;
+        return elementsProp.EnumerateArray()
+            .Select(element =>
+            {
+                var elementType = element.TryGetProperty("element_type", out var snakeType)
+                    ? snakeType.GetString() ?? "TEXT"
+                    : element.TryGetProperty("elementType", out var camelType)
+                        ? camelType.GetString() ?? "TEXT"
+                        : "TEXT";
+
+                var content = element.TryGetProperty("content", out var contentProp) ? contentProp.GetString() : null;
+                var config = new Dictionary<string, object?>
+                {
+                    ["content"] = content,
+                    ["x"] = ReadCertificateJsonNumber(element, "x_position", "x"),
+                    ["y"] = ReadCertificateJsonNumber(element, "y_position", "y"),
+                    ["width"] = ReadCertificateJsonNumber(element, "width"),
+                    ["height"] = ReadCertificateJsonNumber(element, "height"),
+                    ["fontSize"] = ReadCertificateJsonNumber(element, "font_size", "fontSize"),
+                    ["fontWeight"] = ReadJsonString(element, "font_weight", "fontWeight"),
+                    ["fontStyle"] = ReadJsonString(element, "font_style", "fontStyle"),
+                    ["textAlign"] = ReadJsonString(element, "text_align", "textAlign"),
+                    ["textColor"] = ReadJsonString(element, "text_color", "textColor"),
+                    ["imagePath"] = ReadJsonString(element, "image_path", "imagePath"),
+                    ["zIndex"] = ReadCertificateJsonNumber(element, "z_index", "zIndex", sortOrder),
+                    ["displayOrder"] = ReadCertificateJsonNumber(element, "display_order", "displayOrder", sortOrder),
+                };
+
+                var label = !string.IsNullOrWhiteSpace(content)
+                    ? (content!.Length <= 64 ? content : $"{content[..61]}...")
+                    : elementType.Equals("QR_CODE", StringComparison.OrdinalIgnoreCase) ? "Verification QR" : "Element";
+
+                return new CertificateElementInput(
+                    MapV2ElementType(elementType),
+                    label,
+                    JsonSerializer.Serialize(config),
+                    sortOrder++);
+            })
+            .ToList();
+    }
+
+    private static string MapV2ElementType(string elementType) => elementType.ToUpperInvariant() switch
+    {
+        "TEXT" => "Text",
+        "IMAGE" => "Image",
+        "QR_CODE" => "QrCode",
+        "SHAPE" => "Shape",
+        "LINE" => "Line",
+        _ => "Text",
+    };
+
+    private static string? BuildLayoutJsonFromV2Template(JsonElement templateProp)
+    {
+        var layout = new Dictionary<string, object?>
+        {
+            ["paperSize"] = ReadJsonString(templateProp, "paper_size", "paperSize") ?? "A4",
+            ["orientation"] = ReadJsonString(templateProp, "orientation") ?? "PORTRAIT",
+            ["marginTop"] = ReadCertificateJsonNumber(templateProp, "margin_top", "marginTop", fallback: 10),
+            ["marginRight"] = ReadCertificateJsonNumber(templateProp, "margin_right", "marginRight", fallback: 10),
+            ["marginBottom"] = ReadCertificateJsonNumber(templateProp, "margin_bottom", "marginBottom", fallback: 10),
+            ["marginLeft"] = ReadCertificateJsonNumber(templateProp, "margin_left", "marginLeft", fallback: 10),
+            ["backgroundColor"] = ReadJsonString(templateProp, "background_color", "backgroundColor") ?? "#ffffff",
+            ["backgroundImage"] = ReadJsonString(templateProp, "background_image", "backgroundImage"),
+        };
+
+        return JsonSerializer.Serialize(layout);
+    }
+
+    private static IReadOnlyList<string> ResolveV2CertificateProcessTypes(JsonElement templateProp, JsonElement payload)
+    {
+        if (payload.TryGetProperty("processTypes", out var processTypesProp) && processTypesProp.ValueKind == JsonValueKind.Array)
+        {
+            return processTypesProp.EnumerateArray()
+                .Select(item => item.GetString() ?? string.Empty)
+                .Where(x => x.Length > 0)
+                .Distinct()
+                .ToList();
+        }
+
+        if (payload.TryGetProperty("process_assignments", out var assignmentsProp) && assignmentsProp.ValueKind == JsonValueKind.Array)
+        {
+            return assignmentsProp.EnumerateArray()
+                .Select(item => item.TryGetProperty("process_type", out var typeProp) ? typeProp.GetString() : null)
+                .Where(type => !string.IsNullOrWhiteSpace(type))
+                .Select(MapV2ProcessType)
+                .Distinct()
+                .ToList();
+        }
+
+        if (templateProp.TryGetProperty("processTypes", out var templateProcessProp) && templateProcessProp.ValueKind == JsonValueKind.Array)
+        {
+            return templateProcessProp.EnumerateArray()
+                .Select(item => item.GetString() ?? string.Empty)
+                .Where(x => x.Length > 0)
+                .Distinct()
+                .ToList();
+        }
+
+        return new List<string> { "ImportEntry" };
+    }
+
+    private static string MapV2ProcessType(string? processType) => processType?.ToUpperInvariant() switch
+    {
+        "ENTRY_SUBMISSION" => "ImportEntry",
+        "ACCREDITATION" => "Accreditation",
+        "MAV" => "Accreditation",
+        _ => processType ?? "ImportEntry",
+    };
+
+    private async Task<long?> ResolveV2CertificateAgencyIdAsync(
+        JsonElement templateProp,
+        JsonElement payload,
+        CancellationToken cancellationToken)
+    {
+        if (templateProp.TryGetProperty("agency_id", out var snakeAgency) && snakeAgency.ValueKind == JsonValueKind.Number)
+        {
+            return snakeAgency.GetInt64();
+        }
+
+        if (templateProp.TryGetProperty("agencyId", out var camelAgency) && camelAgency.ValueKind == JsonValueKind.Number)
+        {
+            return camelAgency.GetInt64();
+        }
+
+        string? agencyCode = null;
+        if (payload.TryGetProperty("agency", out var agencyProp))
+        {
+            agencyCode = agencyProp.TryGetProperty("code", out var codeProp) ? codeProp.GetString() : null;
+        }
+
+        if (string.IsNullOrWhiteSpace(agencyCode))
+        {
+            return null;
+        }
+
+        return await _db.Agencies
+            .Where(a => a.Code == agencyCode.Trim().ToUpperInvariant())
+            .Select(a => (long?)a.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private static string? ReadJsonString(JsonElement element, params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            if (element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String)
+            {
+                return value.GetString();
+            }
+        }
+
+        return null;
+    }
+
+    private static int ReadCertificateJsonNumber(
+        JsonElement element,
+        string primaryName,
+        string? secondaryName = null,
+        int fallback = 0)
+    {
+        foreach (var propertyName in new[] { primaryName, secondaryName })
+        {
+            if (string.IsNullOrWhiteSpace(propertyName))
+            {
+                continue;
+            }
+
+            if (element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Number)
+            {
+                return value.TryGetInt32(out var numberValue) ? numberValue : (int)value.GetDouble();
+            }
+        }
+
+        return fallback;
+    }
+
     private IQueryable<CertificateTemplate> QueryGraph() =>
         _db.CertificateTemplates
             .Include(t => t.Agency)
@@ -591,6 +1063,10 @@ public class CertificateTemplateService : ICertificateTemplateService
     private static CertificateTemplateDetailDto Map(CertificateTemplate t)
     {
         var version = t.Versions.OrderByDescending(v => v.VersionNumber).FirstOrDefault();
+        var versions = t.Versions
+            .OrderByDescending(v => v.VersionNumber)
+            .Select(v => new CertificateTemplateVersionSummaryDto(v.VersionNumber, v.IsPublished, v.CreatedAt))
+            .ToList();
         return new CertificateTemplateDetailDto(
             t.Uuid,
             t.Name,
@@ -608,7 +1084,10 @@ public class CertificateTemplateService : ICertificateTemplateService
                 .ToList(),
             version?.Elements.OrderBy(e => e.SortOrder).Select(e => new CertificateElementDto(
                 e.Id, e.ElementType.ToString(), e.Label, e.ConfigJson, e.SortOrder)).ToList()
-            ?? new List<CertificateElementDto>());
+            ?? new List<CertificateElementDto>(),
+            t.CreatedAt,
+            t.UpdatedAt,
+            versions);
     }
 }
 
@@ -618,13 +1097,20 @@ public class CertificateIssuanceService : ICertificateIssuanceService
     private readonly ICurrentUserService _currentUser;
     private readonly IFileStorageService _fileStorage;
     private readonly IConfiguration _configuration;
+    private readonly IEntryCertificateGenerationService _entryCertificateGeneration;
 
-    public CertificateIssuanceService(AgriCheckDbContext db, ICurrentUserService currentUser, IFileStorageService fileStorage, IConfiguration configuration)
+    public CertificateIssuanceService(
+        AgriCheckDbContext db,
+        ICurrentUserService currentUser,
+        IFileStorageService fileStorage,
+        IConfiguration configuration,
+        IEntryCertificateGenerationService entryCertificateGeneration)
     {
         _db = db;
         _currentUser = currentUser;
         _fileStorage = fileStorage;
         _configuration = configuration;
+        _entryCertificateGeneration = entryCertificateGeneration;
     }
 
     public async Task<PagedResult<AdminCertificateListItemDto>> ListAsync(int page, int pageSize, CancellationToken cancellationToken = default)
@@ -680,16 +1166,21 @@ public class CertificateIssuanceService : ICertificateIssuanceService
             throw new ClientPortalException("CERT_EXISTS", "An active certificate already exists for this entry.");
         }
 
-        var template = await ResolveTemplateAsync(entry, request.TemplateId, cancellationToken);
-        var version = template?.Versions.OrderByDescending(v => v.VersionNumber).FirstOrDefault(v => v.IsPublished)
-            ?? template?.Versions.OrderByDescending(v => v.VersionNumber).FirstOrDefault();
+        var version = await _entryCertificateGeneration.ResolveTemplateVersionAsync(
+            entry,
+            request.TemplateId,
+            cancellationToken);
 
         var verificationCode = Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
         var publicBase = _configuration["App:PublicBaseUrl"] ?? "http://localhost:5173";
         var verifyUrl = $"{publicBase.TrimEnd('/')}/verify?code={verificationCode}";
         var qrData = QrCodeGenerator.ToBase64Png(verifyUrl);
         var holderName = entry.User.Profile is not null ? $"{entry.User.Profile.FirstName} {entry.User.Profile.LastName}" : entry.User.Email;
-        var title = $"Import Certificate - {entry.ReferenceNo}";
+        var entryLabel = entry.EntryType == EntryType.Export ? "Export" : "Import";
+        var title = $"{entryLabel} Certificate - {entry.ReferenceNo}";
+        var issuedAt = DateTime.UtcNow;
+        var expiresAt = request.ExpiresAt ?? issuedAt.AddYears(1);
+        var certificateNumber = await ReferenceNumberGenerator.CertificateAsync(_db, cancellationToken);
 
         var certificate = new Certificate
         {
@@ -699,15 +1190,18 @@ public class CertificateIssuanceService : ICertificateIssuanceService
             AgencyId = entry.AgencyId,
             TemplateVersionId = version?.Id,
             IssuedByUserId = admin.Id,
-            CertificateNumber = await ReferenceNumberGenerator.CertificateAsync(_db, cancellationToken),
+            CertificateNumber = certificateNumber,
             VerificationCode = verificationCode,
             Title = title,
             Status = CertificateStatus.Active,
-            IssuedAt = DateTime.UtcNow,
-            ExpiresAt = request.ExpiresAt ?? DateTime.UtcNow.AddYears(1),
+            IssuedAt = issuedAt,
+            ExpiresAt = expiresAt,
             QrCodeData = qrData,
             SummaryJson = System.Text.Json.JsonSerializer.Serialize(new
             {
+                processType = entry.EntryType == EntryType.Export
+                    ? CertificateProcessType.ExportEntry.ToString()
+                    : CertificateProcessType.ImportEntry.ToString(),
                 entry.ReferenceNo,
                 entry.Agency.Code,
                 entry.Detail?.CommodityName,
@@ -715,7 +1209,18 @@ public class CertificateIssuanceService : ICertificateIssuanceService
             })
         };
 
-        var pdfBytes = CertificatePdfGenerator.Generate(title, certificate.CertificateNumber, holderName, verificationCode, verifyUrl, qrData);
+        var pdfBytes = await _entryCertificateGeneration.GeneratePdfAsync(
+            entry,
+            certificate.CertificateNumber,
+            title,
+            verificationCode,
+            verifyUrl,
+            qrData,
+            issuedAt,
+            expiresAt,
+            admin.Id,
+            request.TemplateId,
+            cancellationToken);
         await using var pdfStream = new MemoryStream(pdfBytes);
         var (storedFileName, _) = await _fileStorage.SaveAsync(pdfStream, $"certificates/{certificate.Uuid}", $"{certificate.CertificateNumber}.pdf", cancellationToken);
         certificate.PdfStoredFileName = storedFileName;
@@ -762,23 +1267,6 @@ public class CertificateIssuanceService : ICertificateIssuanceService
         if (string.IsNullOrWhiteSpace(cert.PdfStoredFileName)) return null;
         var path = _fileStorage.GetPhysicalPath($"certificates/{cert.Uuid}", cert.PdfStoredFileName);
         return File.Exists(path) ? await File.ReadAllBytesAsync(path, cancellationToken) : null;
-    }
-
-    private async Task<CertificateTemplate?> ResolveTemplateAsync(Entry entry, long? templateId, CancellationToken cancellationToken)
-    {
-        if (templateId is not null)
-        {
-            return await _db.CertificateTemplates.Include(t => t.Versions).FirstOrDefaultAsync(t => t.Id == templateId, cancellationToken)
-                ?? throw new ClientPortalException("TEMPLATE_NOT_FOUND", "Certificate template not found.");
-        }
-
-        var processType = entry.EntryType == EntryType.Import ? CertificateProcessType.ImportEntry : CertificateProcessType.ExportEntry;
-        var assignment = await _db.CertificateProcessAssignments
-            .Include(a => a.Template).ThenInclude(t => t.Versions)
-            .FirstOrDefaultAsync(a => a.AgencyId == entry.AgencyId && a.ProcessType == processType && a.IsActive, cancellationToken);
-
-        return assignment?.Template ?? await _db.CertificateTemplates.Include(t => t.Versions)
-            .FirstOrDefaultAsync(t => t.IsActive && (t.AgencyId == null || t.AgencyId == entry.AgencyId), cancellationToken);
     }
 
     private static AdminCertificateListItemDto MapAdmin(Certificate c) => new(

@@ -1,40 +1,94 @@
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined'
+import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined'
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
-import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
+import PreviewOutlinedIcon from '@mui/icons-material/PreviewOutlined'
+import ToggleOffOutlinedIcon from '@mui/icons-material/ToggleOffOutlined'
+import ToggleOnOutlinedIcon from '@mui/icons-material/ToggleOnOutlined'
 import {
   Alert,
   Box,
   Button,
   Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Grid,
   Stack,
+  TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
-import { useSelector } from 'react-redux'
-import { Link as RouterLink, useParams } from 'react-router-dom'
+import { useMemo, useState } from 'react'
+import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
 import { apiUrl } from '../../../app/apiBase'
-import type { RootState } from '../../../app/store'
+import { useAppSelector } from '../../../app/hooks'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalPanel } from '../../../components/portal/PortalPanel'
-import { portalStatusChipSx } from '../../../components/portal/PortalTablePanel'
+import { PortalStatCard } from '../../../components/portal/PortalStatCard'
 import { portalColors } from '../../../components/portal/portalTheme'
+import { getStatusBadgeStyle } from '../../../components/portal/portalUtils'
 import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
-import { useGetAdminAgenciesQuery, useGetAdminCertificateTemplateQuery } from '../api/adminApi'
-import { parseLayout } from '../components/certificateBuilder/certificateBuilderUtils'
+import {
+  CERTIFICATE_DELETE_LIVE_TOOLTIP,
+  downloadAdminCertificateExport,
+  formatCertificateDate,
+  formatCertificateProcessType,
+  getCertificateActivateTooltip,
+  isCertificateTemplateLive,
+} from '../adminCertificateUtils'
+import { AdminCertificateDeleteDialog } from '../components/AdminCertificateDeleteDialog'
+import { getAdminApiErrorMessage } from '../components/adminAgencyUtils'
+import {
+  useCloneAdminCertificateTemplateMutation,
+  useDeleteAdminCertificateTemplateMutation,
+  useGetAdminAgenciesQuery,
+  useGetAdminCertificateTemplateQuery,
+  useSetAdminCertificateTemplateActiveMutation,
+} from '../api/adminApi'
+import { PALETTE_ITEMS, parseLayout } from '../components/certificateBuilder/certificateBuilderUtils'
 
-function formatProcessType(type: string) {
-  if (type === 'ImportEntry') return 'Import Entry'
-  if (type === 'ExportEntry') return 'Export Entry'
-  return type.replace(/([A-Z])/g, ' $1').trim()
+function DetailField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Box>
+      <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600, color: portalColors.textMuted, mb: 0.5 }}>
+        {label}
+      </Typography>
+      <Box sx={{ fontSize: '0.9375rem', color: portalColors.textDark }}>{children}</Box>
+    </Box>
+  )
+}
+
+function getElementTypeLabel(type: string) {
+  return PALETTE_ITEMS.find((item) => item.type === type)?.label ?? type
 }
 
 export function AdminCertificateTemplateViewPage() {
   const { uuid = '' } = useParams()
-  const { data, isLoading } = useGetAdminCertificateTemplateQuery(uuid, { skip: !uuid })
+  const navigate = useNavigate()
+  const accessToken = useAppSelector((state) => state.auth.accessToken)
+  const { data, isLoading, isError } = useGetAdminCertificateTemplateQuery(uuid, { skip: !uuid })
   const { data: agenciesData } = useGetAdminAgenciesQuery()
+  const [cloneTemplate, { isLoading: cloning }] = useCloneAdminCertificateTemplateMutation()
+  const [deleteTemplate, { isLoading: deleting }] = useDeleteAdminCertificateTemplateMutation()
+  const [setTemplateActive, { isLoading: togglingActive }] = useSetAdminCertificateTemplateActiveMutation()
+
+  const [cloneOpen, setCloneOpen] = useState(false)
+  const [cloneName, setCloneName] = useState('')
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [actionError, setActionError] = useState('')
+
   const template = data?.data
   const agencies = agenciesData?.data ?? []
+  const hasPublishedVersion = template?.versions.some((version) => version.isPublished) ?? template?.isPublished ?? false
+  const isLive = template ? isCertificateTemplateLive({ isActive: template.isActive, hasPublishedVersion }) : false
+  const layout = useMemo(() => parseLayout(template?.layoutJson), [template?.layoutJson])
   const agency = agencies.find((item) => item.id === template?.agencyId)
-  const accessToken = useSelector((state: RootState) => state.auth.accessToken)
-  const layout = parseLayout(template?.layoutJson)
+  const elements = template?.elements ?? []
 
   const handlePreview = async () => {
     const response = await fetch(apiUrl(`/admin/certificate-templates/${uuid}/preview`), {
@@ -42,112 +96,390 @@ export function AdminCertificateTemplateViewPage() {
     })
     if (!response.ok) return
     const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    window.open(url, '_blank', 'noopener,noreferrer')
+    window.open(URL.createObjectURL(blob), '_blank', 'noopener,noreferrer')
   }
 
-  if (isLoading || !template) {
-    return <Typography sx={{ color: portalColors.textMuted }}>{isLoading ? 'Loading template…' : 'Template not found.'}</Typography>
+  const handleExport = async () => {
+    if (!template) return
+    setExporting(true)
+    try {
+      await downloadAdminCertificateExport(
+        template.uuid,
+        `${template.name.replace(/\s+/g, '-').toLowerCase()}.json`,
+        accessToken,
+      )
+    } catch {
+      window.alert('Unable to export this template.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleClone = async () => {
+    if (!template || !cloneName.trim()) return
+    const result = await cloneTemplate({ uuid: template.uuid, name: cloneName.trim() }).unwrap()
+    setCloneOpen(false)
+    navigate(`/admin/certificate-templates/${result.data.uuid}/edit`)
+  }
+
+  const handleDelete = async () => {
+    if (!template) return
+    setActionError('')
+    try {
+      await deleteTemplate(template.uuid).unwrap()
+      setDeleteOpen(false)
+      navigate('/admin/certificate-templates')
+    } catch (error) {
+      setActionError(getAdminApiErrorMessage(error, 'Unable to delete this template.'))
+      setDeleteOpen(false)
+    }
+  }
+
+  const handleSetActive = async (isActive: boolean) => {
+    if (!template) return
+    setActionError('')
+    try {
+      await setTemplateActive({ uuid: template.uuid, isActive }).unwrap()
+    } catch (error) {
+      setActionError(
+        getAdminApiErrorMessage(
+          error,
+          isActive ? 'Unable to activate this template.' : 'Unable to deactivate this template.',
+        ),
+      )
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
+        <CircularProgress sx={{ color: portalColors.primary }} />
+      </Box>
+    )
+  }
+
+  if (isError || !template) {
+    return (
+      <Box>
+        <Alert severity="error">Certificate template not found.</Alert>
+        <Button component={RouterLink} to="/admin/certificate-templates" sx={{ mt: 2 }} startIcon={<ArrowBackIcon />}>
+          Back to templates
+        </Button>
+      </Box>
+    )
   }
 
   return (
     <Box>
       <PortalPageHeader
-        eyebrow="Certificate Templates"
+        eyebrow="Certificate Builder"
         title={template.name}
-        subtitle="Certificate template details"
+        subtitle={`${template.processTypes.map(formatCertificateProcessType).join(', ') || 'No process'} · v${template.versionNumber}`}
         actions={
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-            <Button component={RouterLink} to="/admin/certificate-templates" variant="outlined" sx={portalOutlinedButtonSx}>
-              Back to Templates
+            <Tooltip
+              title={getCertificateActivateTooltip({
+                isActive: template.isActive,
+                elementCount: elements.length,
+                hasPublishedVersion,
+              })}
+            >
+              <span>
+                <Button
+                  variant={template.isActive ? 'outlined' : 'contained'}
+                  startIcon={template.isActive ? <ToggleOffOutlinedIcon /> : <ToggleOnOutlinedIcon />}
+                  sx={template.isActive ? portalOutlinedButtonSx : portalPrimaryButtonSx}
+                  disabled={togglingActive || (!template.isActive && elements.length === 0)}
+                  onClick={() => void handleSetActive(!template.isActive)}
+                >
+                  {template.isActive ? 'Deactivate' : 'Activate'}
+                </Button>
+              </span>
+            </Tooltip>
+            <Button
+              component={RouterLink}
+              to={`/admin/certificate-templates/${uuid}/edit`}
+              variant="contained"
+              startIcon={<EditOutlinedIcon />}
+              sx={portalPrimaryButtonSx}
+            >
+              Edit builder
             </Button>
-            <Button variant="outlined" sx={portalOutlinedButtonSx} startIcon={<VisibilityOutlinedIcon />} onClick={() => void handlePreview()}>
-              Preview
-            </Button>
-            <Button component={RouterLink} to={`/admin/certificate-templates/${uuid}/edit`} variant="contained" sx={portalPrimaryButtonSx} startIcon={<EditOutlinedIcon />}>
-              Edit Template
+            <Button component={RouterLink} to="/admin/certificate-templates" variant="outlined" startIcon={<ArrowBackIcon />} sx={portalOutlinedButtonSx}>
+              Back
             </Button>
           </Stack>
         }
       />
 
-      <Stack direction="row" spacing={1} sx={{ mb: 3, flexWrap: 'wrap' }}>
-        <Chip size="small" label={template.isActive ? 'Active' : 'Inactive'} sx={portalStatusChipSx(template.isActive ? 'Approved' : 'Draft')} />
-        {template.processTypes.map((type) => (
-          <Chip key={type} size="small" label={formatProcessType(type)} sx={portalStatusChipSx('Submitted')} />
-        ))}
-        <Chip size="small" variant="outlined" label={`${template.elements.length} elements`} />
-        <Chip size="small" variant="outlined" label={`v${template.versionNumber}`} />
-      </Stack>
-
-      {template.name === 'Accreditation Certificate - Importer' ? (
-        <Alert severity="success" sx={{ mb: 3 }}>
-          Migrated from AgriCheck V2 and wired for accreditation certificate generation on approval.
+      {actionError ? (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError('')}>
+          {actionError}
         </Alert>
       ) : null}
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '2fr 1fr' }, gap: 3 }}>
-        <PortalPanel title="Template Information">
-          <Stack spacing={2} sx={{ px: 2.5, py: 2 }}>
-            <Box>
-              <Typography sx={{ fontSize: '0.75rem', color: portalColors.textMuted, mb: 0.5 }}>Name</Typography>
-              <Typography>{template.name}</Typography>
-            </Box>
-            {template.description ? (
-              <Box>
-                <Typography sx={{ fontSize: '0.75rem', color: portalColors.textMuted, mb: 0.5 }}>Description</Typography>
-                <Typography>{template.description}</Typography>
+      <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }}>
+        <Chip size="small" label={template.isActive ? 'Active' : 'Inactive'} sx={getStatusBadgeStyle(template.isActive ? 'ACTIVE' : 'PENDING')} />
+        <Chip size="small" label={template.isPublished ? 'Published' : 'Draft'} sx={getStatusBadgeStyle(template.isPublished ? 'Approved' : 'Draft')} />
+        {isLive ? <Chip size="small" label="Live" sx={getStatusBadgeStyle('ACTIVE')} /> : null}
+        {template.processTypes.map((type) => (
+          <Chip key={type} size="small" label={formatCertificateProcessType(type)} sx={getStatusBadgeStyle('Submitted')} />
+        ))}
+      </Stack>
+
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, lg: 8 }}>
+          <Stack spacing={2}>
+            <PortalPanel title="Template details">
+              <Box sx={{ p: 2.5 }}>
+                <Grid container spacing={2.5}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <DetailField label="Process types">
+                      {template.processTypes.length > 0
+                        ? template.processTypes.map(formatCertificateProcessType).join(', ')
+                        : 'None assigned'}
+                    </DetailField>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <DetailField label="Version">v{template.versionNumber}</DetailField>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <DetailField label="Created">{formatCertificateDate(template.createdAt)}</DetailField>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <DetailField label="Last updated">{formatCertificateDate(template.updatedAt)}</DetailField>
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <DetailField label="Agency">
+                      {agency ? (
+                        <Chip size="small" label={`${agency.code} — ${agency.name}`} sx={getStatusBadgeStyle('Approved')} />
+                      ) : (
+                        <Typography sx={{ color: portalColors.textMuted, fontSize: '0.875rem' }}>Global (all agencies)</Typography>
+                      )}
+                    </DetailField>
+                  </Grid>
+                  {template.description ? (
+                    <Grid size={{ xs: 12 }}>
+                      <DetailField label="Description">{template.description}</DetailField>
+                    </Grid>
+                  ) : null}
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <DetailField label="Paper size">{layout.paperSize}</DetailField>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <DetailField label="Orientation">{layout.orientation}</DetailField>
+                  </Grid>
+                </Grid>
               </Box>
-            ) : null}
-            <Box>
-              <Typography sx={{ fontSize: '0.75rem', color: portalColors.textMuted, mb: 0.5 }}>Agency</Typography>
-              <Typography>{agency ? `${agency.code} — ${agency.name}` : 'Global (all agencies)'}</Typography>
-            </Box>
-            <Box>
-              <Typography sx={{ fontSize: '0.75rem', color: portalColors.textMuted, mb: 0.5 }}>Paper Size</Typography>
-              <Typography>{layout.paperSize}</Typography>
-            </Box>
-            <Box>
-              <Typography sx={{ fontSize: '0.75rem', color: portalColors.textMuted, mb: 0.5 }}>Orientation</Typography>
-              <Typography>{layout.orientation}</Typography>
-            </Box>
-            <Box>
-              <Typography sx={{ fontSize: '0.75rem', color: portalColors.textMuted, mb: 0.5 }}>Margins (mm)</Typography>
-              <Typography>
-                Top {layout.marginTop} · Right {layout.marginRight} · Bottom {layout.marginBottom} · Left {layout.marginLeft}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography sx={{ fontSize: '0.75rem', color: portalColors.textMuted, mb: 0.5 }}>Background Color</Typography>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                <Box sx={{ width: 24, height: 24, borderRadius: 1, bgcolor: layout.backgroundColor, border: `1px solid ${portalColors.border}` }} />
-                <Typography>{layout.backgroundColor}</Typography>
-              </Stack>
-            </Box>
+            </PortalPanel>
+
+            <PortalPanel title={`Elements (${elements.length})`}>
+              <Box sx={{ p: 2.5 }}>
+                {elements.length === 0 ? (
+                  <Typography sx={{ py: 3, textAlign: 'center', color: portalColors.textMuted, fontSize: '0.875rem' }}>
+                    No elements yet. Open the builder to add elements.
+                  </Typography>
+                ) : (
+                  <Stack spacing={1.25}>
+                    {elements.map((element, index) => (
+                      <Box
+                        key={element.id}
+                        sx={{
+                          border: `1px solid ${portalColors.border}`,
+                          borderRadius: '0.625rem',
+                          p: 1.75,
+                          bgcolor: portalColors.bgWhite,
+                        }}
+                      >
+                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <Box>
+                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
+                              <Chip size="small" label={index + 1} sx={{ minWidth: 28, height: 24, ...getStatusBadgeStyle('PENDING') }} />
+                              <Typography sx={{ fontWeight: 600 }}>{element.label}</Typography>
+                            </Stack>
+                            <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted }}>
+                              {getElementTypeLabel(element.elementType)} · Order {element.sortOrder}
+                            </Typography>
+                          </Box>
+                          <Chip size="small" label={getElementTypeLabel(element.elementType)} sx={getStatusBadgeStyle('Submitted')} />
+                        </Stack>
+                      </Box>
+                    ))}
+                  </Stack>
+                )}
+              </Box>
+            </PortalPanel>
+
+            <PortalPanel title="PDF preview">
+              <Box sx={{ p: 2.5 }}>
+                <Typography sx={{ mb: 2, color: portalColors.textMuted, fontSize: '0.875rem' }}>
+                  Generate a sample PDF using preview variables for the assigned process type.
+                </Typography>
+                <Button variant="outlined" startIcon={<PreviewOutlinedIcon />} sx={portalOutlinedButtonSx} onClick={() => void handlePreview()}>
+                  Open PDF preview
+                </Button>
+              </Box>
+            </PortalPanel>
+
+            <PortalPanel title="Version history">
+              <Box sx={{ p: 2.5 }}>
+                {template.versions.length === 0 ? (
+                  <Typography sx={{ color: portalColors.textMuted, fontSize: '0.875rem' }}>No version history.</Typography>
+                ) : (
+                  <Stack spacing={1.25}>
+                    {template.versions.slice(0, 5).map((version) => (
+                      <Box
+                        key={version.versionNumber}
+                        sx={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          border: `1px solid ${portalColors.border}`,
+                          borderRadius: '0.625rem',
+                          p: 1.75,
+                        }}
+                      >
+                        <Box>
+                          <Typography sx={{ fontWeight: 600 }}>Version {version.versionNumber}</Typography>
+                          <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted }}>
+                            {formatCertificateDate(version.createdAt)}
+                            {version.isPublished ? ' · Published' : ' · Draft'}
+                          </Typography>
+                        </Box>
+                        {version.versionNumber === template.versionNumber ? (
+                          <Chip size="small" label="Current" sx={getStatusBadgeStyle('ACTIVE')} />
+                        ) : null}
+                      </Box>
+                    ))}
+                  </Stack>
+                )}
+              </Box>
+            </PortalPanel>
           </Stack>
-        </PortalPanel>
+        </Grid>
 
-        <Stack spacing={3}>
-          <PortalPanel title="Summary">
-            <Stack spacing={1.5} sx={{ px: 2.5, py: 2 }}>
-              <Typography variant="body2"><strong>Status:</strong> {template.isPublished ? 'Published' : 'Draft'}</Typography>
-              <Typography variant="body2"><strong>Elements:</strong> {template.elements.length}</Typography>
-              <Typography variant="body2"><strong>Processes:</strong> {template.processTypes.map(formatProcessType).join(', ') || 'None assigned'}</Typography>
-            </Stack>
-          </PortalPanel>
+        <Grid size={{ xs: 12, lg: 4 }}>
+          <Stack spacing={2}>
+            <Grid container spacing={1.5}>
+              <Grid size={{ xs: 6 }}>
+                <PortalStatCard label="Elements" value={elements.length} />
+              </Grid>
+              <Grid size={{ xs: 6 }}>
+                <PortalStatCard label="Version" value={template.versionNumber} />
+              </Grid>
+            </Grid>
 
-          <PortalPanel title="Quick Actions">
-            <Stack spacing={1.5} sx={{ px: 2.5, py: 2 }}>
-              <Button component={RouterLink} to={`/admin/certificate-templates/${uuid}/edit`} variant="contained" sx={portalPrimaryButtonSx}>
-                Open Visual Builder
-              </Button>
-              <Button variant="outlined" sx={portalOutlinedButtonSx} onClick={() => void handlePreview()}>
-                Preview PDF
-              </Button>
-            </Stack>
-          </PortalPanel>
-        </Stack>
-      </Box>
+            <PortalPanel title="Actions">
+              <Stack spacing={1.25} sx={{ p: 2.5, pt: 0 }}>
+                <Tooltip
+                  title={getCertificateActivateTooltip({
+                    isActive: template.isActive,
+                    elementCount: elements.length,
+                    hasPublishedVersion,
+                  })}
+                >
+                  <span>
+                    <Button
+                      variant={template.isActive ? 'outlined' : 'contained'}
+                      fullWidth
+                      startIcon={template.isActive ? <ToggleOffOutlinedIcon /> : <ToggleOnOutlinedIcon />}
+                      sx={template.isActive ? portalOutlinedButtonSx : portalPrimaryButtonSx}
+                      disabled={togglingActive || (!template.isActive && elements.length === 0)}
+                      onClick={() => void handleSetActive(!template.isActive)}
+                    >
+                      {template.isActive ? 'Deactivate' : 'Activate'}
+                    </Button>
+                  </span>
+                </Tooltip>
+                <Button
+                  component={RouterLink}
+                  to={`/admin/certificate-templates/${uuid}/edit`}
+                  variant="contained"
+                  fullWidth
+                  startIcon={<EditOutlinedIcon />}
+                  sx={portalPrimaryButtonSx}
+                >
+                  Edit builder
+                </Button>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  startIcon={<PreviewOutlinedIcon />}
+                  sx={portalOutlinedButtonSx}
+                  onClick={() => void handlePreview()}
+                >
+                  Open PDF preview
+                </Button>
+                <Button variant="outlined" fullWidth startIcon={<DownloadOutlinedIcon />} sx={portalOutlinedButtonSx} disabled={exporting} onClick={() => void handleExport()}>
+                  Export JSON
+                </Button>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  startIcon={<ContentCopyOutlinedIcon />}
+                  sx={portalOutlinedButtonSx}
+                  onClick={() => {
+                    setCloneName(`${template.name} (Copy)`)
+                    setCloneOpen(true)
+                  }}
+                >
+                  Clone template
+                </Button>
+                <Tooltip title={isLive ? CERTIFICATE_DELETE_LIVE_TOOLTIP : 'Delete this template'}>
+                  <span>
+                    <Button
+                      variant="outlined"
+                      fullWidth
+                      color="error"
+                      startIcon={<DeleteOutlinedIcon />}
+                      sx={portalOutlinedButtonSx}
+                      disabled={isLive}
+                      onClick={() => setDeleteOpen(true)}
+                    >
+                      Delete template
+                    </Button>
+                  </span>
+                </Tooltip>
+                {isLive ? (
+                  <Alert severity="info" sx={{ fontSize: '0.8125rem' }}>
+                    Live templates cannot be deleted. Deactivate the template first.
+                  </Alert>
+                ) : null}
+              </Stack>
+            </PortalPanel>
+          </Stack>
+        </Grid>
+      </Grid>
+
+      <Dialog open={cloneOpen} onClose={() => setCloneOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Clone template</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ mb: 2, color: portalColors.textMuted, fontSize: '0.875rem' }}>
+            Create a copy of this template as an inactive draft.
+          </Typography>
+          <TextField
+            label="New template name"
+            value={cloneName}
+            onChange={(e) => setCloneName(e.target.value)}
+            fullWidth
+            autoFocus
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCloneOpen(false)}>Cancel</Button>
+          <Button variant="contained" sx={portalPrimaryButtonSx} disabled={cloning || !cloneName.trim()} onClick={() => void handleClone()}>
+            Clone
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <AdminCertificateDeleteDialog
+        open={deleteOpen}
+        templateName={template.name}
+        deleting={deleting}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={handleDelete}
+      />
     </Box>
   )
 }

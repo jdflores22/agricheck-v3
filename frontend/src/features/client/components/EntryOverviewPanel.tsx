@@ -23,10 +23,14 @@ import {
   getNumContainersFromFormData,
 } from '../utils/containerFormUtils'
 import type { FormFieldSchema } from '../../forms/formSchema'
-import { getAddressValueKeys, parseFormDataJson, visibleFormFields } from '../../forms/formSchema'
+import { formatCommodityHsSummary, getAddressValueKeys, parseFormDataJson, visibleFormFields } from '../../forms/formSchema'
 
 function formatFieldValue(field: FormFieldSchema, values: Record<string, string>): string {
   if (field.type === 'section') return ''
+
+  if (field.type === 'commodity') {
+    return formatCommodityHsSummary(field.name, values) || '—'
+  }
 
   if (field.type === 'address') {
     const keys = getAddressValueKeys(field.name)
@@ -168,9 +172,11 @@ function ContainerTableRow({
 export function EntryOverviewPanel({
   entry,
   containerSchemaFields,
+  showImportTrack = false,
 }: {
   entry: Entry
   containerSchemaFields: FormFieldSchema[]
+  showImportTrack?: boolean
 }) {
   const containers = entry.containers ?? []
   const numContainers = getNumContainersFromFormData(entry.formDataJson, containers.length)
@@ -186,6 +192,12 @@ export function EntryOverviewPanel({
         <Box sx={{ px: 2.5, py: 1.5 }}>
           <DetailRow label="Agency" value={entry.agencyName} />
           <DetailRow label="Entry type" value={entry.entryType} />
+          {entry.entryType === 'Import' && showImportTrack ? (
+            <DetailRow
+              label="Import track"
+              value={entry.mav?.importTrack === 'Mav' ? 'MAV import (in-quota)' : 'Regular import (out-quota)'}
+            />
+          ) : null}
           <DetailRow label="Commodity" value={entry.detail?.commodityName} />
           <DetailRow label="Quantity" value={quantityDisplay} />
           <DetailRow label="Origin" value={entry.detail?.originCountry} />

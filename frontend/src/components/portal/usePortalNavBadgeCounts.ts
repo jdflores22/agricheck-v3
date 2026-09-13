@@ -2,7 +2,11 @@ import { useMemo } from 'react'
 import { useAppSelector } from '../../app/hooks'
 import { selectCurrentUser } from '../../features/auth/authSlice'
 import { useGetAccreditationOfficerDashboardQuery } from '../../features/accreditation-officer/api/accreditationOfficerApi'
-import { useGetAgencyDashboardQuery } from '../../features/agency/api/agencyApi'
+import {
+  useGetAgencyDashboardQuery,
+  useGetContainerInspectionQueueQuery,
+  useGetTransportTagQueueQuery,
+} from '../../features/agency/api/agencyApi'
 import { useGetDashboardQuery } from '../../features/client/api/clientApi'
 import {
   useGetMavAdminDashboardQuery,
@@ -33,6 +37,8 @@ export function usePortalNavBadgeCounts(portalKey: PortalKey, navPaths: string[]
     portalKey === 'agency' ||
     portalKey === 'inspector' ||
     navPaths.some((path) => path.startsWith('/agency'))
+  const needsContainerInspectionQueue = navPaths.includes('/inspector/inspections')
+  const needsTransportTagQueue = navPaths.includes('/agency/transport-tags')
   const needsAccreditation =
     portalKey === 'accreditation-officer' ||
     navPaths.some((path) => path.startsWith('/accreditation-officer'))
@@ -44,6 +50,18 @@ export function usePortalNavBadgeCounts(portalKey: PortalKey, navPaths: string[]
   const skipDriver = portalKey !== 'driver' || !hasDriverAccess(roles)
 
   const { data: agencyData } = useGetAgencyDashboardQuery(undefined, { skip: skipAgency })
+  const { data: containerInspectionQueueData } = useGetContainerInspectionQueueQuery(
+    { page: 1, scope: 'unclaimed' },
+    { skip: skipAgency || !needsContainerInspectionQueue, pollingInterval: 60_000 },
+  )
+  const { data: myContainerInspectionData } = useGetContainerInspectionQueueQuery(
+    { page: 1, scope: 'mine' },
+    { skip: skipAgency || !needsContainerInspectionQueue, pollingInterval: 60_000 },
+  )
+  const { data: transportTagQueueData } = useGetTransportTagQueueQuery(undefined, {
+    skip: skipAgency || !needsTransportTagQueue,
+    pollingInterval: 60_000,
+  })
   const { data: accreditationData } = useGetAccreditationOfficerDashboardQuery(undefined, {
     skip: skipAccreditation,
   })
@@ -56,22 +74,35 @@ export function usePortalNavBadgeCounts(portalKey: PortalKey, navPaths: string[]
   return useMemo(() => {
     const counts: PortalNavBadgeCounts = {}
 
+    const pendingContainerInspections =
+      (containerInspectionQueueData?.data?.totalCount ?? 0) +
+      (myContainerInspectionData?.data?.totalCount ?? 0)
+
     if (needsAgency) {
       const agency = agencyData?.data
       if (agency) {
         const agencyCounts: PortalNavBadgeCounts = {
           '/agency/evaluator/queue': agency.queueCount,
           '/agency/evaluator/assignments': agency.myAssignments,
-          '/agency/inspections': agency.pendingInspections,
-          '/agency/billing': agency.openBillings,
+          '/agency/billing': agency.awaitingBilling + agency.openBillings,
+          '/agency/billing-reports': agency.pendingCashPayments,
           '/agency/accreditation': agency.pendingAccreditation,
         }
-        Object.assign(counts, agencyCounts)
-
-        if (portalKey === 'inspector' || navPaths.some((path) => path.startsWith('/inspector'))) {
-          counts['/inspector/inspections'] = agency.pendingInspections
+        for (const [path, value] of Object.entries(agencyCounts)) {
+          if (navPaths.includes(path)) {
+            counts[path] = value
+          }
         }
       }
+    }
+
+    if (navPaths.includes('/inspector/inspections')) {
+      counts['/inspector/inspections'] = pendingContainerInspections
+    }
+
+    if (navPaths.includes('/agency/transport-tags')) {
+      const pendingTransportTags = (transportTagQueueData?.data?.ready ?? []).filter((item) => !item.hasTransportTag).length
+      counts['/agency/transport-tags'] = pendingTransportTags
     }
 
     if (needsAccreditation) {
@@ -125,7 +156,12 @@ export function usePortalNavBadgeCounts(portalKey: PortalKey, navPaths: string[]
     navPaths,
     needsAgency,
     needsAccreditation,
+    needsContainerInspectionQueue,
+    needsTransportTagQueue,
     agencyData,
+    containerInspectionQueueData,
+    myContainerInspectionData,
+    transportTagQueueData,
     accreditationData,
     clientData,
     mavImporterData,

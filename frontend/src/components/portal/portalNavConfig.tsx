@@ -75,8 +75,6 @@ const agencyNavItems: PortalNavItem[] = [
   { label: 'Dashboard', path: '/agency', icon: <DashboardOutlinedIcon /> },
   { label: 'Evaluation Queue', path: '/agency/evaluator/queue', icon: <AssignmentOutlinedIcon /> },
   { label: 'My Assignments', path: '/agency/evaluator/assignments', icon: <FactCheckOutlinedIcon /> },
-  { label: 'Inspections', path: '/agency/inspections', icon: <PlaylistAddCheckOutlinedIcon /> },
-  { label: 'Billing', path: '/agency/billing', icon: <ReceiptLongOutlinedIcon /> },
   { label: 'Transport Tags', path: '/agency/transport-tags', icon: <LocalShippingOutlinedIcon /> },
   { label: 'Accreditation Review', path: '/agency/accreditation', icon: <VerifiedOutlinedIcon /> },
   { label: 'Reports', path: '/agency/reports', icon: <ReportOutlinedIcon /> },
@@ -94,6 +92,9 @@ const daNavItems: PortalNavItem[] = [
   { label: 'Agencies', path: '/da/agencies', icon: <BusinessOutlinedIcon /> },
   { label: 'Warehouses', path: '/da/warehouses', icon: <WarehouseOutlinedIcon /> },
   { label: 'Reports', path: '/da/reports', icon: <ReportOutlinedIcon /> },
+  { label: 'MAV Utilization', path: '/da/reports/mav', icon: <Inventory2OutlinedIcon /> },
+  { label: 'Commodity Stock', path: '/da/reports/commodities', icon: <Inventory2OutlinedIcon /> },
+  { label: 'Stock Map', path: '/da/reports/stock', icon: <WarehouseOutlinedIcon /> },
   { label: 'My Profile', path: '/profile', icon: <PersonOutlineOutlinedIcon />, section: 'Account' },
 ]
 
@@ -125,12 +126,91 @@ function isDaLeadershipOnly(roles: string[]) {
   )
 }
 
+const agencyOperationalRoleCodes = [
+  'ROLE_EVALUATOR',
+  'ROLE_ACCOUNTANT',
+  'ROLE_SECRETARY',
+  'ROLE_UNDERSECRETARY',
+  'ROLE_BILLING_AGENT',
+  'ROLE_INSPECTOR',
+  'ROLE_ACCREDITATION_OFFICER',
+]
+
+const agencyAdminNavItems: PortalNavItem[] = [
+  { label: 'Dashboard', path: '/agency', icon: <DashboardOutlinedIcon /> },
+  { label: 'Payment Config', path: '/agency/payment-config', icon: <PaymentsOutlinedIcon /> },
+  { label: 'My Profile', path: '/profile', icon: <PersonOutlineOutlinedIcon />, section: 'Account' },
+]
+
+const billingAgentNavItems: PortalNavItem[] = [
+  { label: 'Dashboard', path: '/agency', icon: <DashboardOutlinedIcon /> },
+  { label: 'Billing', path: '/agency/billing', icon: <ReceiptLongOutlinedIcon /> },
+  { label: 'Revenue Reports', path: '/agency/billing-reports', icon: <ReportOutlinedIcon /> },
+  { label: 'My Profile', path: '/profile', icon: <PersonOutlineOutlinedIcon />, section: 'Account' },
+]
+
+const billingAgentRoleCodes = ['ROLE_BILLING_AGENT', 'ROLE_ACCOUNTANT']
+
+function isAgencyAdminOnly(roles: string[]) {
+  return (
+    roles.includes('ROLE_AGENCY_ADMIN') &&
+    !roles.includes('ROLE_ADMIN') &&
+    !roles.some((role) => agencyOperationalRoleCodes.includes(role))
+  )
+}
+
+function isBillingAgentOnly(roles: string[]) {
+  return (
+    roles.some((role) => billingAgentRoleCodes.includes(role)) &&
+    !roles.includes('ROLE_ADMIN') &&
+    !roles.includes('ROLE_AGENCY_ADMIN') &&
+    !roles.some((role) =>
+      agencyOperationalRoleCodes.filter((code) => !billingAgentRoleCodes.includes(code)).includes(role),
+    )
+  )
+}
+
+function hasBillingAccess(roles: string[]) {
+  return roles.some((role) => billingAgentRoleCodes.includes(role)) || roles.includes('ROLE_ADMIN')
+}
+
+function appendBillingNavItems(items: PortalNavItem[]): PortalNavItem[] {
+  const profileIndex = items.findIndex((item) => item.path === '/profile')
+  const insertAt = profileIndex >= 0 ? profileIndex : items.length
+  const next = [...items]
+  next.splice(insertAt, 0, ...billingAgentNavItems.filter((item) => item.path !== '/agency' && item.path !== '/profile'))
+  return next
+}
+
 function buildAgencyNavItems(roles: string[]): PortalNavItem[] {
   if (isDaAccreditationOfficerOnly(roles)) {
     return accreditationOfficerNavItems
   }
 
-  return agencyNavItems
+  if (isBillingAgentOnly(roles)) {
+    return billingAgentNavItems
+  }
+
+  if (isAgencyAdminOnly(roles)) {
+    return agencyAdminNavItems
+  }
+
+  let items = [...agencyNavItems]
+
+  if (hasBillingAccess(roles)) {
+    items = appendBillingNavItems(items)
+  }
+
+  if (roles.includes('ROLE_AGENCY_ADMIN') || roles.includes('ROLE_ADMIN')) {
+    const profileIndex = items.findIndex((item) => item.path === '/profile')
+    items.splice(profileIndex >= 0 ? profileIndex : items.length, 0, {
+      label: 'Payment Config',
+      path: '/agency/payment-config',
+      icon: <PaymentsOutlinedIcon />,
+    })
+  }
+
+  return items
 }
 
 const inspectorNavItems: PortalNavItem[] = [

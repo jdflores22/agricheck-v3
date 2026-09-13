@@ -8,6 +8,7 @@ public class ClientBill : BaseEntity
     public Guid Uuid { get; set; } = Guid.NewGuid();
     public long UserId { get; set; }
     public long? EntryId { get; set; }
+    public long? AgencyBillingId { get; set; }
     public long? WarehouseBookingId { get; set; }
     public string BillNumber { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;

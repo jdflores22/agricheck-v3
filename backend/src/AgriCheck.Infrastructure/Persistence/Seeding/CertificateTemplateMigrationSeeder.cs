@@ -42,14 +42,14 @@ public static class CertificateTemplateMigrationSeeder
             return;
         }
 
-        var templateMeta = await ReadTemplateMetaAsync(connection, cancellationToken);
+        var templateMeta = await ReadTemplateMetaAsync(connection, V2TemplateId, cancellationToken);
         if (templateMeta is null)
         {
             logger.LogWarning("V2 certificate template id {Id} not found.", V2TemplateId);
             return;
         }
 
-        var elements = await ReadElementsAsync(connection, cancellationToken);
+        var elements = await ReadElementsAsync(connection, V2TemplateId, cancellationToken);
         if (elements.Count == 0)
         {
             logger.LogWarning("V2 certificate template id {Id} has no elements.", V2TemplateId);
@@ -129,6 +129,236 @@ public static class CertificateTemplateMigrationSeeder
             agencies.Count);
     }
 
+    public static async Task MigrateEntryTemplatesFromV2Async(
+        AgriCheckDbContext db,
+        IConfiguration configuration,
+        IHostEnvironment environment,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var v2ConnectionString = configuration.GetConnectionString("V2Connection")
+            ?? "Server=localhost;Port=3306;Database=agricheck_dev;User=root;Password=;";
+
+        await using var connection = new MySqlConnection(v2ConnectionString);
+        try
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Unable to connect to V2 database for entry certificate template migration.");
+            return;
+        }
+
+        await MigrateEntryTemplatesFromV2Async(db, connection, configuration, environment, logger, cancellationToken);
+    }
+
+    private static async Task MigrateEntryTemplatesFromV2Async(
+        AgriCheckDbContext db,
+        MySqlConnection connection,
+        IConfiguration configuration,
+        IHostEnvironment environment,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var entryTemplates = await ReadEntryTemplateIdsAsync(connection, cancellationToken);
+        if (entryTemplates.Count == 0)
+        {
+            logger.LogInformation("No V2 entry certificate templates found to migrate.");
+            return;
+        }
+
+        var v2PublicRoot = ResolveV2PublicRoot(configuration, environment);
+        var assetFolder = Path.Combine(UploadStorage.ResolveRoot(configuration, environment), "certificate-templates", "assets");
+        Directory.CreateDirectory(assetFolder);
+
+        foreach (var (v2TemplateId, v2AgencyCode) in entryTemplates)
+        {
+            var agency = await db.Agencies.FirstOrDefaultAsync(a => a.Code == v2AgencyCode && a.IsActive, cancellationToken);
+            if (agency is null)
+            {
+                logger.LogWarning("Skipping V2 entry template {TemplateId}; agency {AgencyCode} not found in V3.", v2TemplateId, v2AgencyCode);
+                continue;
+            }
+
+            var templateMeta = await ReadTemplateMetaAsync(connection, v2TemplateId, cancellationToken);
+            if (templateMeta is null)
+            {
+                continue;
+            }
+
+            var existingAssignments = await db.CertificateProcessAssignments
+                .Include(a => a.Template)
+                    .ThenInclude(t => t.Versions)
+                    .ThenInclude(v => v.Elements)
+                .Where(a => a.AgencyId == agency.Id &&
+                            (a.ProcessType == CertificateProcessType.ImportEntry ||
+                             a.ProcessType == CertificateProcessType.ExportEntry) &&
+                            a.IsActive)
+                .ToListAsync(cancellationToken);
+
+            if (existingAssignments.Any(a => TemplateHasBuilderLayout(a.Template)))
+            {
+                logger.LogInformation(
+                    "Entry certificate template with builder layout already assigned for agency {AgencyCode}; skipping V2 template {TemplateId}.",
+                    v2AgencyCode,
+                    v2TemplateId);
+                continue;
+            }
+
+            foreach (var assignment in existingAssignments)
+            {
+                assignment.IsActive = false;
+                if (assignment.Template is not null)
+                {
+                    assignment.Template.IsActive = false;
+                }
+            }
+
+            var elements = await ReadElementsAsync(connection, v2TemplateId, cancellationToken);
+            var layoutJson = JsonSerializer.Serialize(new
+            {
+                paperSize = templateMeta.PaperSize,
+                orientation = templateMeta.Orientation,
+                marginTop = templateMeta.MarginTop,
+                marginRight = templateMeta.MarginRight,
+                marginBottom = templateMeta.MarginBottom,
+                marginLeft = templateMeta.MarginLeft,
+                backgroundColor = templateMeta.BackgroundColor,
+                backgroundImage = templateMeta.BackgroundImage,
+                source = "agricheck-v2",
+                v2TemplateId,
+            });
+
+            var template = new CertificateTemplate
+            {
+                Uuid = Guid.NewGuid(),
+                Name = templateMeta.Name,
+                Description = templateMeta.Description,
+                AgencyId = agency.Id,
+                IsActive = true,
+                Versions =
+                {
+                    new CertificateTemplateVersion
+                    {
+                        VersionNumber = 1,
+                        IsPublished = true,
+                        LayoutJson = layoutJson,
+                    },
+                },
+            };
+
+            db.CertificateTemplates.Add(template);
+            await db.SaveChangesAsync(cancellationToken);
+
+            var version = template.Versions.First();
+            var sortOrder = 1;
+            foreach (var element in elements.OrderBy(e => e.DisplayOrder))
+            {
+                var config = BuildElementConfig(element, v2PublicRoot, assetFolder, logger);
+                version.Elements.Add(new CertificateElement
+                {
+                    ElementType = MapElementType(element.ElementType),
+                    Label = BuildElementLabel(element),
+                    ConfigJson = JsonSerializer.Serialize(config),
+                    SortOrder = sortOrder++,
+                });
+            }
+
+            foreach (var bodyElement in BuildDefaultEntryBodyElements(sortOrder))
+            {
+                version.Elements.Add(bodyElement);
+            }
+
+            template.ProcessAssignments.Add(new CertificateProcessAssignment
+            {
+                AgencyId = agency.Id,
+                TemplateId = template.Id,
+                ProcessType = CertificateProcessType.ImportEntry,
+                IsActive = true,
+            });
+            template.ProcessAssignments.Add(new CertificateProcessAssignment
+            {
+                AgencyId = agency.Id,
+                TemplateId = template.Id,
+                ProcessType = CertificateProcessType.ExportEntry,
+                IsActive = true,
+            });
+
+            await db.SaveChangesAsync(cancellationToken);
+            logger.LogInformation(
+                "Migrated V2 entry certificate template {Name} for agency {AgencyCode} with {ElementCount} elements.",
+                templateMeta.Name,
+                v2AgencyCode,
+                version.Elements.Count);
+        }
+    }
+
+    private static IEnumerable<CertificateElement> BuildDefaultEntryBodyElements(int startSortOrder)
+    {
+        var rows = new (string Content, float X, float Y, float Width, float Height, int FontSize, string Align, string Weight)[]
+        {
+            ("CERTIFICATE OF ENTRY", 30, 72, 150, 12, 18, "center", "bold"),
+            ("This is to certify that {{ company.name }}", 20, 90, 170, 10, 12, "left", "normal"),
+            ("has been authorized for {{ entry.type }} entry reference {{ entry.reference }}.", 20, 102, 170, 10, 12, "left", "normal"),
+            ("Commodity: {{ entry.commodity }}", 20, 116, 170, 10, 12, "left", "normal"),
+            ("Quantity: {{ entry.quantity }} {{ entry.unit }}", 20, 128, 170, 10, 12, "left", "normal"),
+            ("Certificate No.: {{ certificate.number }}", 20, 142, 170, 10, 12, "left", "normal"),
+            ("Date Issued: {{ date.issued }}", 20, 154, 170, 10, 12, "left", "normal"),
+        };
+
+        var sortOrder = startSortOrder;
+        foreach (var row in rows)
+        {
+            yield return new CertificateElement
+            {
+                ElementType = CertificateElementType.Text,
+                Label = row.Content.Length <= 64 ? row.Content : $"{row.Content[..61]}...",
+                SortOrder = sortOrder++,
+                ConfigJson = JsonSerializer.Serialize(new Dictionary<string, object?>
+                {
+                    ["content"] = row.Content,
+                    ["x"] = row.X,
+                    ["y"] = row.Y,
+                    ["width"] = row.Width,
+                    ["height"] = row.Height,
+                    ["fontSize"] = row.FontSize,
+                    ["fontWeight"] = row.Weight,
+                    ["fontStyle"] = "normal",
+                    ["textAlign"] = row.Align,
+                    ["textColor"] = "#000000",
+                    ["zIndex"] = sortOrder,
+                    ["displayOrder"] = sortOrder,
+                }),
+            };
+        }
+    }
+
+    private static async Task<List<(int TemplateId, string AgencyCode)>> ReadEntryTemplateIdsAsync(
+        MySqlConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var rows = new List<(int, string)>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT t.id, a.code
+            FROM certificate_templates t
+            INNER JOIN certificate_process_assignments p ON p.template_id = t.id
+            INNER JOIN agencies a ON a.id = t.agency_id
+            WHERE p.process_type = 'ENTRY_SUBMISSION'
+              AND t.agency_id IS NOT NULL
+            ORDER BY t.id
+            """;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add((reader.GetInt32(0), reader.GetString(1)));
+        }
+
+        return rows;
+    }
+
     private static string? ResolveV2PublicRoot(IConfiguration configuration, IHostEnvironment environment)
     {
         var configured = configuration["V2:PublicRoot"];
@@ -141,7 +371,10 @@ public static class CertificateTemplateMigrationSeeder
         return Directory.Exists(sibling) ? sibling : null;
     }
 
-    private static async Task<V2TemplateMeta?> ReadTemplateMetaAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    private static async Task<V2TemplateMeta?> ReadTemplateMetaAsync(
+        MySqlConnection connection,
+        int templateId,
+        CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -150,7 +383,7 @@ public static class CertificateTemplateMigrationSeeder
             FROM certificate_templates
             WHERE id = @id
             """;
-        command.Parameters.AddWithValue("@id", V2TemplateId);
+        command.Parameters.AddWithValue("@id", templateId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -172,7 +405,10 @@ public static class CertificateTemplateMigrationSeeder
             reader.GetBoolean(10));
     }
 
-    private static async Task<List<V2Element>> ReadElementsAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    private static async Task<List<V2Element>> ReadElementsAsync(
+        MySqlConnection connection,
+        int templateId,
+        CancellationToken cancellationToken)
     {
         var elements = new List<V2Element>();
         await using var command = connection.CreateCommand();
@@ -183,7 +419,7 @@ public static class CertificateTemplateMigrationSeeder
             WHERE template_id = @id
             ORDER BY display_order
             """;
-        command.Parameters.AddWithValue("@id", V2TemplateId);
+        command.Parameters.AddWithValue("@id", templateId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -207,6 +443,36 @@ public static class CertificateTemplateMigrationSeeder
         }
 
         return elements;
+    }
+
+    private static bool TemplateHasBuilderLayout(CertificateTemplate? template)
+    {
+        if (template is null)
+        {
+            return false;
+        }
+
+        return template.Versions
+            .SelectMany(v => v.Elements)
+            .Any(element =>
+            {
+                if (string.IsNullOrWhiteSpace(element.ConfigJson))
+                {
+                    return false;
+                }
+
+                try
+                {
+                    using var doc = JsonDocument.Parse(element.ConfigJson);
+                    return doc.RootElement.TryGetProperty("x", out var x) &&
+                           x.ValueKind == JsonValueKind.Number &&
+                           x.GetDouble() > 0;
+                }
+                catch (JsonException)
+                {
+                    return false;
+                }
+            });
     }
 
     private static CertificateElementType MapElementType(string elementType) =>

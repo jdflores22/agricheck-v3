@@ -5,6 +5,7 @@ using AgriCheck.Application.Notifications;
 using AgriCheck.Application.Payments;
 using AgriCheck.Domain.Entities;
 using AgriCheck.Domain.Enums;
+using AgriCheck.Infrastructure.Helpers;
 using AgriCheck.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -725,24 +726,28 @@ public class ClientBillService : IClientBillService
     private readonly IPaymentGatewayService _paymentGateway;
     private readonly INotificationService _notifications;
     private readonly IConfiguration _configuration;
+    private readonly IEntryWorkflowService _workflow;
 
     public ClientBillService(
         AgriCheckDbContext db,
         ICurrentUserService currentUser,
         IPaymentGatewayService paymentGateway,
         INotificationService notifications,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IEntryWorkflowService workflow)
     {
         _db = db;
         _currentUser = currentUser;
         _paymentGateway = paymentGateway;
         _notifications = notifications;
         _configuration = configuration;
+        _workflow = workflow;
     }
 
     public async Task<IReadOnlyList<ClientBillSummaryDto>> ListForUserAsync(CancellationToken cancellationToken = default)
     {
         var user = await UserContextHelper.RequireUserAsync(_db, _currentUser, cancellationToken);
+        await AgencyBillingClientBillHelper.BackfillMissingClientBillsForUserAsync(_db, user.Id, cancellationToken);
         return await _db.ClientBills.Where(b => b.UserId == user.Id).OrderByDescending(b => b.CreatedAt)
             .Select(b => new ClientBillSummaryDto(b.Uuid, b.BillNumber, b.Description, b.Amount, b.Status.ToString(), b.DueDate, b.PaidAt))
             .ToListAsync(cancellationToken);
@@ -751,6 +756,7 @@ public class ClientBillService : IClientBillService
     public async Task<ClientBillDto?> GetAsync(Guid uuid, CancellationToken cancellationToken = default)
     {
         var user = await UserContextHelper.RequireUserAsync(_db, _currentUser, cancellationToken);
+        await AgencyBillingClientBillHelper.BackfillMissingClientBillsForUserAsync(_db, user.Id, cancellationToken);
         var bill = await QueryBill().FirstOrDefaultAsync(b => b.Uuid == uuid && b.UserId == user.Id, cancellationToken);
         return bill is null ? null : Map(bill);
     }
@@ -776,87 +782,92 @@ public class ClientBillService : IClientBillService
         return await CompleteBillPaymentAsync(bill, request.PaymentMethod, $"SIM-{Guid.NewGuid():N[..12]}", null, cancellationToken);
     }
 
+    public async Task<BillPaymentOptionsDto> GetPaymentOptionsAsync(Guid uuid, CancellationToken cancellationToken = default)
+    {
+        var user = await UserContextHelper.RequireUserAsync(_db, _currentUser, cancellationToken);
+        var bill = await QueryBill().FirstOrDefaultAsync(b => b.Uuid == uuid && b.UserId == user.Id, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Bill not found.");
+
+        var agencyId = bill.Entry?.AgencyId;
+        if (agencyId is null)
+        {
+            var globalEnabled = await PaymentSettingsReader.IsPayMongoEnabledAsync(_db, cancellationToken);
+            return new BillPaymentOptionsDto(globalEnabled, true, globalEnabled ? "paymongo" : "simulated", null);
+        }
+
+        var agencySettings = await _db.AgencyPaymentSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.AgencyId == agencyId.Value, cancellationToken);
+        var gateway = await PaymentSettingsReader.ResolveForAgencyAsync(_db, agencyId.Value, _configuration, cancellationToken);
+
+        return new BillPaymentOptionsDto(
+            gateway.PayMongoEnabled,
+            gateway.CashPaymentEnabled,
+            gateway.Mode,
+            agencySettings?.CashPaymentInstructions);
+    }
+
     public async Task<InitiateBillPaymentResultDto> InitiatePaymentAsync(Guid uuid, PayBillRequest request, CancellationToken cancellationToken = default)
     {
         var user = await UserContextHelper.RequireUserAsync(_db, _currentUser, cancellationToken);
         var bill = await QueryBill().FirstOrDefaultAsync(b => b.Uuid == uuid && b.UserId == user.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Bill not found.");
-        if (bill.Status == ClientBillStatus.Paid)
-            throw new ClientPortalException("ALREADY_PAID", "Bill is already paid.");
-
-        var existingPending = FindReusableCheckoutSession(bill);
-
-        if (existingPending is not null)
-        {
-            return new InitiateBillPaymentResultDto(
-                "paymongo",
-                existingPending.ExternalReference,
-                existingPending.PaymentUrl,
-                Map(bill));
-        }
-
-        var paymentReference = $"PAY-{DateTime.UtcNow:yyyyMMdd}-{bill.Id:D5}";
-        var successUrl = BuildPaymentReturnUrl(bill.Uuid, "success");
-        var cancelUrl = BuildPaymentReturnUrl(bill.Uuid, "cancelled");
-        PaymentIntentResult intent;
-        try
-        {
-            intent = await _paymentGateway.CreatePaymentIntentAsync(
-                bill.Amount,
-                bill.Description,
-                paymentReference,
-                request.PaymentMethod,
-                successUrl,
-                cancelUrl,
-                cancellationToken);
-        }
-        catch (InvalidOperationException ex)
-        {
-            throw new ClientPortalException("PAYMONGO_ERROR", ex.Message);
-        }
-
-        if (intent.Mode == "simulated")
-        {
-            var paid = await CompleteBillPaymentAsync(bill, request.PaymentMethod, paymentReference, null, cancellationToken);
-            return new InitiateBillPaymentResultDto("simulated", paymentReference, null, paid);
-        }
-
-        ExpirePendingPayments(bill);
-        bill.Status = ClientBillStatus.Pending;
-        bill.Payments.Add(new ClientBillPayment
-        {
-            Amount = bill.Amount,
-            PaymentMethod = request.PaymentMethod,
-            ExternalReference = paymentReference,
-            GatewayTransactionId = intent.GatewayTransactionId,
-            PaymentUrl = intent.PaymentUrl,
-            Status = "pending"
-        });
-        await _db.SaveChangesAsync(cancellationToken);
-        return new InitiateBillPaymentResultDto(intent.Mode, paymentReference, intent.PaymentUrl, Map(await QueryBill().FirstAsync(b => b.Id == bill.Id, cancellationToken)));
+        return await InitiateBillPaymentCoreAsync(bill, request, null, cancellationToken);
     }
 
     public async Task<InitiateBillPaymentResultDto> InitiatePaymentByTokenAsync(string token, PayBillRequest request, CancellationToken cancellationToken = default)
     {
         var bill = await QueryBill().FirstOrDefaultAsync(b => b.PaymentLinkToken == token, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Payment link not found.");
+        return await InitiateBillPaymentCoreAsync(bill, request, token, cancellationToken);
+    }
+
+    private async Task<InitiateBillPaymentResultDto> InitiateBillPaymentCoreAsync(
+        ClientBill bill,
+        PayBillRequest request,
+        string? paymentToken,
+        CancellationToken cancellationToken)
+    {
         if (bill.Status == ClientBillStatus.Paid)
-            throw new ClientPortalException("ALREADY_PAID", "Bill is already paid.");
-
-        var existingPending = FindReusableCheckoutSession(bill);
-
-        if (existingPending is not null)
         {
-            return new InitiateBillPaymentResultDto(
-                "paymongo",
-                existingPending.ExternalReference,
-                existingPending.PaymentUrl,
-                Map(bill));
+            throw new ClientPortalException("ALREADY_PAID", "Bill is already paid.");
+        }
+
+        var agencyId = bill.Entry?.AgencyId;
+        var gateway = agencyId is long resolvedAgencyId
+            ? await PaymentSettingsReader.ResolveForAgencyAsync(_db, resolvedAgencyId, _configuration, cancellationToken)
+            : null;
+
+        if (string.Equals(request.PaymentMethod, "cash", StringComparison.OrdinalIgnoreCase))
+        {
+            if (gateway is not null && !gateway.CashPaymentEnabled)
+            {
+                throw new ClientPortalException("CASH_DISABLED", "Cash payment is not enabled for this agency.");
+            }
+
+            var orNumber = request.PaymentReference?.Trim();
+            if (string.IsNullOrWhiteSpace(orNumber))
+            {
+                throw new ClientPortalException("PAYMENT_REFERENCE_REQUIRED", "Official receipt / OR number is required for cash payment.");
+            }
+
+            ExpirePendingPayments(bill);
+            bill.Status = ClientBillStatus.Pending;
+            bill.Payments.Add(new ClientBillPayment
+            {
+                Amount = bill.Amount,
+                PaymentMethod = "cash",
+                ExternalReference = orNumber,
+                Status = "awaiting_verification"
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+
+            var mapped = Map(await QueryBill().FirstAsync(b => b.Id == bill.Id, cancellationToken));
+            return new InitiateBillPaymentResultDto("cash", orNumber, null, mapped);
         }
 
         var paymentReference = $"PAY-{DateTime.UtcNow:yyyyMMdd}-{bill.Id:D5}";
-        var successUrl = BuildPaymentReturnUrl(bill.Uuid, "success", token);
-        var cancelUrl = BuildPaymentReturnUrl(bill.Uuid, "cancelled", token);
+        var successUrl = BuildPaymentReturnUrl(bill.Uuid, "success", paymentToken, request.ReturnBaseUrl);
+        var cancelUrl = BuildPaymentReturnUrl(bill.Uuid, "cancelled", paymentToken, request.ReturnBaseUrl);
         PaymentIntentResult intent;
         try
         {
@@ -867,6 +878,7 @@ public class ClientBillService : IClientBillService
                 request.PaymentMethod,
                 successUrl,
                 cancelUrl,
+                agencyId,
                 cancellationToken);
         }
         catch (InvalidOperationException ex)
@@ -945,16 +957,25 @@ public class ClientBillService : IClientBillService
     {
         var payment = await _db.ClientBillPayments
             .Include(p => p.ClientBill).ThenInclude(b => b.Entry)
-            .FirstOrDefaultAsync(p => p.ExternalReference == paymentReference, cancellationToken)
+            .Where(p =>
+                p.ExternalReference == paymentReference ||
+                p.GatewayTransactionId == paymentReference)
+            .OrderByDescending(p => p.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Payment not found.");
 
         if (payment.ClientBill.Status == ClientBillStatus.Paid) return;
-        await CompleteBillPaymentAsync(payment.ClientBill, payment.PaymentMethod, paymentReference, gatewayTransactionId, cancellationToken);
+        await CompleteBillPaymentAsync(
+            payment.ClientBill,
+            payment.PaymentMethod,
+            payment.ExternalReference ?? paymentReference,
+            gatewayTransactionId ?? payment.GatewayTransactionId,
+            cancellationToken);
     }
 
-    private string BuildPaymentReturnUrl(Guid billUuid, string status, string? paymentToken = null)
+    private string BuildPaymentReturnUrl(Guid billUuid, string status, string? paymentToken = null, string? returnBaseUrl = null)
     {
-        var publicBase = (_configuration["App:PublicBaseUrl"] ?? "http://localhost:5173").TrimEnd('/');
+        var publicBase = ResolveReturnBaseUrl(returnBaseUrl);
         var url = $"{publicBase}/client/payment/return/{billUuid}?status={status}";
         if (!string.IsNullOrWhiteSpace(paymentToken))
         {
@@ -964,20 +985,37 @@ public class ClientBillService : IClientBillService
         return url;
     }
 
-    private static ClientBillPayment? FindReusableCheckoutSession(ClientBill bill)
+    private string ResolveReturnBaseUrl(string? requested)
     {
-        if (bill.Status != ClientBillStatus.Pending)
+        var configured = (_configuration["App:PublicBaseUrl"] ?? "http://localhost:5173").TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(requested))
         {
-            return null;
+            return configured;
         }
 
-        return bill.Payments
-            .Where(p =>
-                p.Status == "pending" &&
-                !string.IsNullOrWhiteSpace(p.PaymentUrl) &&
-                p.GatewayTransactionId?.StartsWith("cs_", StringComparison.OrdinalIgnoreCase) == true)
-            .OrderByDescending(p => p.CreatedAt)
-            .FirstOrDefault();
+        if (!Uri.TryCreate(requested.Trim(), UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return configured;
+        }
+
+        var origin = uri.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+        var allowed = _configuration.GetSection("Cors:AllowedOrigins").GetChildren()
+            .Select(item => item.Value)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Cast<string>()
+            .Concat(new[]
+            {
+                configured,
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "https://dimgrey-hummingbird-677957.hostingersite.com",
+            })
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.TrimEnd('/'))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return allowed.Contains(origin) ? origin : configured;
     }
 
     private static void ExpirePendingPayments(ClientBill bill)
@@ -1002,7 +1040,7 @@ public class ClientBillService : IClientBillService
 
         if (pendingPayments.Count == 0)
         {
-            throw new ClientPortalException("NOT_FOUND", "No pending payment found.");
+            return Map(bill);
         }
 
         ClientBillPayment? paidPending = null;
@@ -1022,13 +1060,13 @@ public class ClientBillService : IClientBillService
 
         if (paidPending is null)
         {
-            throw new ClientPortalException("PAYMENT_PENDING", "Payment has not been completed yet.");
+            return Map(bill);
         }
 
         return await CompleteBillPaymentAsync(
             bill,
             paidPending.PaymentMethod,
-            paidPending.ExternalReference,
+            paidPending.ExternalReference ?? string.Empty,
             paidPending.GatewayTransactionId,
             cancellationToken);
     }
@@ -1059,10 +1097,11 @@ public class ClientBillService : IClientBillService
             });
         }
 
+        Entry? paidEntry = null;
         if (bill.EntryId is not null)
         {
-            var entry = await _db.Entries.FirstAsync(e => e.Id == bill.EntryId, cancellationToken);
-            entry.PaymentStatus = PaymentStatus.Paid;
+            paidEntry = await _db.Entries.FirstAsync(e => e.Id == bill.EntryId, cancellationToken);
+            paidEntry.PaymentStatus = PaymentStatus.Paid;
         }
 
         if (bill.WarehouseBookingId is long warehouseBookingId)
@@ -1084,6 +1123,27 @@ public class ClientBillService : IClientBillService
             "Bill",
             bill.Uuid.ToString(),
             cancellationToken);
+
+        if (paidEntry is not null)
+        {
+            if (bill.AgencyBillingId is not null)
+            {
+                await AgencyBillingClientBillHelper.TryCompleteAgencyBillingFromClientBillAsync(
+                    _db,
+                    _workflow,
+                    bill,
+                    bill.UserId,
+                    cancellationToken);
+            }
+            else
+            {
+                await AgencyEvaluatorNotificationHelper.NotifyEntryReadyForEvaluationAsync(
+                    _db,
+                    _notifications,
+                    paidEntry,
+                    cancellationToken);
+            }
+        }
 
         return Map(await QueryBill().FirstAsync(b => b.Id == bill.Id, cancellationToken));
     }
@@ -1225,6 +1285,7 @@ public class ClientContainerService : IClientContainerService
         var container = await _db.Containers
             .Include(c => c.Entry).ThenInclude(e => e.Agency)
             .Include(c => c.Inventories).ThenInclude(i => i.WarehouseFacility)
+            .Include(c => c.TransportTags)
             .Where(c => c.Uuid == uuid && c.Entry.UserId == user.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -1249,6 +1310,20 @@ public class ClientContainerService : IClientContainerService
                 b.ScheduledDate))
             .ToListAsync(cancellationToken);
 
+        var transportTag = container.TransportTags
+            .OrderByDescending(t => t.TaggedAt)
+            .FirstOrDefault();
+
+        ClientContainerTransportTagDto? transportTagDto = transportTag is null
+            ? null
+            : new ClientContainerTransportTagDto(
+                transportTag.Uuid,
+                transportTag.ScheduledWarehouseDate.HasValue
+                    ? DateOnly.FromDateTime(transportTag.ScheduledWarehouseDate.Value)
+                    : null,
+                transportTag.TaggedAt,
+                transportTag.QrCodeData);
+
         return new ClientContainerDetailDto(
             container.Uuid,
             container.SequenceNumber,
@@ -1269,7 +1344,8 @@ public class ClientContainerService : IClientContainerService
             blockedReason,
             ClientContainerProcessHelper.BuildProcessSteps(container),
             ClientContainerProcessHelper.MapWarehouseInfo(container),
-            bookings);
+            bookings,
+            transportTagDto);
     }
 }
 

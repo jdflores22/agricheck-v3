@@ -65,19 +65,24 @@ public class MavApplicationPeriodService : IMavApplicationPeriodService
     public async Task<IReadOnlyList<MavApplicationPeriodListItemDto>> ListOpenAsync(CancellationToken cancellationToken = default)
     {
         await MavContextHelper.RequireImporterAsync(_db, _currentUser, cancellationToken);
-        return await MapList(_db.MavApplicationPeriods.Where(p => p.Status == MavApplicationPeriodStatus.Open), cancellationToken);
+        return await MapList(
+            _db.MavApplicationPeriods.Include(p => p.Agency).Where(p => p.Status == MavApplicationPeriodStatus.Open),
+            cancellationToken);
     }
 
     public async Task<IReadOnlyList<MavApplicationPeriodListItemDto>> ListAdminAsync(CancellationToken cancellationToken = default)
     {
         await MavContextHelper.RequireMavStaffAsync(_db, _currentUser, cancellationToken);
-        return await MapList(_db.MavApplicationPeriods, cancellationToken);
+        return await MapList(_db.MavApplicationPeriods.Include(p => p.Agency), cancellationToken);
     }
 
     public async Task<MavApplicationPeriodDetailDto?> GetAsync(Guid uuid, CancellationToken cancellationToken = default)
     {
         await MavContextHelper.RequireImporterAsync(_db, _currentUser, cancellationToken);
-        var period = await _db.MavApplicationPeriods.Include(p => p.CommodityAllocations).FirstOrDefaultAsync(p => p.Uuid == uuid, cancellationToken);
+        var period = await _db.MavApplicationPeriods
+            .Include(p => p.Agency)
+            .Include(p => p.CommodityAllocations)
+            .FirstOrDefaultAsync(p => p.Uuid == uuid, cancellationToken);
         return period is null ? null : MapDetail(period);
     }
 
@@ -102,13 +107,13 @@ public class MavApplicationPeriodService : IMavApplicationPeriodService
         _db.MavApplicationPeriods.Add(period);
         MavAuditHelper.Write(_db, admin.Id, "application_period", period.Uuid.ToString(), "created");
         await _db.SaveChangesAsync(cancellationToken);
-        return MapDetail(await _db.MavApplicationPeriods.Include(p => p.CommodityAllocations).FirstAsync(p => p.Id == period.Id, cancellationToken));
+        return MapDetail(await _db.MavApplicationPeriods.Include(p => p.Agency).Include(p => p.CommodityAllocations).FirstAsync(p => p.Id == period.Id, cancellationToken));
     }
 
     public async Task<MavApplicationPeriodDetailDto> OpenAsync(Guid uuid, CancellationToken cancellationToken = default)
     {
         var admin = await MavContextHelper.RequireMavAdminAsync(_db, _currentUser, cancellationToken);
-        var period = await _db.MavApplicationPeriods.Include(p => p.CommodityAllocations).FirstOrDefaultAsync(p => p.Uuid == uuid, cancellationToken)
+        var period = await _db.MavApplicationPeriods.Include(p => p.Agency).Include(p => p.CommodityAllocations).FirstOrDefaultAsync(p => p.Uuid == uuid, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Application period not found.");
         period.Status = MavApplicationPeriodStatus.Open;
         MavAuditHelper.Write(_db, admin.Id, "application_period", period.Uuid.ToString(), "opened");
@@ -119,7 +124,7 @@ public class MavApplicationPeriodService : IMavApplicationPeriodService
     public async Task<MavApplicationPeriodDetailDto> CloseAsync(Guid uuid, CancellationToken cancellationToken = default)
     {
         var admin = await MavContextHelper.RequireMavAdminAsync(_db, _currentUser, cancellationToken);
-        var period = await _db.MavApplicationPeriods.Include(p => p.CommodityAllocations).FirstOrDefaultAsync(p => p.Uuid == uuid, cancellationToken)
+        var period = await _db.MavApplicationPeriods.Include(p => p.Agency).Include(p => p.CommodityAllocations).FirstOrDefaultAsync(p => p.Uuid == uuid, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Application period not found.");
         period.Status = MavApplicationPeriodStatus.Closed;
         MavAuditHelper.Write(_db, admin.Id, "application_period", period.Uuid.ToString(), "closed");
@@ -146,7 +151,7 @@ public class MavApplicationPeriodService : IMavApplicationPeriodService
                 CommodityName = request.CommodityName,
                 TotalVolume = request.TotalVolume,
                 MinimumImportVolume = request.MinimumImportVolume,
-                AgencyId = request.AgencyId
+                AgencyId = request.AgencyId ?? period.AgencyId
             };
             _db.MavCommodityAllocations.Add(allocation);
         }
@@ -155,7 +160,7 @@ public class MavApplicationPeriodService : IMavApplicationPeriodService
             allocation.TotalVolume = request.TotalVolume;
             allocation.CommodityName = request.CommodityName;
             allocation.MinimumImportVolume = request.MinimumImportVolume;
-            allocation.AgencyId = request.AgencyId;
+            allocation.AgencyId = request.AgencyId ?? period.AgencyId;
         }
 
         MavAuditHelper.Write(_db, admin.Id, "commodity_allocation", allocation.Id.ToString(), "upserted");
@@ -163,14 +168,58 @@ public class MavApplicationPeriodService : IMavApplicationPeriodService
         return MapAllocation(allocation);
     }
 
+    public async Task<MavAgencyContextDto> GetAgencyContextAsync(long agencyId, CancellationToken cancellationToken = default)
+    {
+        var user = await MavContextHelper.RequireImporterAsync(_db, _currentUser, cancellationToken);
+        var agency = await _db.Agencies.FirstOrDefaultAsync(a => a.Id == agencyId, cancellationToken);
+        var now = DateTime.UtcNow;
+        var openPeriodCount = await _db.MavApplicationPeriods.CountAsync(
+            p => p.Status == MavApplicationPeriodStatus.Open && p.AgencyId == agencyId,
+            cancellationToken);
+        var hsPrefixes = await _db.MavHsCategories
+            .Where(c => c.IsActive && c.AgencyId == agencyId)
+            .Select(c => c.HsCode)
+            .ToListAsync(cancellationToken);
+        var licenseHsCodes = await _db.MavLicenses
+            .Where(l => l.ImporterId == user.Id && l.Status == MavLicenseStatus.Active && l.ExpiresAt >= now)
+            .Select(l => l.HsCode)
+            .ToListAsync(cancellationToken);
+        var micHsCodes = await _db.MavImportCertificates
+            .Where(m =>
+                m.ImporterId == user.Id
+                && m.Status != MavImportCertificateStatus.Expired
+                && m.ExpiresAt >= now
+                && m.AuthorizedVolume > m.UtilizedVolume)
+            .Select(m => m.HsCode)
+            .ToListAsync(cancellationToken);
+        var activeLicenseCount = hsPrefixes.Count == 0
+            ? licenseHsCodes.Count
+            : licenseHsCodes.Count(hs => hsPrefixes.Any(prefix => hs.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)));
+        var availableMicCount = hsPrefixes.Count == 0
+            ? micHsCodes.Count
+            : micHsCodes.Count(hs => hsPrefixes.Any(prefix => hs.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)));
+        var isProgramAvailable = openPeriodCount > 0 || hsPrefixes.Count > 0;
+        var importerHasMavAccess = activeLicenseCount > 0 || availableMicCount > 0;
+
+        return new MavAgencyContextDto(
+            agencyId,
+            isProgramAvailable,
+            openPeriodCount,
+            activeLicenseCount,
+            availableMicCount,
+            agency?.Code,
+            isProgramAvailable,
+            importerHasMavAccess);
+    }
+
     private async Task<IReadOnlyList<MavApplicationPeriodListItemDto>> MapList(IQueryable<MavApplicationPeriod> query, CancellationToken cancellationToken) =>
         await query.OrderByDescending(p => p.MavYear).Select(p => new MavApplicationPeriodListItemDto(
             p.Uuid, p.MavYear, p.PoolType.ToString(), p.Status.ToString(), p.OpeningDate, p.ClosingDate,
-            p.Applications.Count, p.CommodityAllocations.Count)).ToListAsync(cancellationToken);
+            p.Applications.Count, p.CommodityAllocations.Count, p.AgencyId, p.Agency != null ? p.Agency.Code : null)).ToListAsync(cancellationToken);
 
     private static MavApplicationPeriodDetailDto MapDetail(MavApplicationPeriod period) => new(
         period.Uuid, period.MavYear, period.PoolType.ToString(), period.Status.ToString(), period.OpeningDate, period.ClosingDate,
-        period.CommodityAllocations.Select(MapAllocation).ToList());
+        period.CommodityAllocations.Select(MapAllocation).ToList(), period.AgencyId, period.Agency?.Code);
 
     private static MavCommodityAllocationDto MapAllocation(MavCommodityAllocation a) => new(
         a.Id, a.HsCode, a.CommodityName, a.TotalVolume, a.AllocatedVolume, a.TotalVolume - a.AllocatedVolume, a.MinimumImportVolume);

@@ -336,6 +336,11 @@ public class ClientBillsController : ClientPortalControllerBase
     public async Task<ActionResult<ApiResponse<ClientBillDto>>> Pay(Guid uuid, [FromBody] PayBillRequest request, CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.PayAsync(uuid, request, cancellationToken));
 
+    [HttpGet("{uuid:guid}/payment-options")]
+    [Authorize(Roles = "ROLE_IMPORTER,ROLE_EXPORTER,ROLE_BROKER,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<BillPaymentOptionsDto>>> PaymentOptions(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.GetPaymentOptionsAsync(uuid, cancellationToken));
+
     [HttpPost("{uuid:guid}/initiate")]
     [Authorize(Roles = "ROLE_IMPORTER,ROLE_EXPORTER,ROLE_BROKER,ROLE_ADMIN")]
     public async Task<ActionResult<ApiResponse<InitiateBillPaymentResultDto>>> Initiate(Guid uuid, [FromBody] PayBillRequest request, CancellationToken cancellationToken) =>
@@ -537,6 +542,20 @@ public class ClientContainerInspectionsController : ClientPortalControllerBase
         return await ExecuteAsync(() => _service.UploadPhotoAsync(
             containerUuid, parsed, stream, file.FileName, file.ContentType, cancellationToken));
     }
+
+    [HttpGet("photos/{photoUuid:guid}/download")]
+    public async Task<IActionResult> DownloadPhoto(Guid entryUuid, Guid photoUuid, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var download = await _service.DownloadPhotoForClientAsync(entryUuid, photoUuid, cancellationToken);
+            return PhysicalFile(download.PhysicalPath, download.ContentType, download.DownloadFileName);
+        }
+        catch (ClientPortalException ex) when (ex.Code == "NOT_FOUND")
+        {
+            return NotFound(ApiResponse<object>.Fail(ex.Code, ex.Message));
+        }
+    }
 }
 
 [ApiController]
@@ -555,18 +574,107 @@ public class AgencyWorkflowController : AgencyPortalControllerBase
         _transportTagService = transportTagService;
     }
 
+    [HttpGet("container-inspections")]
+    [Authorize(Roles = "ROLE_INSPECTOR,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<PagedResult<AgencyContainerInspectionQueueItemDto>>>> ListContainerInspectionQueue(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string scope = "unclaimed",
+        CancellationToken cancellationToken = default) =>
+        await ExecuteAsync(() => _inspectionService.ListInspectionQueueForAgencyAsync(page, pageSize, scope, cancellationToken));
+
+    [HttpPost("containers/{containerUuid:guid}/claim")]
+    [Authorize(Roles = "ROLE_INSPECTOR,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<AgencyContainerInspectionDetailDto>>> ClaimContainerInspection(
+        Guid containerUuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _inspectionService.ClaimContainerInspectionAsync(containerUuid, cancellationToken));
+
+    [HttpGet("entries/{entryUuid:guid}/container-inspections")]
+    [Authorize(Roles = "ROLE_INSPECTOR,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<ClientContainerInspectionStatusDto>>>> ListEntryContainerInspections(
+        Guid entryUuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _inspectionService.ListForAgencyEntryAsync(entryUuid, cancellationToken));
+
+    [HttpGet("containers/{containerUuid:guid}")]
+    [Authorize(Roles = "ROLE_INSPECTOR,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<AgencyContainerInspectionDetailDto>>> GetContainerInspectionDetail(
+        Guid containerUuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _inspectionService.GetContainerInspectionDetailAsync(containerUuid, cancellationToken));
+
+    [HttpGet("entries/{entryUuid:guid}/certificate/pdf")]
+    public async Task<IActionResult> DownloadEntryCertificate(Guid entryUuid, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var download = await _inspectionService.GetEntryCertificatePdfForAgencyAsync(entryUuid, cancellationToken);
+            if (download is null)
+            {
+                return NotFound(ApiResponse<object>.Fail("NOT_FOUND", "Entry certificate PDF not found."));
+            }
+
+            return PhysicalFile(download.PhysicalPath, download.ContentType, download.DownloadFileName);
+        }
+        catch (ClientPortalException ex) when (ex.Code == "NOT_FOUND")
+        {
+            return NotFound(ApiResponse<object>.Fail(ex.Code, ex.Message));
+        }
+    }
+
     [HttpPost("inspection-photos/{photoUuid:guid}/review")]
+    [Authorize(Roles = "ROLE_INSPECTOR,ROLE_ADMIN")]
     public async Task<ActionResult<ApiResponse<ClientContainerInspectionPhotoDto>>> ReviewPhoto(
         Guid photoUuid,
         [FromBody] ReviewContainerInspectionPhotoRequest request,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _inspectionService.ReviewPhotoAsync(photoUuid, request, cancellationToken));
 
+    [HttpPost("containers/{containerUuid:guid}/complete")]
+    [Authorize(Roles = "ROLE_INSPECTOR,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<AgencyContainerInspectionDetailDto>>> CompleteContainerInspection(
+        Guid containerUuid,
+        [FromBody] CompleteContainerInspectionRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _inspectionService.CompleteContainerInspectionAsync(containerUuid, request, cancellationToken));
+
+    [HttpGet("inspection-photos/{photoUuid:guid}/download")]
+    public async Task<IActionResult> DownloadInspectionPhoto(Guid photoUuid, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var download = await _inspectionService.DownloadPhotoForAgencyAsync(photoUuid, cancellationToken);
+            return PhysicalFile(download.PhysicalPath, download.ContentType, download.DownloadFileName);
+        }
+        catch (ClientPortalException ex) when (ex.Code == "NOT_FOUND")
+        {
+            return NotFound(ApiResponse<object>.Fail(ex.Code, ex.Message));
+        }
+    }
+
+    [HttpGet("transport-tags/ready")]
+    public async Task<ActionResult<ApiResponse<TransportTagQueuesDto>>> ListTransportTagQueues(
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _transportTagService.ListTransportTagQueuesAsync(cancellationToken));
+
+    [HttpGet("transport-tags/containers/{containerUuid:guid}")]
+    public async Task<ActionResult<ApiResponse<TransportTagContainerDetailDto>>> GetTransportTagContainerDetail(
+        Guid containerUuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _transportTagService.GetTransportTagContainerDetailAsync(containerUuid, cancellationToken));
+
     [HttpPost("transport-tags")]
-    public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> AddTransportTag(
+    public async Task<ActionResult<ApiResponse<AddTransportTagResultDto>>> AddTransportTag(
         [FromBody] AddTransportTagRequest request,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _transportTagService.AddTransportTagAsync(request, cancellationToken));
+
+    [HttpGet("transport-tags/{tagUuid:guid}")]
+    public async Task<ActionResult<ApiResponse<AddTransportTagResultDto>>> GetTransportTag(
+        Guid tagUuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _transportTagService.GetTransportTagAsync(tagUuid, cancellationToken));
 }
 
 [ApiController]
@@ -588,6 +696,12 @@ public class OperatorContainersController : OpsPortalControllerBase
         Guid uuid,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.ClaimContainerAsync(uuid, cancellationToken));
+
+    [HttpPost("scan")]
+    public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> ScanAndClaim(
+        [FromBody] ScanTransportQrRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ClaimContainerByQrAsync(request, cancellationToken));
 
     [HttpPost("{uuid:guid}/assign-driver")]
     public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> AssignDriver(
@@ -649,7 +763,9 @@ public class PayMongoWebhookController : ControllerBase
     {
         using var reader = new StreamReader(Request.Body);
         var payload = await reader.ReadToEndAsync(cancellationToken);
-        var signature = Request.Headers["X-PayMongo-Signature"].FirstOrDefault() ?? string.Empty;
+        var signature = Request.Headers["Paymongo-Signature"].FirstOrDefault()
+            ?? Request.Headers["X-PayMongo-Signature"].FirstOrDefault()
+            ?? string.Empty;
 
         if (!await _paymentGateway.VerifyWebhookSignatureAsync(payload, signature, cancellationToken))
         {
@@ -666,7 +782,14 @@ public class PayMongoWebhookController : ControllerBase
 
         if (parsed.Value.Status is "succeeded" or "paid")
         {
-            await _billService.CompletePaymentByReferenceAsync(parsed.Value.PaymentReference, null, cancellationToken);
+            try
+            {
+                await _billService.CompletePaymentByReferenceAsync(parsed.Value.PaymentReference, null, cancellationToken);
+            }
+            catch (ClientPortalException ex) when (ex.Code is "NOT_FOUND" or "ALREADY_PAID")
+            {
+                _logger.LogInformation("PayMongo webhook skipped {Code}: {Message}", ex.Code, ex.Message);
+            }
         }
 
         return Ok(new { received = true });

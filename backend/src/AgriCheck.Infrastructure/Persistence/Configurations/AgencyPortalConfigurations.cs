@@ -20,6 +20,22 @@ public class EvaluatorAssignmentConfiguration : IEntityTypeConfiguration<Evaluat
     }
 }
 
+public class InspectorAssignmentConfiguration : IEntityTypeConfiguration<InspectorAssignment>
+{
+    public void Configure(EntityTypeBuilder<InspectorAssignment> builder)
+    {
+        builder.ToTable("inspector_assignments");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Uuid).IsRequired();
+        builder.HasIndex(x => x.Uuid).IsUnique();
+        builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+        builder.HasOne(x => x.Container).WithMany(x => x.InspectorAssignments).HasForeignKey(x => x.ContainerId);
+        builder.HasOne(x => x.Agency).WithMany().HasForeignKey(x => x.AgencyId);
+        builder.HasOne(x => x.Inspector).WithMany().HasForeignKey(x => x.InspectorUserId);
+        builder.HasIndex(x => new { x.ContainerId, x.InspectorUserId, x.Status });
+    }
+}
+
 public class FileEvaluationConfiguration : IEntityTypeConfiguration<FileEvaluation>
 {
     public void Configure(EntityTypeBuilder<FileEvaluation> builder)
@@ -105,6 +121,20 @@ public class InspectionPhotoConfiguration : IEntityTypeConfiguration<InspectionP
         builder.Property(x => x.Uuid).IsRequired();
         builder.HasIndex(x => x.Uuid).IsUnique();
         builder.HasOne(x => x.Inspection).WithMany(x => x.Photos).HasForeignKey(x => x.InspectionId);
+    }
+}
+
+public class AgencyBillingChargeConfiguration : IEntityTypeConfiguration<AgencyBillingCharge>
+{
+    public void Configure(EntityTypeBuilder<AgencyBillingCharge> builder)
+    {
+        builder.ToTable("billing_charges");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Uuid).IsRequired();
+        builder.HasIndex(x => x.Uuid).IsUnique();
+        builder.Property(x => x.Description).HasMaxLength(256).IsRequired();
+        builder.Property(x => x.Amount).HasPrecision(12, 2);
+        builder.HasOne(x => x.AgencyBilling).WithMany(x => x.Charges).HasForeignKey(x => x.AgencyBillingId);
     }
 }
 

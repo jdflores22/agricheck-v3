@@ -21,6 +21,7 @@ public interface IEvaluatorService
     Task AddNoteAsync(Guid entryUuid, AddEvaluatorNoteRequest request, CancellationToken cancellationToken = default);
     Task CompleteEvaluationAsync(Guid entryUuid, CompleteEvaluationRequest request, CancellationToken cancellationToken = default);
     Task<PagedResult<AgencyEntryListItemDto>> ListApprovedEntriesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<PagedResult<AgencyEntryListItemDto>> ListEntriesAwaitingBillingAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<StoredFileDownload> DownloadFileAsync(Guid entryUuid, Guid fileUuid, CancellationToken cancellationToken = default);
     Task<StoredFileDownload> DownloadFileVersionAsync(Guid entryUuid, Guid fileUuid, int versionNumber, CancellationToken cancellationToken = default);
 }
@@ -38,7 +39,10 @@ public interface IInspectionService
 public interface IAgencyBillingService
 {
     Task<PagedResult<AgencyBillingListItemDto>> ListAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<AgencyBillingDetailDto> GetAsync(Guid uuid, CancellationToken cancellationToken = default);
+    Task<AgencyBillingEntryContextDto> GetAwaitingEntryContextAsync(Guid entryUuid, CancellationToken cancellationToken = default);
     Task<AgencyBillingListItemDto> CreateAsync(CreateAgencyBillingRequest request, CancellationToken cancellationToken = default);
+    Task<AgencyBillingListItemDto> UpdateAsync(Guid uuid, UpdateAgencyBillingRequest request, CancellationToken cancellationToken = default);
     Task<AgencyBillingListItemDto> IssueAsync(Guid uuid, CancellationToken cancellationToken = default);
     Task<AgencyBillingListItemDto> MarkPaidAsync(Guid uuid, CancellationToken cancellationToken = default);
     Task<AgencyBillingListItemDto> VerifyPaymentAsync(Guid uuid, VerifyDaBillingPaymentRequest request, CancellationToken cancellationToken = default);
@@ -79,4 +83,17 @@ public record AccreditationCertificateIssueResult(
 public interface ISecretaryReportService
 {
     Task<SecretaryReportDto> GetReportAsync(CancellationToken cancellationToken = default);
+}
+
+public interface IAgencyPaymentConfigService
+{
+    Task<AgencyPaymentSettingsDto> GetSettingsAsync(CancellationToken cancellationToken = default);
+    Task<AgencyPaymentSettingsDto> UpdateSettingsAsync(UpdateAgencyPaymentSettingsRequest request, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AgencyPendingCashPaymentDto>> ListPendingCashPaymentsAsync(CancellationToken cancellationToken = default);
+    Task VerifyCashPaymentAsync(Guid billUuid, VerifyAgencyCashPaymentRequest request, CancellationToken cancellationToken = default);
+}
+
+public interface IAgencyBillingReportService
+{
+    Task<AgencyBillingRevenueReportDto> GetRevenueReportAsync(CancellationToken cancellationToken = default);
 }

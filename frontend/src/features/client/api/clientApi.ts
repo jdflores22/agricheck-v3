@@ -125,6 +125,7 @@ export interface EntryListItem {
   agencyCode: string
   commodityName?: string
   createdAt: string
+  updatedAt: string
   submittedAt?: string
   paymentStatus: string
   paymentAmount?: number
@@ -173,6 +174,13 @@ export interface ClientContainerWarehouseInfo {
   status?: string
 }
 
+export interface ClientContainerTransportTag {
+  tagUuid: string
+  scheduledWarehouseDate?: string | null
+  taggedAt: string
+  qrCodeData?: string | null
+}
+
 export interface ClientContainerDetail {
   uuid: string
   sequenceNumber: number
@@ -194,6 +202,13 @@ export interface ClientContainerDetail {
   processSteps: ClientContainerProcessStep[]
   warehouseInfo?: ClientContainerWarehouseInfo | null
   bookings: ClientContainerBookingSummary[]
+  transportTag?: ClientContainerTransportTag | null
+}
+
+export interface ClientDaBillingCharge {
+  description: string
+  amount: number
+  sortOrder: number
 }
 
 export interface ClientDaBilling {
@@ -211,6 +226,7 @@ export interface ClientDaBilling {
   paymentProofOriginalFileName?: string
   paymentUploadedAt?: string
   verificationNotes?: string
+  charges?: ClientDaBillingCharge[]
 }
 
 export type ContainerInspectionPhotoType =
@@ -229,6 +245,8 @@ export interface ClientContainerInspectionPhoto {
   reviewDecision: string
   reviewComment?: string
   createdAt: string
+  reviewedAt?: string
+  reviewedByName?: string
 }
 
 export interface ClientContainerInspectionStatus {
@@ -291,6 +309,7 @@ export interface EntryMicUtilization {
 
 export interface EntryMavInfo {
   mavNo?: string
+  importTrack?: string
   mavDocumentStatus: string
   mavRemarks?: string
   mavCertificateFileUuid?: string
@@ -458,6 +477,14 @@ export const clientApi = createApi({
       query: ({ token, paymentMethod }) => ({ url: `/client/bills/pay/${token}/complete`, method: 'POST', body: { paymentMethod } }),
       invalidatesTags: ['Bills', 'Entries', 'Dashboard'],
     }),
+    getBillPaymentOptions: builder.query<ApiEnvelope<{
+      payMongoEnabled: boolean
+      cashPaymentEnabled: boolean
+      gatewayMode: string
+      cashPaymentInstructions?: string | null
+    }>, string>({
+      query: (uuid) => `/client/bills/${uuid}/payment-options`,
+    }),
     initiateBillPayment: builder.mutation<ApiEnvelope<{
       mode: string
       paymentReference: string
@@ -469,8 +496,12 @@ export const clientApi = createApi({
         amount: number
         status: string
       }
-    }>, { uuid: string; paymentMethod: string }>({
-      query: ({ uuid, paymentMethod }) => ({ url: `/client/bills/${uuid}/initiate`, method: 'POST', body: { paymentMethod } }),
+    }>, { uuid: string; paymentMethod: string; returnBaseUrl?: string; paymentReference?: string }>({
+      query: ({ uuid, paymentMethod, returnBaseUrl, paymentReference }) => ({
+        url: `/client/bills/${uuid}/initiate`,
+        method: 'POST',
+        body: { paymentMethod, returnBaseUrl, paymentReference },
+      }),
       invalidatesTags: ['Bills', 'Entries', 'Dashboard'],
     }),
     confirmBillPayment: builder.mutation<ApiEnvelope<{
@@ -709,8 +740,12 @@ export const clientApi = createApi({
       paymentReference: string
       paymentUrl?: string
       bill: { uuid: string; billNumber: string; description: string; amount: number; status: string }
-    }>, { token: string; paymentMethod: string }>({
-      query: ({ token, paymentMethod }) => ({ url: `/client/bills/pay/${token}/initiate`, method: 'POST', body: { paymentMethod } }),
+    }>, { token: string; paymentMethod: string; returnBaseUrl?: string }>({
+      query: ({ token, paymentMethod, returnBaseUrl }) => ({
+        url: `/client/bills/pay/${token}/initiate`,
+        method: 'POST',
+        body: { paymentMethod, returnBaseUrl },
+      }),
       invalidatesTags: ['Bills', 'Entries', 'Dashboard'],
     }),
     getClientForms: builder.query<ApiEnvelope<ClientFormListItem[]>, { agencyId?: number; formType?: string }>({
@@ -787,6 +822,7 @@ export const {
   useCancelBookingMutation,
   usePayBillMutation,
   usePayBillByTokenMutation,
+  useGetBillPaymentOptionsQuery,
   useInitiateBillPaymentMutation,
   useInitiateBillPaymentByTokenMutation,
   useConfirmBillPaymentMutation,

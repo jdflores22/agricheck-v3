@@ -4,6 +4,8 @@ import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined'
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import PreviewOutlinedIcon from '@mui/icons-material/PreviewOutlined'
+import ToggleOffOutlinedIcon from '@mui/icons-material/ToggleOffOutlined'
+import ToggleOnOutlinedIcon from '@mui/icons-material/ToggleOnOutlined'
 import {
   Alert,
   Box,
@@ -32,14 +34,15 @@ import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../componen
 import {
   AdminFormDeleteDialog,
   FORM_DELETE_LIVE_TOOLTIP,
-  isFormTemplateLive,
 } from '../components/AdminFormDeleteDialog'
-import { downloadAdminFormExport, formatFormDate, getFormTypeLabel } from '../adminFormUtils'
+import { downloadAdminFormExport, formatFormDate, getFormActivateTooltip, getFormTypeLabel } from '../adminFormUtils'
+import { getAdminApiErrorMessage } from '../components/adminAgencyUtils'
 import {
   useCloneAdminFormMutation,
   useDeleteAdminFormMutation,
   useGetAdminAgenciesQuery,
   useGetAdminFormQuery,
+  useSetAdminFormActiveMutation,
 } from '../api/adminApi'
 import { FormPreviewPanel } from '../forms/FormPreviewPanel'
 import { FIELD_TYPE_DEFINITIONS, parseFormSchema } from '../../forms/formSchema'
@@ -63,14 +66,17 @@ export function AdminFormViewPage() {
   const { data: agenciesData } = useGetAdminAgenciesQuery()
   const [cloneForm, { isLoading: cloning }] = useCloneAdminFormMutation()
   const [deleteForm, { isLoading: deleting }] = useDeleteAdminFormMutation()
+  const [setFormActive, { isLoading: togglingActive }] = useSetAdminFormActiveMutation()
 
   const [cloneOpen, setCloneOpen] = useState(false)
   const [cloneName, setCloneName] = useState('')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [actionError, setActionError] = useState('')
 
   const template = data?.data
-  const isLive = template ? isFormTemplateLive(template) : false
+  const hasPublishedVersion = template?.versions.some((version) => version.isPublished) ?? false
+  const isLive = Boolean(template?.isActive && hasPublishedVersion)
   const agencies = agenciesData?.data ?? []
 
   const fields = useMemo(
@@ -115,6 +121,21 @@ export function AdminFormViewPage() {
     navigate('/admin/forms')
   }
 
+  const handleSetActive = async (isActive: boolean) => {
+    if (!template) return
+    setActionError('')
+    try {
+      await setFormActive({ uuid: template.uuid, isActive }).unwrap()
+    } catch (error) {
+      setActionError(
+        getAdminApiErrorMessage(
+          error,
+          isActive ? 'Unable to activate this template.' : 'Unable to deactivate this template.',
+        ),
+      )
+    }
+  }
+
   if (isLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
@@ -142,6 +163,25 @@ export function AdminFormViewPage() {
         subtitle={`${getFormTypeLabel(template.formType)} template · v${template.versionNumber}`}
         actions={
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Tooltip
+              title={getFormActivateTooltip({
+                isActive: template.isActive,
+                fieldCount: fields.length,
+                hasPublishedVersion,
+              })}
+            >
+              <span>
+                <Button
+                  variant={template.isActive ? 'outlined' : 'contained'}
+                  startIcon={template.isActive ? <ToggleOffOutlinedIcon /> : <ToggleOnOutlinedIcon />}
+                  sx={template.isActive ? portalOutlinedButtonSx : portalPrimaryButtonSx}
+                  disabled={togglingActive || (!template.isActive && fields.length === 0)}
+                  onClick={() => void handleSetActive(!template.isActive)}
+                >
+                  {template.isActive ? 'Deactivate' : 'Activate'}
+                </Button>
+              </span>
+            </Tooltip>
             <Button
               component={RouterLink}
               to={`/admin/forms/${uuid}/edit`}
@@ -158,9 +198,16 @@ export function AdminFormViewPage() {
         }
       />
 
+      {actionError ? (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError('')}>
+          {actionError}
+        </Alert>
+      ) : null}
+
       <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }}>
         <Chip size="small" label={template.isActive ? 'Active' : 'Inactive'} sx={getStatusBadgeStyle(template.isActive ? 'ACTIVE' : 'PENDING')} />
         <Chip size="small" label={template.status} sx={getStatusBadgeStyle(template.status)} />
+        {isLive ? <Chip size="small" label="Live" sx={getStatusBadgeStyle('ACTIVE')} /> : null}
         <Chip size="small" label={getFormTypeLabel(template.formType)} sx={getStatusBadgeStyle('Submitted')} />
       </Stack>
 
@@ -303,6 +350,26 @@ export function AdminFormViewPage() {
 
             <PortalPanel title="Actions">
               <Stack spacing={1.25} sx={{ p: 2.5, pt: 0 }}>
+                <Tooltip
+                  title={getFormActivateTooltip({
+                    isActive: template.isActive,
+                    fieldCount: fields.length,
+                    hasPublishedVersion,
+                  })}
+                >
+                  <span>
+                    <Button
+                      variant={template.isActive ? 'outlined' : 'contained'}
+                      fullWidth
+                      startIcon={template.isActive ? <ToggleOffOutlinedIcon /> : <ToggleOnOutlinedIcon />}
+                      sx={template.isActive ? portalOutlinedButtonSx : portalPrimaryButtonSx}
+                      disabled={togglingActive || (!template.isActive && fields.length === 0)}
+                      onClick={() => void handleSetActive(!template.isActive)}
+                    >
+                      {template.isActive ? 'Deactivate' : 'Activate'}
+                    </Button>
+                  </span>
+                </Tooltip>
                 <Button
                   component={RouterLink}
                   to={`/admin/forms/${uuid}/edit`}
@@ -356,7 +423,7 @@ export function AdminFormViewPage() {
                 </Tooltip>
                 {isLive ? (
                   <Alert severity="info" sx={{ fontSize: '0.8125rem' }}>
-                    Live templates cannot be deleted. Unpublish or deactivate the template first.
+                    Live templates cannot be deleted. Deactivate the template first.
                   </Alert>
                 ) : null}
               </Stack>

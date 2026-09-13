@@ -8,6 +8,7 @@ import { RequiredDocumentPreviewCard } from '../../client/components/RequiredDoc
 import type { RequiredDocumentViewModel } from '../../client/components/AccreditationSubmissionSummary'
 import {
   FormFieldSchema,
+  formatCommodityHsSummary,
   getAddressValueKeys,
   visibleFormFields,
 } from '../../forms/formSchema'
@@ -27,6 +28,7 @@ type EntrySummary = {
   uuid: string
   referenceNo: string
   entryType: string
+  importTrack?: string
   companyName?: string
   applicantName: string
   submittedAt?: string
@@ -49,6 +51,10 @@ type ComparingDocument = {
 }
 
 function formatFieldValue(field: FormFieldSchema, values: Record<string, string>): string {
+  if (field.type === 'commodity') {
+    return formatCommodityHsSummary(field.name, values) || '—'
+  }
+
   if (field.type === 'address') {
     const keys = getAddressValueKeys(field.name)
     const parts = [
@@ -196,6 +202,12 @@ export function EntryEvaluationSummary({
               <MetaTile label="Reference" value={entry.referenceNo} />
               <MetaTile label="Company" value={entry.companyName || '—'} sub={entry.applicantName} />
               <MetaTile label="Entry Type" value={entry.entryType} />
+              {entry.entryType === 'Import' && entry.importTrack ? (
+                <MetaTile
+                  label="Import Track"
+                  value={entry.importTrack === 'Mav' ? 'MAV (in-quota)' : 'Regular (out-quota)'}
+                />
+              ) : null}
               {formName ? <MetaTile label="Form" value={formName} /> : null}
             </Box>
             {entry.notes ? (

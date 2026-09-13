@@ -34,7 +34,7 @@ internal sealed class TestEmailService : IEmailService
 internal static class TestNotificationFactory
 {
     public static NotificationService Create(AgriCheckDbContext db, TestCurrentUserService user) =>
-        new(db, user, new TestEmailService());
+        new(db, user, new TestEmailService(), new NoOpNotificationRealtimePublisher());
 }
 
 internal static class AgencyTestData

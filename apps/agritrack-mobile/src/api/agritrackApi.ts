@@ -87,6 +87,13 @@ export function claimContainer(uuid: string) {
   })
 }
 
+export function claimContainerByQr(qrData: string) {
+  return apiRequest<ContainerListItem>('/api/mobile/operator/containers/scan', {
+    method: 'POST',
+    body: JSON.stringify({ qrData }),
+  })
+}
+
 export function assignDriver(uuid: string, driverUserUuid: string) {
   return apiRequest<ContainerListItem>(`/api/mobile/operator/containers/${uuid}/assign-driver`, {
     method: 'POST',

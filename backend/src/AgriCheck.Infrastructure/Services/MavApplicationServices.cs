@@ -70,7 +70,7 @@ public class MavApplicationService : IMavApplicationService
             throw new ClientPortalException("INVALID_VOLUME", "Requested volume must be positive.");
         }
 
-        var (hsCode, commodityName, hsDetailId) = await MavHsLibraryService.ResolveApplicationCommodityAsync(_db, request, cancellationToken);
+        var (hsCode, commodityName, hsDetailId) = await MavHsLibraryService.ResolveApplicationCommodityAsync(_db, request, cancellationToken, period.AgencyId);
 
         var app = new MavApplication
         {
@@ -110,7 +110,8 @@ public class MavApplicationService : IMavApplicationService
         var (hsCode, commodityName, hsDetailId) = await MavHsLibraryService.ResolveApplicationCommodityAsync(
             _db,
             new CreateMavApplicationRequest(app.ApplicationPeriod.Uuid, request.HsCode, request.CommodityName, request.RequestedVolume, request.AccreditationSubmissionId, request.HsDetailUuid),
-            cancellationToken);
+            cancellationToken,
+            app.ApplicationPeriod.AgencyId);
 
         app.HsCode = hsCode;
         app.CommodityName = commodityName;
@@ -228,7 +229,7 @@ public class MavApplicationService : IMavApplicationService
 
     private async Task<MavApplication?> LoadApplication(Guid uuid, CancellationToken cancellationToken) =>
         await _db.MavApplications
-            .Include(a => a.ApplicationPeriod)
+            .Include(a => a.ApplicationPeriod).ThenInclude(p => p.Agency)
             .Include(a => a.Importer).ThenInclude(u => u.Profile)
             .Include(a => a.License)
             .FirstOrDefaultAsync(a => a.Uuid == uuid, cancellationToken);
@@ -246,7 +247,8 @@ public class MavApplicationService : IMavApplicationService
     private static MavApplicationDetailDto MapDetail(MavApplication app) => new(
         app.Uuid, app.ReferenceNumber, app.Status.ToString(), app.ApplicationPeriod.Uuid, app.ApplicationPeriod.MavYear,
         app.ApplicationPeriod.PoolType.ToString(), app.HsCode, app.CommodityName, app.RequestedVolume, app.AllocatedVolume,
-        app.SubmittedAt, app.ReviewedAt, app.RejectionReason, app.License?.Uuid);
+        app.SubmittedAt, app.ReviewedAt, app.RejectionReason, app.License?.Uuid,
+        app.ApplicationPeriod.AgencyId, app.ApplicationPeriod.Agency?.Code);
 }
 
 public class MavLicenseService : IMavLicenseService

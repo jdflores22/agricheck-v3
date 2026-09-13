@@ -45,6 +45,7 @@ public class EntryConfiguration : IEntityTypeConfiguration<Entry>
         builder.Property(x => x.PaymentAmount).HasPrecision(12, 2);
         builder.Property(x => x.MavNo).HasMaxLength(64);
         builder.HasIndex(x => x.MavNo).IsUnique();
+        builder.Property(x => x.ImportTrack).HasConversion<string>().HasMaxLength(16);
         builder.Property(x => x.MavDocumentStatus).HasConversion<string>().HasMaxLength(32);
         builder.Property(x => x.MavRemarks).HasMaxLength(2000);
         builder.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
@@ -241,6 +242,8 @@ public class ClientBillConfiguration : IEntityTypeConfiguration<ClientBill>
         builder.Property(x => x.Amount).HasPrecision(12, 2);
         builder.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
         builder.HasOne(x => x.Entry).WithMany(x => x.Bills).HasForeignKey(x => x.EntryId);
+        builder.HasOne<AgencyBilling>().WithMany().HasForeignKey(x => x.AgencyBillingId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasIndex(x => x.AgencyBillingId).IsUnique();
         builder.HasOne(x => x.WarehouseBooking).WithMany().HasForeignKey(x => x.WarehouseBookingId);
     }
 }

@@ -56,6 +56,7 @@ public interface IClientBillService
     Task<ClientBillDto?> GetByPaymentTokenAsync(string token, CancellationToken cancellationToken = default);
     Task<ClientBillDto> PayAsync(Guid uuid, PayBillRequest request, CancellationToken cancellationToken = default);
     Task<ClientBillDto> PayByTokenAsync(string token, PayBillRequest request, CancellationToken cancellationToken = default);
+    Task<BillPaymentOptionsDto> GetPaymentOptionsAsync(Guid uuid, CancellationToken cancellationToken = default);
     Task<InitiateBillPaymentResultDto> InitiatePaymentAsync(Guid uuid, PayBillRequest request, CancellationToken cancellationToken = default);
     Task<InitiateBillPaymentResultDto> InitiatePaymentByTokenAsync(string token, PayBillRequest request, CancellationToken cancellationToken = default);
     Task<ClientBillDto> ConfirmPaymentAsync(Guid uuid, CancellationToken cancellationToken = default);

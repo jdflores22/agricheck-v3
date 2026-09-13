@@ -34,10 +34,15 @@ public static class EntryStatusRules
             or EntryStatus.PartiallyConfirmed
             or EntryStatus.InTransit;
 
+    public static readonly EntryStatus[] SchedulableInspectionStatuses =
+    {
+        EntryStatus.ForInspection,
+        EntryStatus.ReadyForTransport,
+        EntryStatus.AwaitingTransport,
+        EntryStatus.PartiallyConfirmed,
+        EntryStatus.InTransit
+    };
+
     public static bool CanScheduleAgencyInspection(EntryStatus status) =>
-        status is EntryStatus.ForInspection
-            or EntryStatus.ReadyForTransport
-            or EntryStatus.AwaitingTransport
-            or EntryStatus.PartiallyConfirmed
-            or EntryStatus.InTransit;
+        SchedulableInspectionStatuses.Contains(status);
 }

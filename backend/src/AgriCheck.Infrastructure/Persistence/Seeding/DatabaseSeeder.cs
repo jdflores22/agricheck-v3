@@ -14,6 +14,9 @@ namespace AgriCheck.Infrastructure.Persistence.Seeding;
 
 public class DatabaseSeeder : IHostedService
 {
+    private const string LegacyBaiEntrySchema = """[{"name":"commodityName","label":"Commodity","type":"text","required":true},{"name":"quantity","label":"Quantity","type":"number","required":true},{"name":"originCountry","label":"Origin Country","type":"text","required":true},{"name":"mav_no","label":"MAV No.","type":"text","required":true},{"name":"mav_certificate","label":"MAV Certificate","type":"file","required":true,"accept":".pdf"}]""";
+    private const string ConnectedBaiEntrySchema = """[{"name":"commodityName","label":"Commodity","type":"commodity","required":true,"helpText":"Required automatically when MAV is active for this agency."},{"name":"quantity","label":"Quantity","type":"number","required":true},{"name":"originCountry","label":"Origin Country","type":"text","required":true},{"name":"mav_no","label":"MAV No.","type":"text","required":false},{"name":"mav_certificate","label":"MAV Certificate","type":"file","required":false,"accept":".pdf"}]""";
+
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DatabaseSeeder> _logger;
 
@@ -56,6 +59,7 @@ public class DatabaseSeeder : IHostedService
             if (ShouldImportFromV2(configuration, environment))
             {
                 await CertificateTemplateMigrationSeeder.MigrateFromV2Async(db, configuration, environment, _logger, cancellationToken);
+                await CertificateTemplateMigrationSeeder.MigrateEntryTemplatesFromV2Async(db, configuration, environment, _logger, cancellationToken);
                 await EntryFormMigrationSeeder.MigrateFromV2Async(db, configuration, _logger, force: false, cancellationToken);
                 await ContainerFormMigrationSeeder.MigrateFromV2Async(db, configuration, _logger, force: false, cancellationToken);
             }
@@ -285,45 +289,68 @@ public class DatabaseSeeder : IHostedService
         await SeedComplianceChecklistsAsync(db, cancellationToken);
     }
 
+    private static readonly string[] ComplianceChecklistAgencyCodes = { "BAI", "BPI", "BFAR", "SRA", "NTA" };
+
     private static async Task SeedComplianceChecklistsAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
     {
-        if (await db.ComplianceChecklists.AnyAsync(cancellationToken)) return;
+        var agencies = await db.Agencies
+            .Where(a => a.IsActive && ComplianceChecklistAgencyCodes.Contains(a.Code))
+            .ToListAsync(cancellationToken);
 
-        var bai = await db.Agencies.FirstAsync(a => a.Code == "BAI", cancellationToken);
-        var checklist = new ComplianceChecklist
+        foreach (var agency in agencies)
         {
-            AgencyId = bai.Id,
-            Name = "Standard Import Evaluation Checklist",
-            IsActive = true,
-            Items = new List<ComplianceChecklistItem>
+            if (await db.ComplianceChecklists.AnyAsync(c => c.AgencyId == agency.Id, cancellationToken))
             {
-                new() { Label = "Complete application form", SortOrder = 1, IsRequired = true },
-                new() { Label = "Valid health certificate attached", SortOrder = 2, IsRequired = true },
-                new() { Label = "Commodity details verified", SortOrder = 3, IsRequired = true },
-                new() { Label = "Processing fee paid", SortOrder = 4, IsRequired = true },
-                new() { Label = "Supporting documents complete", SortOrder = 5, IsRequired = false }
+                continue;
             }
-        };
 
-        db.ComplianceChecklists.Add(checklist);
+            db.ComplianceChecklists.Add(new ComplianceChecklist
+            {
+                AgencyId = agency.Id,
+                Name = "Standard Import Evaluation Checklist",
+                IsActive = true,
+                Items = new List<ComplianceChecklistItem>
+                {
+                    new() { Label = "Complete application form", SortOrder = 1, IsRequired = true },
+                    new() { Label = "Valid sanitary/phytosanitary certificate attached", SortOrder = 2, IsRequired = true },
+                    new() { Label = "Commodity details verified", SortOrder = 3, IsRequired = true },
+                    new() { Label = "Processing fee paid", SortOrder = 4, IsRequired = true },
+                    new() { Label = "Supporting documents complete", SortOrder = 5, IsRequired = false }
+                }
+            });
+        }
+
         await db.SaveChangesAsync(cancellationToken);
     }
 
     private async Task SeedAgencyStaffAsync(AgriCheckDbContext db, IPasswordService passwordService, CancellationToken cancellationToken)
     {
-        var staff = new (string Email, string Password, string RoleCode, string First, string Last)[]
+        var staff = new (string Email, string Password, string RoleCode, string AgencyCode, string First, string Last)[]
         {
-            ("evaluator@agricheck.local", "Evaluator@12345", "ROLE_EVALUATOR", "BAI", "Evaluator"),
-            ("inspector@agricheck.local", "Inspector@12345", "ROLE_INSPECTOR", "BAI", "Inspector"),
-            ("billing@agricheck.local", "Billing@12345", "ROLE_BILLING_AGENT", "BAI", "Billing Agent"),
-            ("evaluator.bfar@agricheck.local", "Evaluator@12345", "ROLE_EVALUATOR", "BFAR", "Evaluator")
+            ("evaluator@agricheck.local", "Evaluator@12345", "ROLE_EVALUATOR", "BAI", "BAI", "Evaluator"),
+            ("inspector@agricheck.local", "Inspector@12345", "ROLE_INSPECTOR", "BAI", "BAI", "Inspector"),
+            ("inspector.bfar@agricheck.local", "Inspector@12345", "ROLE_INSPECTOR", "BFAR", "BFAR", "Inspector"),
+            ("inspector.bpi@agricheck.local", "Inspector@12345", "ROLE_INSPECTOR", "BPI", "BPI", "Inspector"),
+            ("inspector.sra@agricheck.local", "Inspector@12345", "ROLE_INSPECTOR", "SRA", "SRA", "Inspector"),
+            ("inspector.nta@agricheck.local", "Inspector@12345", "ROLE_INSPECTOR", "NTA", "NTA", "Inspector"),
+            ("billing@agricheck.local", "Billing@12345", "ROLE_BILLING_AGENT", "BAI", "BAI", "Billing Agent"),
+            ("billing.bfar@agricheck.local", "Billing@12345", "ROLE_BILLING_AGENT", "BFAR", "BFAR", "Billing Agent"),
+            ("billing.bpi@agricheck.local", "Billing@12345", "ROLE_BILLING_AGENT", "BPI", "BPI", "Billing Agent"),
+            ("billing.sra@agricheck.local", "Billing@12345", "ROLE_BILLING_AGENT", "SRA", "SRA", "Billing Agent"),
+            ("billing.nta@agricheck.local", "Billing@12345", "ROLE_BILLING_AGENT", "NTA", "NTA", "Billing Agent"),
+            ("evaluator.bfar@agricheck.local", "Evaluator@12345", "ROLE_EVALUATOR", "BFAR", "BFAR", "Evaluator"),
+            ("evaluator.bpi@agricheck.local", "Evaluator@12345", "ROLE_EVALUATOR", "BPI", "BPI", "Evaluator"),
+            ("bai.admin@agricheck.local", "AgencyAdmin@12345", "ROLE_AGENCY_ADMIN", "BAI", "BAI", "Agency Admin"),
+            ("bfar.admin@agricheck.local", "AgencyAdmin@12345", "ROLE_AGENCY_ADMIN", "BFAR", "BFAR", "Agency Admin"),
+            ("bpi.admin@agricheck.local", "AgencyAdmin@12345", "ROLE_AGENCY_ADMIN", "BPI", "BPI", "Agency Admin"),
+            ("sra.admin@agricheck.local", "AgencyAdmin@12345", "ROLE_AGENCY_ADMIN", "SRA", "SRA", "Agency Admin"),
+            ("nta.admin@agricheck.local", "AgencyAdmin@12345", "ROLE_AGENCY_ADMIN", "NTA", "NTA", "Agency Admin"),
         };
 
-        foreach (var (email, password, roleCode, first, last) in staff)
+        foreach (var (email, password, roleCode, agencyCode, first, last) in staff)
         {
             if (await db.Users.AnyAsync(u => u.Email == email, cancellationToken)) continue;
 
-            var agencyCode = email.Contains("bfar", StringComparison.OrdinalIgnoreCase) ? "BFAR" : "BAI";
             var agency = await db.Agencies.FirstAsync(a => a.Code == agencyCode, cancellationToken);
             var role = await db.Roles.FirstAsync(r => r.Code == roleCode, cancellationToken);
             var user = new User
@@ -475,18 +502,73 @@ public class DatabaseSeeder : IHostedService
         _logger.LogInformation("Seeded demo client {Email} with password Importer@12345", email);
     }
 
+    private static async Task EnsureAgencyProcessingFeeConfigsAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
+    {
+        var defaults = new (string AgencyCode, EntryType EntryType, decimal Amount)[]
+        {
+            ("BAI", EntryType.Import, 2500m),
+            ("BAI", EntryType.Export, 1500m),
+            ("BFAR", EntryType.Import, 2000m),
+            ("BPI", EntryType.Import, 2500m),
+            ("SRA", EntryType.Import, 2500m),
+            ("NTA", EntryType.Import, 2500m),
+        };
+
+        foreach (var (agencyCode, entryType, amount) in defaults)
+        {
+            var agency = await db.Agencies.FirstOrDefaultAsync(a => a.Code == agencyCode, cancellationToken);
+            if (agency is null)
+            {
+                continue;
+            }
+
+            var exists = await db.ProcessingFeeConfigs.AnyAsync(
+                c => c.AgencyId == agency.Id && c.EntryType == entryType,
+                cancellationToken);
+            if (exists)
+            {
+                continue;
+            }
+
+            db.ProcessingFeeConfigs.Add(new ProcessingFeeConfig
+            {
+                AgencyId = agency.Id,
+                EntryType = entryType,
+                Amount = amount,
+                Currency = "PHP",
+                IsActive = true
+            });
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task EnsureAgencyPaymentSettingsAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
+    {
+        var agencies = await db.Agencies.Where(a => a.IsActive && a.Code != "DA" && a.Code != "MAV").ToListAsync(cancellationToken);
+        foreach (var agency in agencies)
+        {
+            if (await db.AgencyPaymentSettings.AnyAsync(s => s.AgencyId == agency.Id, cancellationToken))
+            {
+                continue;
+            }
+
+            db.AgencyPaymentSettings.Add(new AgencyPaymentSettings
+            {
+                AgencyId = agency.Id,
+                PayMongoEnabled = false,
+                CashPaymentEnabled = true,
+                CashPaymentInstructions = "Pay at the agency cashier and submit your official receipt (OR) number for verification."
+            });
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     private async Task SeedAdminPortalDataAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
     {
-        if (!await db.ProcessingFeeConfigs.AnyAsync(cancellationToken))
-        {
-            var bai = await db.Agencies.FirstAsync(a => a.Code == "BAI", cancellationToken);
-            var bfar = await db.Agencies.FirstAsync(a => a.Code == "BFAR", cancellationToken);
-            db.ProcessingFeeConfigs.AddRange(
-                new ProcessingFeeConfig { AgencyId = bai.Id, EntryType = EntryType.Import, Amount = 2500m, Currency = "PHP", IsActive = true },
-                new ProcessingFeeConfig { AgencyId = bai.Id, EntryType = EntryType.Export, Amount = 1500m, Currency = "PHP", IsActive = true },
-                new ProcessingFeeConfig { AgencyId = bfar.Id, EntryType = EntryType.Import, Amount = 2000m, Currency = "PHP", IsActive = true });
-            await db.SaveChangesAsync(cancellationToken);
-        }
+        await EnsureAgencyProcessingFeeConfigsAsync(db, cancellationToken);
+        await EnsureAgencyPaymentSettingsAsync(db, cancellationToken);
 
         if (!await db.FormTemplates.AnyAsync(cancellationToken))
         {
@@ -504,7 +586,7 @@ public class DatabaseSeeder : IHostedService
                     {
                         VersionNumber = 1,
                         IsPublished = true,
-                        SchemaJson = """[{"name":"commodityName","label":"Commodity","type":"text","required":true},{"name":"quantity","label":"Quantity","type":"number","required":true},{"name":"originCountry","label":"Origin Country","type":"text","required":true},{"name":"mav_no","label":"MAV No.","type":"text","required":true},{"name":"mav_certificate","label":"MAV Certificate","type":"file","required":true,"accept":".pdf"}]"""
+                        SchemaJson = ConnectedBaiEntrySchema
                     }
                 },
                 AgencyTags = new List<FormAgencyTag> { new() { AgencyId = bai.Id } }
@@ -536,41 +618,7 @@ public class DatabaseSeeder : IHostedService
             await db.SaveChangesAsync(cancellationToken);
         }
 
-        if (!await db.CertificateTemplates.AnyAsync(cancellationToken))
-        {
-            var bai = await db.Agencies.FirstAsync(a => a.Code == "BAI", cancellationToken);
-            var template = new CertificateTemplate
-            {
-                Uuid = Guid.NewGuid(),
-                Name = "Standard Import Certificate",
-                Description = "Default certificate layout for approved import entries",
-                AgencyId = bai.Id,
-                IsActive = true,
-                Versions = new List<CertificateTemplateVersion>
-                {
-                    new()
-                    {
-                        VersionNumber = 1,
-                        IsPublished = true,
-                        Elements = new List<CertificateElement>
-                        {
-                            new() { ElementType = CertificateElementType.Text, Label = "Certificate Title", SortOrder = 1 },
-                            new() { ElementType = CertificateElementType.Field, Label = "Holder Name", ConfigJson = """{"field":"holderName"}""", SortOrder = 2 },
-                            new() { ElementType = CertificateElementType.Field, Label = "Entry Reference", ConfigJson = """{"field":"referenceNo"}""", SortOrder = 3 },
-                            new() { ElementType = CertificateElementType.QrCode, Label = "Verification QR", SortOrder = 4 }
-                        }
-                    }
-                }
-            };
-            db.CertificateTemplates.Add(template);
-            await db.SaveChangesAsync(cancellationToken);
-
-            db.CertificateProcessAssignments.AddRange(
-                new CertificateProcessAssignment { AgencyId = bai.Id, TemplateId = template.Id, ProcessType = CertificateProcessType.ImportEntry, IsActive = true },
-                new CertificateProcessAssignment { AgencyId = bai.Id, TemplateId = template.Id, ProcessType = CertificateProcessType.ExportEntry, IsActive = true });
-            await db.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("Seeded default certificate template and process assignments for BAI");
-        }
+        // Entry certificate templates are per-agency and migrated from V2 (or created in the admin certificate builder).
     }
 
     private async Task SeedMavStaffAsync(AgriCheckDbContext db, IPasswordService passwordService, CancellationToken cancellationToken)
@@ -604,12 +652,12 @@ public class DatabaseSeeder : IHostedService
 
     private async Task SeedMavDemoDataAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
     {
-        MavApplicationPeriod period;
         if (!await db.MavApplicationPeriods.AnyAsync(cancellationToken))
         {
+            var bai = await db.Agencies.FirstAsync(a => a.Code == "BAI", cancellationToken);
             var beef = await db.Commodities.FirstAsync(c => c.Code == "BEEF", cancellationToken);
             var rice = await db.Commodities.FirstAsync(c => c.Code == "RICE", cancellationToken);
-            period = new MavApplicationPeriod
+            var period = new MavApplicationPeriod
             {
                 Uuid = Guid.NewGuid(),
                 MavYear = 2026,
@@ -617,110 +665,113 @@ public class DatabaseSeeder : IHostedService
                 OpeningDate = DateTime.UtcNow.AddDays(-7),
                 ClosingDate = DateTime.UtcNow.AddMonths(3),
                 Status = MavApplicationPeriodStatus.Open,
+                AgencyId = bai.Id,
                 CommodityAllocations = new List<MavCommodityAllocation>
                 {
-                    new() { CommodityId = beef.Id, HsCode = "0201", CommodityName = "Beef Products", TotalVolume = 10000m, MinimumImportVolume = 10m },
-                    new() { CommodityId = rice.Id, HsCode = "1006", CommodityName = "Rice", TotalVolume = 50000m, MinimumImportVolume = 25m }
+                    new() { CommodityId = beef.Id, HsCode = "0201", CommodityName = "Beef Products", TotalVolume = 10000m, MinimumImportVolume = 10m, AgencyId = bai.Id },
+                    new() { CommodityId = rice.Id, HsCode = "1006", CommodityName = "Rice", TotalVolume = 50000m, MinimumImportVolume = 25m, AgencyId = bai.Id }
                 }
             };
             db.MavApplicationPeriods.Add(period);
             await db.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("Seeded open MAV application period for 2026 BYP");
-        }
-        else
-        {
-            period = await db.MavApplicationPeriods.OrderByDescending(p => p.MavYear).FirstAsync(cancellationToken);
+            _logger.LogInformation("Seeded open BAI MAV application period for 2026 BYP");
         }
 
-        await SeedImporterMavDemoLicenseAsync(db, period, cancellationToken);
+        await ResetMavDemoLedgerAsync(db, cancellationToken);
+        await AlignMavPeriodAgenciesAsync(db, cancellationToken);
+        await UpgradeBaiEntryFormForMavAsync(db, cancellationToken);
         await SeedMavHsLibraryAsync(db, cancellationToken);
+    }
+
+    private async Task ResetMavDemoLedgerAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
+    {
+        var hasDemo = await db.MavLicenses.AnyAsync(l => l.LicenseNumber == "MAV-LIC-DEMO-001", cancellationToken)
+            || await db.MavApplications.AnyAsync(a => a.ReferenceNumber == "MAV-APP-DEMO-001", cancellationToken);
+        var hasUnscopedPeriod = await db.MavApplicationPeriods.AnyAsync(p => p.AgencyId == null, cancellationToken);
+        if (!hasDemo && !hasUnscopedPeriod)
+        {
+            return;
+        }
+
+        db.MicUtilizations.RemoveRange(db.MicUtilizations);
+        db.MavAccountTransactions.RemoveRange(db.MavAccountTransactions);
+        db.MavImportCertificates.RemoveRange(db.MavImportCertificates);
+        db.MavAccounts.RemoveRange(db.MavAccounts);
+        db.MavLicenses.RemoveRange(db.MavLicenses);
+        db.MavApplications.RemoveRange(db.MavApplications);
+        foreach (var allocation in db.MavCommodityAllocations)
+        {
+            allocation.AllocatedVolume = 0;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Reset MAV applications, licenses, and MIC utilization so the connected agency flow can start clean.");
+    }
+
+    private async Task AlignMavPeriodAgenciesAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
+    {
+        var bai = await db.Agencies.FirstOrDefaultAsync(a => a.Code == "BAI", cancellationToken);
+        if (bai is null)
+        {
+            return;
+        }
+
+        var unscoped = await db.MavApplicationPeriods
+            .Include(p => p.CommodityAllocations)
+            .Where(p => p.AgencyId == null)
+            .ToListAsync(cancellationToken);
+        if (unscoped.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var period in unscoped)
+        {
+            period.AgencyId = bai.Id;
+            foreach (var allocation in period.CommodityAllocations.Where(a => a.AgencyId == null))
+            {
+                allocation.AgencyId = bai.Id;
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Assigned BAI to {Count} unscoped MAV application period(s).", unscoped.Count);
+    }
+
+    private async Task UpgradeBaiEntryFormForMavAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
+    {
+        var bai = await db.Agencies.FirstOrDefaultAsync(a => a.Code == "BAI", cancellationToken);
+        if (bai is null)
+        {
+            return;
+        }
+
+        var form = await db.FormTemplates
+            .Include(t => t.Versions)
+            .FirstOrDefaultAsync(t => t.FormType == "ENTRY" && t.AgencyTags.Any(tag => tag.AgencyId == bai.Id), cancellationToken);
+        var published = form?.Versions.FirstOrDefault(v => v.IsPublished) ?? form?.Versions.OrderByDescending(v => v.VersionNumber).FirstOrDefault();
+        if (published is null)
+        {
+            return;
+        }
+
+        var current = published.SchemaJson.Trim();
+        if (current == ConnectedBaiEntrySchema)
+        {
+            return;
+        }
+
+        if (current == LegacyBaiEntrySchema || (current.Contains("\"name\":\"commodityName\"", StringComparison.Ordinal) && current.Contains("\"type\":\"text\"", StringComparison.Ordinal) && current.Contains("\"name\":\"mav_no\"", StringComparison.Ordinal)))
+        {
+            published.SchemaJson = ConnectedBaiEntrySchema;
+            await db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Updated BAI entry form so commodity uses the agency MAV HS picker.");
+        }
     }
 
     private async Task SeedMavHsLibraryAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
     {
         await MavHsLibrarySeeder.SeedAsync(db, _logger, cancellationToken);
-    }
-
-    private async Task SeedImporterMavDemoLicenseAsync(
-        AgriCheckDbContext db,
-        MavApplicationPeriod period,
-        CancellationToken cancellationToken)
-    {
-        if (await db.MavLicenses.AnyAsync(l => l.LicenseNumber == "MAV-LIC-DEMO-001", cancellationToken))
-        {
-            return;
-        }
-
-        var importer = await db.Users.FirstOrDefaultAsync(u => u.Email == "importer@agricheck.local", cancellationToken);
-        if (importer is null)
-        {
-            return;
-        }
-
-        var beef = await db.Commodities.FirstAsync(c => c.Code == "BEEF", cancellationToken);
-        var app = new MavApplication
-        {
-            Uuid = Guid.NewGuid(),
-            ReferenceNumber = "MAV-APP-DEMO-001",
-            ApplicationPeriodId = period.Id,
-            ImporterId = importer.Id,
-            HsCode = "0201",
-            CommodityName = beef.Name,
-            RequestedVolume = 500m,
-            AllocatedVolume = 500m,
-            Status = MavApplicationStatus.Approved,
-            SubmittedAt = DateTime.UtcNow.AddDays(-14),
-            ReviewedAt = DateTime.UtcNow.AddDays(-13)
-        };
-        db.MavApplications.Add(app);
-        await db.SaveChangesAsync(cancellationToken);
-
-        var license = new MavLicense
-        {
-            Uuid = Guid.NewGuid(),
-            LicenseNumber = "MAV-LIC-DEMO-001",
-            ApplicationId = app.Id,
-            ImporterId = importer.Id,
-            MavYear = period.MavYear,
-            PoolType = period.PoolType,
-            HsCode = app.HsCode,
-            CommodityName = app.CommodityName,
-            AwardedVolume = 500m,
-            Status = MavLicenseStatus.Active,
-            IssuedAt = DateTime.UtcNow.AddDays(-13),
-            ExpiresAt = new DateTime(period.MavYear, 12, 31, 23, 59, 59, DateTimeKind.Utc)
-        };
-        db.MavLicenses.Add(license);
-        await db.SaveChangesAsync(cancellationToken);
-
-        var account = new MavAccount
-        {
-            LicenseId = license.Id,
-            AwardedVolume = 500m,
-            UtilizedVolume = 100m,
-            LastTransactionAt = DateTime.UtcNow.AddDays(-5)
-        };
-        db.MavAccounts.Add(account);
-        await db.SaveChangesAsync(cancellationToken);
-
-        db.MavImportCertificates.Add(new MavImportCertificate
-        {
-            Uuid = Guid.NewGuid(),
-            CertificateNumber = "MIC-DEMO-001",
-            LicenseId = license.Id,
-            AccountId = account.Id,
-            ImporterId = importer.Id,
-            HsCode = license.HsCode,
-            CommodityName = license.CommodityName,
-            AuthorizedVolume = 100m,
-            UtilizedVolume = 0m,
-            Status = MavImportCertificateStatus.Active,
-            IssuedAt = DateTime.UtcNow.AddDays(-5),
-            ExpiresAt = DateTime.UtcNow.AddMonths(2)
-        });
-
-        await db.SaveChangesAsync(cancellationToken);
-        _logger.LogInformation("Seeded demo MAV license and MIC for importer@agricheck.local");
     }
 
     private async Task SeedOpsStaffAsync(AgriCheckDbContext db, IPasswordService passwordService, CancellationToken cancellationToken)

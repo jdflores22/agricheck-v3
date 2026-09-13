@@ -5,6 +5,7 @@ using AgriCheck.Infrastructure.Services;
 using AgriCheck.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace AgriCheck.IntegrationTests.AdminPortal;
@@ -36,11 +37,18 @@ public class CertificateFlowTests
                 .AddInMemoryCollection(new Dictionary<string, string?> { ["App:PublicBaseUrl"] = "http://localhost:5173" })
                 .Build();
 
+            var entryCertificateGeneration = new EntryCertificateGenerationService(
+                ctx.Db,
+                config,
+                new TestHostEnvironment(),
+                NullLogger<EntryCertificateGenerationService>.Instance);
+
             var issuance = new CertificateIssuanceService(
                 ctx.Db,
                 new TestCurrentUserService(ctx.Admin.Uuid, "ROLE_ADMIN"),
                 new TestFileStorageService(),
-                config);
+                config,
+                entryCertificateGeneration);
 
             var issued = await issuance.IssueAsync(new IssueCertificateRequest(entry.Uuid, null, null));
             Assert.Equal(CertificateStatus.Active.ToString(), issued.Status);

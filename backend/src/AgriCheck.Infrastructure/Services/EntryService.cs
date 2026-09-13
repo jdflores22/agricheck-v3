@@ -48,12 +48,12 @@ public class EntryService : IEntryService
 
         var total = await query.CountAsync(cancellationToken);
         var items = await query
-            .OrderByDescending(e => e.CreatedAt)
+            .OrderByDescending(e => e.UpdatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(e => new EntryListItemDto(
                 e.Uuid, e.ReferenceNo, e.EntryType.ToString(), e.Status.ToString(), e.Agency.Code,
-                e.Detail != null ? e.Detail.CommodityName : null, e.CreatedAt, e.SubmittedAt,
+                e.Detail != null ? e.Detail.CommodityName : null, e.CreatedAt, e.UpdatedAt, e.SubmittedAt,
                 e.PaymentStatus.ToString(), e.PaymentAmount, e.ComplianceDeadlineAt))
             .ToListAsync(cancellationToken);
 
@@ -92,10 +92,14 @@ public class EntryService : IEntryService
             Detail = MapDetailInput(request.Detail)
         };
 
-        if (entryType == EntryType.Import && request.MavNo is not null)
+        if (entryType == EntryType.Import)
         {
-            await EntryMavHelper.EnsureMavNoAvailableAsync(_db, request.MavNo, null, cancellationToken);
-            entry.MavNo = EntryMavHelper.NormalizeMavNo(request.MavNo);
+            entry.ImportTrack = EntryMavHelper.ResolveImportTrack(request.ImportTrack, request.FormDataJson);
+            if (entry.ImportTrack == EntryImportTrack.Mav && request.MavNo is not null)
+            {
+                await EntryMavHelper.EnsureMavNoAvailableAsync(_db, request.MavNo, null, cancellationToken);
+                entry.MavNo = EntryMavHelper.NormalizeMavNo(request.MavNo);
+            }
         }
 
         entry.TimelineEvents.Add(new TimelineEvent
@@ -142,10 +146,22 @@ public class EntryService : IEntryService
             entry.Detail.PortOfEntry = request.Detail.PortOfEntry;
         }
 
-        if (entry.EntryType == EntryType.Import && request.MavNo is not null)
+        if (entry.EntryType == EntryType.Import)
         {
-            await EntryMavHelper.EnsureMavNoAvailableAsync(_db, request.MavNo, entry.Id, cancellationToken);
-            entry.MavNo = EntryMavHelper.NormalizeMavNo(request.MavNo);
+            var nextTrack = EntryMavHelper.ResolveImportTrack(request.ImportTrack, request.FormDataJson, entry.ImportTrack);
+            EntryMavHelper.EnsureImportTrackChangeAllowed(entry, nextTrack);
+            entry.ImportTrack = nextTrack;
+            if (entry.ImportTrack == EntryImportTrack.Mav && request.MavNo is not null)
+            {
+                await EntryMavHelper.EnsureMavNoAvailableAsync(_db, request.MavNo, entry.Id, cancellationToken);
+                entry.MavNo = EntryMavHelper.NormalizeMavNo(request.MavNo);
+            }
+            else if (entry.ImportTrack == EntryImportTrack.Regular)
+            {
+                entry.MavNo = null;
+                entry.MavRemarks = null;
+                entry.MavDocumentStatus = EntryMavDocumentStatus.NotProvided;
+            }
         }
 
         await EntryContainerSyncService.SyncAsync(_db, entry, request.NumContainers, request.ContainersJson, cancellationToken);
@@ -173,7 +189,7 @@ public class EntryService : IEntryService
         await EntryContainerSyncService.ValidateOnSubmitAsync(_db, entry, cancellationToken);
         await EntryMavHelper.ValidateImportMavOnSubmitAsync(_db, entry, cancellationToken);
 
-        if (entry.EntryType == EntryType.Import && entry.MavDocumentStatus == EntryMavDocumentStatus.NotProvided)
+        if (EntryMavHelper.IsMavTrack(entry) && entry.MavDocumentStatus == EntryMavDocumentStatus.NotProvided)
         {
             entry.MavDocumentStatus = EntryMavDocumentStatus.PendingReview;
         }
@@ -273,6 +289,7 @@ public class EntryService : IEntryService
         }
 
         await EntryMavHelper.EnsureMavNoAvailableAsync(_db, request.MavNo, entry.Id, cancellationToken);
+        entry.ImportTrack = EntryImportTrack.Mav;
         entry.MavNo = EntryMavHelper.NormalizeMavNo(request.MavNo);
         await _db.SaveChangesAsync(cancellationToken);
         return MapEntry(await QueryEntryGraph().FirstAsync(e => e.Id == entry.Id, cancellationToken));
@@ -294,6 +311,7 @@ public class EntryService : IEntryService
             throw new ClientPortalException("INVALID_ENTRY_TYPE", "MIC utilization applies to import entries only.");
         }
 
+        entry.ImportTrack = EntryImportTrack.Mav;
         await _micService.UtilizeAsync(request.MicUuid, new UtilizeMicRequest(uuid, request.Volume), cancellationToken);
 
         entry = await QueryEntryGraph().FirstAsync(e => e.Id == entry.Id, cancellationToken);
@@ -402,13 +420,10 @@ public class EntryService : IEntryService
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        await _notifications.NotifyAsync(
-            user.Id,
-            "compliance_resubmitted",
-            "Compliance resubmitted",
-            $"Revised documents for entry {entry.ReferenceNo} were resubmitted.",
-            "Entry",
-            entry.Uuid.ToString(),
+        await AgencyEvaluatorNotificationHelper.NotifyComplianceResubmittedAsync(
+            _db,
+            _notifications,
+            entry,
             cancellationToken);
 
         return MapEntry(entry);
@@ -443,6 +458,7 @@ public class EntryService : IEntryService
         if (string.Equals(documentType, EntryMavHelper.MavCertificateDocumentType, StringComparison.OrdinalIgnoreCase)
             && entry.EntryType == EntryType.Import)
         {
+            entry.ImportTrack = EntryImportTrack.Mav;
             entry.MavDocumentStatus = EntryMavDocumentStatus.PendingReview;
             entry.MavRemarks = null;
             entry.TimelineEvents.Add(new TimelineEvent
@@ -525,7 +541,7 @@ public class EntryService : IEntryService
 
     private async Task<decimal> ResolveProcessingFeeAsync(long agencyId, EntryType entryType, CancellationToken cancellationToken)
     {
-        return await PaymentSettingsReader.ResolveEntryProcessingFeeAsync(_db, entryType, cancellationToken);
+        return await PaymentSettingsReader.ResolveEntryProcessingFeeForAgencyAsync(_db, agencyId, entryType, cancellationToken);
     }
 
     private static EntryFileDto MapFile(EntryFile file)

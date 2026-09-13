@@ -74,3 +74,9 @@ public enum EntryMavDocumentStatus
     Rejected,
     RevisionRequired
 }
+
+public enum EntryImportTrack
+{
+    Regular,
+    Mav
+}

@@ -94,7 +94,7 @@ export function ContainerInformationSection({
   }
 
   return (
-    <Stack spacing={3}>
+    <Stack id="container-information" spacing={3}>
       <PortalPanel title="Container Information">
         <Box sx={{ px: 2.5, py: 2.5 }}>
           <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start', mb: 2 }}>
@@ -104,7 +104,7 @@ export function ContainerInformationSection({
                 Specify the number of containers for this entry
               </Typography>
               <Typography sx={{ mt: 0.5, fontSize: '0.8125rem', color: portalColors.textMuted }}>
-                Maximum {MAX_CONTAINERS} containers allowed per entry. Leave blank or enter 0 if no containers.
+                At least 1 container is required before you can submit this entry. Maximum {MAX_CONTAINERS} per entry.
               </Typography>
             </Box>
           </Stack>

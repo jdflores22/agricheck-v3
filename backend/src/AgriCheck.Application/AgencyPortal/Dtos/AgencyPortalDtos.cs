@@ -4,8 +4,13 @@ public record AgencyDashboardDto(
     int QueueCount,
     int MyAssignments,
     int PendingInspections,
+    int ContainerInspectionQueue,
+    int MyContainerInspectionAssignments,
     int OpenBillings,
     int PendingAccreditation,
+    int PendingCashPayments,
+    int PaidBillings,
+    int AwaitingBilling,
     string AgencyCode,
     string AgencyName);
 
@@ -103,6 +108,12 @@ public record UpdateInspectionRequest(string? Findings, string? Status);
 
 public record CompleteInspectionRequest(string Result, string? Findings);
 
+public record AgencyBillingChargeDto(
+    Guid Uuid,
+    string Description,
+    decimal Amount,
+    int SortOrder);
+
 public record AgencyBillingListItemDto(
     Guid Uuid,
     string BillNumber,
@@ -111,15 +122,182 @@ public record AgencyBillingListItemDto(
     string Status,
     string? EntryReferenceNo,
     DateTime? IssuedAt,
-    DateTime? PaidAt);
+    DateTime? PaidAt,
+    IReadOnlyList<AgencyBillingChargeDto> Charges);
 
-public record CreateAgencyBillingRequest(Guid EntryUuid, decimal Amount, string Description);
+public record AgencyBillingChargeRequest(string Description, decimal Amount);
+
+public record CreateAgencyBillingRequest(
+    Guid EntryUuid,
+    string? Title,
+    IReadOnlyList<AgencyBillingChargeRequest> Charges);
+
+public record UpdateAgencyBillingRequest(
+    string? Title,
+    IReadOnlyList<AgencyBillingChargeRequest> Charges);
+
+public record AgencyBillingDetailDto(
+    Guid Uuid,
+    string BillNumber,
+    string Description,
+    decimal Amount,
+    string Status,
+    Guid EntryUuid,
+    string? EntryReferenceNo,
+    DateTime? IssuedAt,
+    DateTime? PaidAt,
+    AgencyBillingEntryContextDto? Entry,
+    IReadOnlyList<AgencyBillingChargeDto> Charges);
+
+public record AgencyBillingMicUtilizationDto(
+    string CertificateNumber,
+    string HsCode,
+    string CommodityName,
+    decimal Volume,
+    DateTime UtilizedAt);
+
+public record AgencyBillingCommodityDto(
+    long? CommodityId,
+    string? CommodityName,
+    string? CommodityCode,
+    string? CategoryName,
+    string? Description,
+    decimal Quantity,
+    string Unit,
+    string? OriginCountry,
+    string? DestinationCountry,
+    string? PortOfEntry,
+    string? HsCode,
+    string? MavHsLabel);
+
+public record AgencyBillingEntryContextDto(
+    Guid Uuid,
+    string ReferenceNo,
+    string EntryType,
+    string Status,
+    string ApplicantName,
+    string? CompanyName,
+    string PaymentStatus,
+    DateTime? SubmittedAt,
+    string? MavNo,
+    string? ImportTrack,
+    AgencyBillingCommodityDto? Commodity,
+    IReadOnlyList<AgencyBillingMicUtilizationDto> MicUtilizations,
+    decimal? SuggestedProcessingFee,
+    string? SuggestedFeeCurrency);
 
 public record VerifyDaBillingPaymentRequest(bool Approved, string? Notes);
 
 public record ReviewContainerInspectionPhotoRequest(string Decision, string? Comment);
 
-public record AddTransportTagRequest(Guid ContainerUuid, string? TransportType);
+public record CompleteContainerInspectionRequest(string Decision, string? Comment);
+
+public record AgencyContainerInspectionQueueItemDto(
+    Guid ContainerUuid,
+    string ContainerNumber,
+    Guid EntryUuid,
+    string EntryReferenceNo,
+    string ApplicantName,
+    string EntryType,
+    int PendingPhotoCount,
+    bool IsComplete,
+    bool IsApproved,
+    DateTime? SubmittedAt,
+    bool IsAssignedToMe,
+    string? AssignedInspectorName);
+
+public record AgencyContainerInspectionEntryContextDto(
+    Guid Uuid,
+    string ReferenceNo,
+    string EntryType,
+    string Status,
+    string ApplicantName,
+    string? CompanyName,
+    string? CommodityName,
+    string? Description,
+    decimal? Quantity,
+    string? Unit,
+    string? OriginCountry,
+    string? DestinationCountry,
+    string? PortOfEntry,
+    string AgencyCode,
+    Guid? CertificateUuid,
+    string? CertificateNumber,
+    string? CertificateTitle);
+
+public record AgencyContainerInspectionHistoryItemDto(
+    string Status,
+    string? Comment,
+    DateTime CreatedAt,
+    string? ActorName);
+
+public record AgencyContainerInspectionDetailDto(
+    Guid ContainerUuid,
+    string ContainerNumber,
+    string? ContainerType,
+    string ContainerStatus,
+    string? FormDataJson,
+    bool IsComplete,
+    bool IsApproved,
+    DateTime? SubmittedAt,
+    string? InspectionOutcome,
+    string? InspectionOutcomeComment,
+    DateTime? InspectionCompletedAt,
+    bool IsAssignedToMe,
+    string? AssignedInspectorName,
+    IReadOnlyList<ClientPortal.Dtos.ClientContainerInspectionPhotoDto> Photos,
+    AgencyContainerInspectionEntryContextDto Entry,
+    IReadOnlyList<AgencyContainerInspectionHistoryItemDto> History);
+
+public record AddTransportTagRequest(Guid ContainerUuid, DateOnly ScheduledWarehouseDate);
+
+public record TransportTagQueueItemDto(
+    Guid ContainerUuid,
+    string ContainerNumber,
+    Guid EntryUuid,
+    string EntryReference,
+    string ContainerStatus,
+    bool HasTransportTag,
+    DateTime UpdatedAt);
+
+public record TaggedTransportQueueItemDto(
+    Guid ContainerUuid,
+    string ContainerNumber,
+    Guid EntryUuid,
+    string EntryReference,
+    string ContainerStatus,
+    Guid TagUuid,
+    DateOnly? ScheduledWarehouseDate,
+    DateTime TaggedAt,
+    DateTime UpdatedAt);
+
+public record TransportTagQueuesDto(
+    IReadOnlyList<TransportTagQueueItemDto> Ready,
+    IReadOnlyList<TaggedTransportQueueItemDto> Tagged);
+
+public record AddTransportTagResultDto(
+    Guid TagUuid,
+    Guid ContainerUuid,
+    string ContainerNumber,
+    string EntryReference,
+    string TransportType,
+    DateOnly? ScheduledWarehouseDate,
+    string Status,
+    string QrPayload,
+    string? QrCodeData,
+    DateTime TaggedAt);
+
+public record TransportTagSummaryDto(
+    Guid TagUuid,
+    string TransportType,
+    DateOnly? ScheduledWarehouseDate,
+    DateTime TaggedAt,
+    string? QrCodeData);
+
+public record TransportTagContainerDetailDto(
+    AgencyContainerInspectionDetailDto Container,
+    TransportTagSummaryDto? TransportTag,
+    DateTime UpdatedAt);
 
 public record AgencyAccreditationListItemDto(
     Guid Uuid,

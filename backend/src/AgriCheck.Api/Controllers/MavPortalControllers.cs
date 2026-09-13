@@ -49,6 +49,10 @@ public class MavPeriodsController : MavPortalControllerBase
     public async Task<ActionResult<ApiResponse<IReadOnlyList<MavApplicationPeriodListItemDto>>>> ListOpen(CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.ListOpenAsync(cancellationToken));
 
+    [HttpGet("agency-context")]
+    public async Task<ActionResult<ApiResponse<MavAgencyContextDto>>> AgencyContext([FromQuery] long agencyId, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.GetAgencyContextAsync(agencyId, cancellationToken));
+
     [HttpGet("{uuid:guid}")]
     public async Task<ActionResult<ApiResponse<MavApplicationPeriodDetailDto>>> Get(Guid uuid, CancellationToken cancellationToken)
     {

@@ -73,6 +73,8 @@ public static class DependencyInjection
         services.AddScoped<IAdminAgencyService, AdminAgencyService>();
         services.AddScoped<IAdminCommodityService, AdminCommodityService>();
         services.AddScoped<IAdminPaymentConfigService, AdminPaymentConfigService>();
+        services.AddScoped<IAgencyPaymentConfigService, AgencyPaymentConfigService>();
+        services.AddScoped<IAgencyBillingReportService, AgencyBillingReportService>();
         services.AddScoped<IAdminEntryPaymentService, AdminEntryPaymentService>();
         services.AddScoped<IFormBuilderService, FormBuilderService>();
         services.AddScoped<ICertificateTemplateService, CertificateTemplateService>();
@@ -91,6 +93,7 @@ public static class DependencyInjection
         services.AddScoped<IMavYearTransitionService, MavYearTransitionService>();
         services.AddScoped<IMavNotificationService, MavNotificationService>();
         services.AddScoped<IEntryWorkflowService, EntryWorkflowService>();
+        services.AddScoped<IEntryCertificateGenerationService, EntryCertificateGenerationService>();
         services.AddScoped<IEntryCertificateAutoIssueService, EntryCertificateAutoIssueService>();
         services.AddScoped<IClientDaBillingService, ClientDaBillingService>();
         services.AddScoped<IContainerInspectionWorkflowService, ContainerInspectionWorkflowService>();

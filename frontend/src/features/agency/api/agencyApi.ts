@@ -1,17 +1,140 @@
 import { createApi } from '@reduxjs/toolkit/query/react'
 import type { ApiEnvelope } from '../../auth/types'
 import { baseQueryWithReauth } from '../../auth/api/baseQuery'
-import type { ClientContainerInspectionPhoto, PagedResult } from '../../client/api/clientApi'
-import type { OpsContainerListItem } from '../../ops/api/opsApi'
+import type {
+  ClientContainerInspectionPhoto,
+  ClientContainerInspectionStatus,
+  PagedResult,
+} from '../../client/api/clientApi'
 
 export interface AgencyDashboard {
   queueCount: number
   myAssignments: number
   pendingInspections: number
+  containerInspectionQueue: number
+  myContainerInspectionAssignments: number
   openBillings: number
   pendingAccreditation: number
+  pendingCashPayments: number
+  paidBillings: number
+  awaitingBilling: number
   agencyCode: string
   agencyName: string
+}
+
+export interface AgencyContainerInspectionQueueItem {
+  containerUuid: string
+  containerNumber: string
+  entryUuid: string
+  entryReferenceNo: string
+  applicantName: string
+  entryType: string
+  pendingPhotoCount: number
+  isComplete: boolean
+  isApproved: boolean
+  submittedAt?: string
+  isAssignedToMe: boolean
+  assignedInspectorName?: string
+}
+
+export interface AgencyContainerInspectionEntryContext {
+  uuid: string
+  referenceNo: string
+  entryType: string
+  status: string
+  applicantName: string
+  companyName?: string
+  commodityName?: string
+  description?: string
+  quantity?: number
+  unit?: string
+  originCountry?: string
+  destinationCountry?: string
+  portOfEntry?: string
+  agencyCode: string
+  certificateUuid?: string
+  certificateNumber?: string
+  certificateTitle?: string
+}
+
+export interface AgencyContainerInspectionHistoryItem {
+  status: string
+  comment?: string
+  createdAt: string
+  actorName?: string
+}
+
+export interface AgencyContainerInspectionDetail {
+  containerUuid: string
+  containerNumber: string
+  containerType?: string
+  containerStatus: string
+  formDataJson?: string
+  isComplete: boolean
+  isApproved: boolean
+  submittedAt?: string
+  inspectionOutcome?: string
+  inspectionOutcomeComment?: string
+  inspectionCompletedAt?: string
+  isAssignedToMe: boolean
+  assignedInspectorName?: string
+  photos: ClientContainerInspectionPhoto[]
+  entry: AgencyContainerInspectionEntryContext
+  history: AgencyContainerInspectionHistoryItem[]
+}
+
+export interface TransportTagQueueItem {
+  containerUuid: string
+  containerNumber: string
+  entryUuid: string
+  entryReference: string
+  containerStatus: string
+  hasTransportTag: boolean
+  updatedAt: string
+}
+
+export interface TaggedTransportQueueItem {
+  containerUuid: string
+  containerNumber: string
+  entryUuid: string
+  entryReference: string
+  containerStatus: string
+  tagUuid: string
+  scheduledWarehouseDate?: string | null
+  taggedAt: string
+  updatedAt: string
+}
+
+export interface TransportTagQueues {
+  ready: TransportTagQueueItem[]
+  tagged: TaggedTransportQueueItem[]
+}
+
+export interface AddTransportTagResult {
+  tagUuid: string
+  containerUuid: string
+  containerNumber: string
+  entryReference: string
+  transportType: string
+  scheduledWarehouseDate?: string | null
+  status: string
+  qrPayload: string
+  qrCodeData?: string | null
+  taggedAt: string
+}
+
+export interface TransportTagSummary {
+  tagUuid: string
+  transportType: string
+  scheduledWarehouseDate?: string | null
+  taggedAt: string
+  qrCodeData?: string | null
+}
+
+export interface TransportTagContainerDetail {
+  container: AgencyContainerInspectionDetail
+  transportTag?: TransportTagSummary | null
+  updatedAt: string
 }
 
 export interface AgencyEntryListItem {
@@ -73,6 +196,7 @@ export interface AgencyEntryEvaluation {
   timeline: Array<{ eventType: string; title: string; description?: string; createdAt: string }>
   mav?: {
     mavNo?: string
+    importTrack?: string
     mavDocumentStatus: string
     mavRemarks?: string
     mavCertificateFileUuid?: string
@@ -105,6 +229,13 @@ export interface InspectionDetail extends InspectionListItem {
   photos: Array<{ uuid: string; originalFileName: string; caption?: string; createdAt: string }>
 }
 
+export interface AgencyBillingCharge {
+  uuid: string
+  description: string
+  amount: number
+  sortOrder: number
+}
+
 export interface AgencyBillingItem {
   uuid: string
   billNumber: string
@@ -114,6 +245,52 @@ export interface AgencyBillingItem {
   entryReferenceNo?: string
   issuedAt?: string
   paidAt?: string
+  charges: AgencyBillingCharge[]
+}
+
+export interface AgencyBillingDetail extends AgencyBillingItem {
+  entryUuid: string
+  entry?: AgencyBillingEntryContext | null
+}
+
+export interface AgencyBillingMicUtilization {
+  certificateNumber: string
+  hsCode: string
+  commodityName: string
+  volume: number
+  utilizedAt: string
+}
+
+export interface AgencyBillingCommodity {
+  commodityId?: number | null
+  commodityName?: string | null
+  commodityCode?: string | null
+  categoryName?: string | null
+  description?: string | null
+  quantity: number
+  unit: string
+  originCountry?: string | null
+  destinationCountry?: string | null
+  portOfEntry?: string | null
+  hsCode?: string | null
+  mavHsLabel?: string | null
+}
+
+export interface AgencyBillingEntryContext {
+  uuid: string
+  referenceNo: string
+  entryType: string
+  status: string
+  applicantName: string
+  companyName?: string | null
+  paymentStatus: string
+  submittedAt?: string
+  mavNo?: string | null
+  importTrack?: string | null
+  commodity?: AgencyBillingCommodity | null
+  micUtilizations: AgencyBillingMicUtilization[]
+  suggestedProcessingFee?: number | null
+  suggestedFeeCurrency?: string | null
 }
 
 export interface AgencyAccreditationItem {
@@ -151,7 +328,21 @@ export interface SecretaryReport {
 export const agencyApi = createApi({
   reducerPath: 'agencyApi',
   baseQuery: baseQueryWithReauth,
-  tagTypes: ['AgencyDashboard', 'AgencyQueue', 'AgencyAssignments', 'AgencyEntry', 'Inspections', 'Billings', 'Accreditation', 'Reports', 'ApprovedEntries'],
+  tagTypes: [
+    'AgencyDashboard',
+    'AgencyQueue',
+    'AgencyAssignments',
+    'AgencyEntry',
+    'Inspections',
+    'Billings',
+    'BillingEntryContext',
+    'Accreditation',
+    'Reports',
+    'ApprovedEntries',
+    'AgencyPaymentConfig',
+    'ContainerInspectionQueue',
+    'TransportTags',
+  ],
   endpoints: (builder) => ({
     getAgencyDashboard: builder.query<ApiEnvelope<AgencyDashboard>, void>({
       query: () => '/agency/dashboard',
@@ -233,13 +424,31 @@ export const agencyApi = createApi({
       query: ({ page = 1 }) => `/agency/billings?page=${page}`,
       providesTags: ['Billings'],
     }),
-    createAgencyBilling: builder.mutation<ApiEnvelope<AgencyBillingItem>, { entryUuid: string; amount: number; description: string }>({
+    getAgencyBillingDetail: builder.query<ApiEnvelope<AgencyBillingDetail>, string>({
+      query: (uuid) => `/agency/billings/${uuid}`,
+      providesTags: (_result, _error, uuid) => [{ type: 'Billings', id: uuid }],
+    }),
+    createAgencyBilling: builder.mutation<
+      ApiEnvelope<AgencyBillingItem>,
+      { entryUuid: string; title?: string; charges: Array<{ description: string; amount: number }> }
+    >({
       query: (body) => ({ url: '/agency/billings', method: 'POST', body }),
+      invalidatesTags: ['Billings', 'AgencyDashboard', 'ApprovedEntries'],
+    }),
+    updateAgencyBilling: builder.mutation<
+      ApiEnvelope<AgencyBillingItem>,
+      { uuid: string; title?: string; charges: Array<{ description: string; amount: number }> }
+    >({
+      query: ({ uuid, title, charges }) => ({
+        url: `/agency/billings/${uuid}`,
+        method: 'PUT',
+        body: { title, charges },
+      }),
       invalidatesTags: ['Billings', 'AgencyDashboard'],
     }),
     issueBilling: builder.mutation<ApiEnvelope<AgencyBillingItem>, string>({
       query: (uuid) => ({ url: `/agency/billings/${uuid}/issue`, method: 'POST' }),
-      invalidatesTags: ['Billings'],
+      invalidatesTags: ['Billings', 'AgencyDashboard', 'ApprovedEntries'],
     }),
     markBillingPaid: builder.mutation<ApiEnvelope<AgencyBillingItem>, string>({
       query: (uuid) => ({ url: `/agency/billings/${uuid}/pay`, method: 'POST' }),
@@ -253,6 +462,35 @@ export const agencyApi = createApi({
       }),
       invalidatesTags: ['Billings', 'AgencyDashboard'],
     }),
+    getContainerInspectionQueue: builder.query<
+      ApiEnvelope<PagedResult<AgencyContainerInspectionQueueItem>>,
+      { page?: number; scope?: 'unclaimed' | 'mine' | 'all' }
+    >({
+      query: ({ page = 1, scope = 'unclaimed' }) =>
+        `/agency/workflow/container-inspections?page=${page}&scope=${scope}`,
+      providesTags: (_result, _error, arg) => [
+        { type: 'ContainerInspectionQueue', id: arg.scope ?? 'unclaimed' },
+      ],
+    }),
+    claimContainerInspection: builder.mutation<ApiEnvelope<AgencyContainerInspectionDetail>, string>({
+      query: (containerUuid) => ({
+        url: `/agency/workflow/containers/${containerUuid}/claim`,
+        method: 'POST',
+      }),
+      invalidatesTags: [
+        { type: 'ContainerInspectionQueue', id: 'unclaimed' },
+        { type: 'ContainerInspectionQueue', id: 'mine' },
+        'AgencyDashboard',
+      ],
+    }),
+    getAgencyEntryContainerInspections: builder.query<ApiEnvelope<ClientContainerInspectionStatus[]>, string>({
+      query: (entryUuid) => `/agency/workflow/entries/${entryUuid}/container-inspections`,
+      providesTags: (_r, _e, entryUuid) => [{ type: 'ContainerInspectionQueue', id: entryUuid }],
+    }),
+    getContainerInspectionDetail: builder.query<ApiEnvelope<AgencyContainerInspectionDetail>, string>({
+      query: (containerUuid) => `/agency/workflow/containers/${containerUuid}`,
+      providesTags: (_r, _e, containerUuid) => [{ type: 'ContainerInspectionQueue', id: containerUuid }],
+    }),
     reviewInspectionPhoto: builder.mutation<
       ApiEnvelope<ClientContainerInspectionPhoto>,
       { photoUuid: string; decision: 'Approved' | 'Rejected'; comment?: string }
@@ -262,15 +500,57 @@ export const agencyApi = createApi({
         method: 'POST',
         body: { decision, comment },
       }),
-      invalidatesTags: ['AgencyEntry'],
+      invalidatesTags: (result) => [
+        'AgencyEntry',
+        'ContainerInspectionQueue',
+        { type: 'ContainerInspectionQueue', id: 'unclaimed' },
+        { type: 'ContainerInspectionQueue', id: 'mine' },
+        ...(result?.data?.containerUuid
+          ? [{ type: 'ContainerInspectionQueue' as const, id: result.data.containerUuid }]
+          : []),
+      ],
     }),
-    addTransportTag: builder.mutation<ApiEnvelope<OpsContainerListItem>, { containerUuid: string; transportType?: string }>({
+    completeContainerInspection: builder.mutation<
+      ApiEnvelope<AgencyContainerInspectionDetail>,
+      { containerUuid: string; decision: string; comment?: string }
+    >({
+      query: ({ containerUuid, decision, comment }) => ({
+        url: `/agency/workflow/containers/${containerUuid}/complete`,
+        method: 'POST',
+        body: { decision, comment },
+      }),
+      invalidatesTags: (_result, _error, arg) => [
+        'AgencyEntry',
+        'ContainerInspectionQueue',
+        { type: 'ContainerInspectionQueue', id: 'unclaimed' },
+        { type: 'ContainerInspectionQueue', id: 'mine' },
+        { type: 'ContainerInspectionQueue', id: arg.containerUuid },
+      ],
+    }),
+    getTransportTagQueue: builder.query<ApiEnvelope<TransportTagQueues>, void>({
+      query: () => '/agency/workflow/transport-tags/ready',
+      providesTags: ['TransportTags'],
+    }),
+    getTransportTagContainerDetail: builder.query<ApiEnvelope<TransportTagContainerDetail>, string>({
+      query: (containerUuid) => `/agency/workflow/transport-tags/containers/${containerUuid}`,
+      providesTags: (_r, _e, containerUuid) => [{ type: 'TransportTags', id: containerUuid }],
+    }),
+    addTransportTag: builder.mutation<ApiEnvelope<AddTransportTagResult>, { containerUuid: string; scheduledWarehouseDate: string }>({
       query: (body) => ({
         url: '/agency/workflow/transport-tags',
         method: 'POST',
         body,
       }),
-      invalidatesTags: ['AgencyDashboard', 'ApprovedEntries'],
+      invalidatesTags: (_r, _e, arg) => [
+        'AgencyDashboard',
+        'ApprovedEntries',
+        'TransportTags',
+        { type: 'TransportTags', id: arg.containerUuid },
+      ],
+    }),
+    getTransportTag: builder.query<ApiEnvelope<AddTransportTagResult>, string>({
+      query: (tagUuid) => `/agency/workflow/transport-tags/${tagUuid}`,
+      providesTags: (_r, _e, tagUuid) => [{ type: 'TransportTags', id: tagUuid }],
     }),
     getAgencyAccreditation: builder.query<ApiEnvelope<PagedResult<AgencyAccreditationItem>>, { page?: number; filter?: string }>({
       query: ({ page = 1, filter }) => {
@@ -304,6 +584,14 @@ export const agencyApi = createApi({
       query: ({ page = 1 }) => `/agency/entries/approved?page=${page}`,
       providesTags: ['ApprovedEntries'],
     }),
+    getEntriesAwaitingBilling: builder.query<ApiEnvelope<PagedResult<AgencyEntryListItem>>, { page?: number }>({
+      query: ({ page = 1 }) => `/agency/billings/awaiting-entries?page=${page}`,
+      providesTags: ['ApprovedEntries', 'Billings'],
+    }),
+    getBillingEntryContext: builder.query<ApiEnvelope<AgencyBillingEntryContext>, string>({
+      query: (entryUuid) => `/agency/billings/awaiting-entries/${entryUuid}`,
+      providesTags: (_result, _error, entryUuid) => [{ type: 'BillingEntryContext', id: entryUuid }],
+    }),
     addEvaluatorNote: builder.mutation<ApiEnvelope<{ saved: boolean }>, { entryUuid: string; note: string; isInternal?: boolean }>({
       query: ({ entryUuid, note, isInternal = true }) => ({
         url: `/agency/evaluator/entries/${entryUuid}/notes`,
@@ -316,8 +604,84 @@ export const agencyApi = createApi({
       query: () => '/agency/reports/summary',
       providesTags: ['Reports'],
     }),
+    getAgencyBillingRevenueReport: builder.query<ApiEnvelope<AgencyBillingRevenueReport>, void>({
+      query: () => '/agency/reports/billing-revenue',
+      providesTags: ['Reports'],
+    }),
+    getAgencyPaymentSettings: builder.query<ApiEnvelope<AgencyPaymentSettings>, void>({
+      query: () => '/agency/payment-config/settings',
+      providesTags: ['AgencyPaymentConfig'],
+    }),
+    updateAgencyPaymentSettings: builder.mutation<ApiEnvelope<AgencyPaymentSettings>, UpdateAgencyPaymentSettingsRequest>({
+      query: (body) => ({ url: '/agency/payment-config/settings', method: 'PUT', body }),
+      invalidatesTags: ['AgencyPaymentConfig'],
+    }),
+    getPendingCashPayments: builder.query<ApiEnvelope<AgencyPendingCashPayment[]>, void>({
+      query: () => '/agency/payment-config/pending-cash',
+      providesTags: ['AgencyPaymentConfig'],
+    }),
+    verifyCashPayment: builder.mutation<ApiEnvelope<{ verified: boolean }>, { billUuid: string; approved: boolean; notes?: string }>({
+      query: ({ billUuid, approved, notes }) => ({
+        url: `/agency/payment-config/pending-cash/${billUuid}/verify`,
+        method: 'POST',
+        body: { approved, notes },
+      }),
+      invalidatesTags: ['AgencyPaymentConfig', 'Billings'],
+    }),
   }),
 })
+
+export interface AgencyPaymentSettings {
+  agencyId: number
+  agencyCode: string
+  agencyName: string
+  gateway: {
+    enabled: boolean
+    mode: string
+    hasApiKey: boolean
+    apiKeyMasked: string
+    hasWebhookSecret: boolean
+    publicKey?: string | null
+  }
+  cashPaymentEnabled: boolean
+  cashPaymentInstructions?: string | null
+  usesGlobalPayMongoFallback: boolean
+  processingFees: Array<{ entryType: string; amount: number; currency: string }>
+}
+
+export interface UpdateAgencyPaymentSettingsRequest {
+  payMongoEnabled: boolean
+  cashPaymentEnabled: boolean
+  payMongoApiKey?: string
+  payMongoWebhookSecret?: string
+  payMongoPublicKey?: string
+  cashPaymentInstructions?: string
+  importFeeAmount: number
+  exportFeeAmount: number
+  currency: string
+}
+
+export interface AgencyBillingRevenueReport {
+  agencyCode: string
+  agencyName: string
+  collected: number
+  pending: number
+  paidCount: number
+  pendingCashCount: number
+  openBillings: number
+  byMonth: Array<{ month: string; amount: number; paymentCount: number }>
+}
+
+export interface AgencyPendingCashPayment {
+  billUuid: string
+  billNumber: string
+  entryReferenceNo?: string | null
+  clientName: string
+  amount: number
+  paymentMethod: string
+  externalReference?: string | null
+  submittedAt: string
+}
 
 export const {
   useGetAgencyDashboardQuery,
@@ -333,18 +697,35 @@ export const {
   useGetInspectionQuery,
   useCreateInspectionMutation,
   useCompleteInspectionMutation,
+  useGetContainerInspectionQueueQuery,
+  useClaimContainerInspectionMutation,
+  useGetAgencyEntryContainerInspectionsQuery,
+  useGetContainerInspectionDetailQuery,
   useGetAgencyBillingsQuery,
+  useGetAgencyBillingDetailQuery,
   useCreateAgencyBillingMutation,
+  useUpdateAgencyBillingMutation,
   useIssueBillingMutation,
   useMarkBillingPaidMutation,
   useVerifyBillingPaymentMutation,
   useReviewInspectionPhotoMutation,
+  useCompleteContainerInspectionMutation,
+  useGetTransportTagQueueQuery,
+  useGetTransportTagContainerDetailQuery,
   useAddTransportTagMutation,
+  useGetTransportTagQuery,
   useGetAgencyAccreditationQuery,
   useGetAgencyAccreditationDetailQuery,
   useReviewAccreditationFileMutation,
   useCompleteAccreditationReviewMutation,
   useGetApprovedEntriesQuery,
+  useGetEntriesAwaitingBillingQuery,
+  useGetBillingEntryContextQuery,
   useAddEvaluatorNoteMutation,
   useGetSecretaryReportQuery,
+  useGetAgencyBillingRevenueReportQuery,
+  useGetAgencyPaymentSettingsQuery,
+  useUpdateAgencyPaymentSettingsMutation,
+  useGetPendingCashPaymentsQuery,
+  useVerifyCashPaymentMutation,
 } = agencyApi

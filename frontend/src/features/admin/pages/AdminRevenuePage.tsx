@@ -16,8 +16,8 @@ export function AdminRevenuePage() {
     <Box>
       <PortalPageHeader
         eyebrow="Payments"
-        title="Entry Revenue"
-        subtitle="Collected processing fees from entry submissions."
+        title="Platform Revenue"
+        subtitle="Entry processing service fees collected by the system. Agency DA billings are not included."
         action={{ label: 'View Transactions', to: '/admin/entry-payments' }}
       />
 

@@ -48,6 +48,8 @@ public interface IAdminEntryPaymentService
 {
     Task<PagedResult<AdminEntryPaymentListItemDto>> ListAsync(int page, int pageSize, string? status, CancellationToken cancellationToken = default);
     Task<AdminRevenueSummaryDto> GetRevenueSummaryAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AdminPendingEntryCashPaymentDto>> ListPendingCashPaymentsAsync(CancellationToken cancellationToken = default);
+    Task VerifyCashPaymentAsync(Guid billUuid, VerifyAdminEntryCashPaymentRequest request, CancellationToken cancellationToken = default);
 }
 
 public interface IFormBuilderService
@@ -55,6 +57,7 @@ public interface IFormBuilderService
     Task<IReadOnlyList<FormTemplateListItemDto>> ListAsync(CancellationToken cancellationToken = default);
     Task<FormTemplateDetailDto?> GetAsync(Guid uuid, CancellationToken cancellationToken = default);
     Task<FormTemplateDetailDto> SaveAsync(Guid? uuid, SaveFormTemplateRequest request, CancellationToken cancellationToken = default);
+    Task<FormTemplateDetailDto> SetActiveAsync(Guid uuid, bool isActive, CancellationToken cancellationToken = default);
     Task<FormTemplateDetailDto> CloneAsync(Guid uuid, CloneFormTemplateRequest request, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid uuid, CancellationToken cancellationToken = default);
     Task<string> ExportAsync(Guid uuid, CancellationToken cancellationToken = default);
@@ -66,6 +69,11 @@ public interface ICertificateTemplateService
     Task<IReadOnlyList<CertificateTemplateListItemDto>> ListAsync(CancellationToken cancellationToken = default);
     Task<CertificateTemplateDetailDto?> GetAsync(Guid uuid, CancellationToken cancellationToken = default);
     Task<CertificateTemplateDetailDto> SaveAsync(Guid? uuid, SaveCertificateTemplateRequest request, CancellationToken cancellationToken = default);
+    Task<CertificateTemplateDetailDto> CloneAsync(Guid uuid, CloneFormTemplateRequest request, CancellationToken cancellationToken = default);
+    Task<CertificateTemplateDetailDto> SetActiveAsync(Guid uuid, bool isActive, CancellationToken cancellationToken = default);
+    Task DeleteAsync(Guid uuid, CancellationToken cancellationToken = default);
+    Task<string> ExportAsync(Guid uuid, CancellationToken cancellationToken = default);
+    Task<CertificateTemplateDetailDto> ImportAsync(JsonElement payload, CancellationToken cancellationToken = default);
     Task<byte[]> PreviewAsync(Guid uuid, CancellationToken cancellationToken = default);
     Task<string> UploadImageAsync(Guid uuid, Stream fileStream, string fileName, CancellationToken cancellationToken = default);
 }

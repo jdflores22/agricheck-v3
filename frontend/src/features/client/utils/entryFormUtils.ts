@@ -1,5 +1,5 @@
 import type { FormFieldSchema } from '../../forms/formSchema'
-import { evaluateConditional, parseFormDataJson, parseFormSchema, visibleFormFields } from '../../forms/formSchema'
+import { evaluateConditional, getCommodityHsValueKeys, parseFormDataJson, parseFormSchema, visibleFormFields } from '../../forms/formSchema'
 
 export interface EntryFormCompletion {
   isComplete: boolean
@@ -40,6 +40,11 @@ function hasFieldValue(field: FormFieldSchema, values: Record<string, string>): 
   if (field.type === 'checkbox') {
     const value = values[field.name] ?? ''
     return value === 'yes' || value === 'true' || value === '1'
+  }
+
+  if (field.type === 'commodity') {
+    const keys = getCommodityHsValueKeys(field.name)
+    return Boolean(values[keys.detailUuid]?.trim() || values[keys.commodityName]?.trim())
   }
 
   return Boolean(values[field.name]?.trim())

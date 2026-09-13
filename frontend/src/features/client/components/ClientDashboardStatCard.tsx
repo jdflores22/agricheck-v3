@@ -78,7 +78,7 @@ export function ClientDashboardStatCard({
           </Typography>
           <Typography
             sx={{
-              fontSize: '1.75rem',
+              fontSize: { xs: '1.5rem', sm: '1.75rem' },
               fontWeight: 600,
               lineHeight: 1.1,
               color: portalColors.textDark,

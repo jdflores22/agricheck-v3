@@ -9,13 +9,30 @@ function normalize(value: string | undefined): string {
   return value.trim().replace(/\/$/, '')
 }
 
+function isLocalBrowserHost(): boolean {
+  if (typeof window === 'undefined') return false
+  const host = window.location.hostname
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+}
+
 export function getApiOrigin(): string {
+  // Local Vite/preview must hit the local API (or the Vite proxy), never Railway.
+  if (import.meta.env.DEV || isLocalBrowserHost()) {
+    return normalize(import.meta.env.VITE_API_BASE_URL)
+  }
+
   const runtime = typeof window !== 'undefined' ? window.__AGRICHECK_API_BASE__ : undefined
   return normalize(runtime || import.meta.env.VITE_API_BASE_URL)
 }
 
 export function getApiV1Base(): string {
   return `${getApiOrigin()}/api/v1`
+}
+
+export function getHubUrl(hubPath: string): string {
+  const suffix = hubPath.startsWith('/') ? hubPath : `/${hubPath}`
+  const origin = getApiOrigin()
+  return origin ? `${origin}${suffix}` : suffix
 }
 
 export function apiUrl(path: string): string {

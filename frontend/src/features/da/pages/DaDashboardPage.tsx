@@ -1,5 +1,6 @@
 import AssessmentOutlinedIcon from '@mui/icons-material/AssessmentOutlined'
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined'
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
 import ReportOutlinedIcon from '@mui/icons-material/ReportOutlined'
 import WarehouseOutlinedIcon from '@mui/icons-material/WarehouseOutlined'
 import { Box, CircularProgress, Grid, Stack, Typography } from '@mui/material'
@@ -61,6 +62,30 @@ export function DaDashboardPage() {
               icon={AssessmentOutlinedIcon}
               label="DA oversight"
               description="Consolidated department view with attached agency drill-down."
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+            <QuickLinkCard
+              to="/da/reports/mav"
+              icon={Inventory2OutlinedIcon}
+              label="MAV utilization"
+              description="Nationwide remaining MAV volume for the Secretary's report to the President."
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+            <QuickLinkCard
+              to="/da/reports/commodities"
+              icon={Inventory2OutlinedIcon}
+              label="Commodity stock"
+              description="Actual physical stock per HS code and commodity nationwide."
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+            <QuickLinkCard
+              to="/da/reports/stock"
+              icon={WarehouseOutlinedIcon}
+              label="Stock map"
+              description="Drill by region, province, city, and warehouse location."
             />
           </Grid>
         </Grid>

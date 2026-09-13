@@ -19,7 +19,11 @@ export function BillPaymentLinkPage() {
   if (!bill) return <Alert severity="error" sx={{ maxWidth: 480, mx: 'auto', mt: 4 }}>Payment link is invalid or expired.</Alert>
 
   const handlePay = async () => {
-    const result = await initiatePayment({ token, paymentMethod: 'card' }).unwrap()
+    const result = await initiatePayment({
+      token,
+      paymentMethod: 'any',
+      returnBaseUrl: window.location.origin,
+    }).unwrap()
     if (result.success && result.data.paymentUrl) {
       window.location.href = result.data.paymentUrl
       return

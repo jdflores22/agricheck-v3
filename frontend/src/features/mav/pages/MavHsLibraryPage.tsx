@@ -19,6 +19,7 @@ import { PortalPanel } from '../../../components/portal/PortalPanel'
 import { PortalTablePanel } from '../../../components/portal/PortalTablePanel'
 import { portalColors } from '../../../components/portal/portalTheme'
 import { portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
+import { useGetAgenciesQuery } from '../../client/api/clientApi'
 import {
   useCreateMavHsCategoryMutation,
   useCreateMavHsDetailMutation,
@@ -47,7 +48,9 @@ export function MavHsLibraryPage() {
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [headingOpen, setHeadingOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
-  const [categoryForm, setCategoryForm] = useState({ hsCode: '', description: '', notes: '' })
+  const { data: agenciesData } = useGetAgenciesQuery()
+  const agencies = agenciesData?.data ?? []
+  const [categoryForm, setCategoryForm] = useState({ hsCode: '', description: '', notes: '', agencyId: '' })
   const [headingForm, setHeadingForm] = useState({ headingNumber: '', description: '', notes: '' })
   const [detailForm, setDetailForm] = useState({ headingUuid: '', description: '', notes: '' })
 
@@ -81,9 +84,14 @@ export function MavHsLibraryPage() {
 
   const handleCreateCategory = async (e: FormEvent) => {
     e.preventDefault()
-    await createCategory(categoryForm).unwrap()
+    await createCategory({
+      hsCode: categoryForm.hsCode,
+      description: categoryForm.description,
+      notes: categoryForm.notes || undefined,
+      agencyId: categoryForm.agencyId ? Number(categoryForm.agencyId) : undefined,
+    }).unwrap()
     setCategoryOpen(false)
-    setCategoryForm({ hsCode: '', description: '', notes: '' })
+    setCategoryForm({ hsCode: '', description: '', notes: '', agencyId: '' })
   }
 
   const handleCreateHeading = async (e: FormEvent) => {
@@ -325,6 +333,21 @@ export function MavHsLibraryPage() {
             <Stack spacing={2} sx={{ mt: 1 }}>
               <TextField label="HS Code" value={categoryForm.hsCode} onChange={(e) => setCategoryForm({ ...categoryForm, hsCode: e.target.value })} required fullWidth />
               <TextField label="Description" value={categoryForm.description} onChange={(e) => setCategoryForm({ ...categoryForm, description: e.target.value })} required fullWidth />
+              <TextField
+                select
+                label="Agency"
+                value={categoryForm.agencyId}
+                onChange={(e) => setCategoryForm({ ...categoryForm, agencyId: e.target.value })}
+                fullWidth
+                helperText="Leave blank for a shared HS code. Assign BAI, BFAR, or BPI so the entry form only shows that agency’s codes."
+              >
+                <MenuItem value="">Shared / all agencies</MenuItem>
+                {agencies.map((agency) => (
+                  <MenuItem key={agency.id} value={String(agency.id)}>
+                    {agency.code} — {agency.name}
+                  </MenuItem>
+                ))}
+              </TextField>
               <TextField label="Notes" value={categoryForm.notes} onChange={(e) => setCategoryForm({ ...categoryForm, notes: e.target.value })} fullWidth multiline minRows={2} />
             </Stack>
           </DialogContent>

@@ -52,6 +52,9 @@ interface AgriCheckApiService {
     @POST("api/mobile/operator/containers/{uuid}/claim")
     suspend fun claimContainer(@Path("uuid") uuid: String): ApiEnvelope<ContainerListItemDto>
 
+    @POST("api/mobile/operator/containers/scan")
+    suspend fun claimContainerByQr(@Body request: ScanTransportQrRequest): ApiEnvelope<ContainerListItemDto>
+
     @POST("api/mobile/operator/containers/{uuid}/assign-driver")
     suspend fun assignDriver(
         @Path("uuid") uuid: String,

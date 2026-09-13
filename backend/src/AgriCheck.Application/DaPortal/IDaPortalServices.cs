@@ -16,6 +16,9 @@ public interface IDaAgencyOverviewService
 public interface IDaOversightReportService
 {
     Task<DaOversightReportDto> GetReportAsync(CancellationToken cancellationToken = default);
+    Task<DaMavNationalReportDto> GetMavNationalReportAsync(int? mavYear, CancellationToken cancellationToken = default);
+    Task<DaGeoStockReportDto> GetGeoStockReportAsync(DaGeoStockQuery query, CancellationToken cancellationToken = default);
+    Task<DaCommodityStockReportDto> GetCommodityStockReportAsync(DaCommodityStockQuery query, CancellationToken cancellationToken = default);
 }
 
 public interface IDaWarehouseManagementService

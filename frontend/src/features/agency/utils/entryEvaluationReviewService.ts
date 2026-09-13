@@ -17,6 +17,13 @@ export type RequiredEntryDocumentReview = {
   evaluationComment?: string
 }
 
+export type EntryComplianceItem = {
+  itemId: number
+  label: string
+  isRequired: boolean
+  status: string
+}
+
 export function listRequiredEntryDocumentReviews(
   schemaFields: FormFieldSchema[],
   formValues: Record<string, string>,
@@ -137,25 +144,54 @@ export function buildAutoEntryComment(
   ].join('\n')
 }
 
+export function getComplianceChecklistStats(items: EntryComplianceItem[]) {
+  const pending = items.filter((item) => item.status === 'Pending').length
+  const reviewed = items.length - pending
+
+  return {
+    total: items.length,
+    reviewed,
+    pending,
+    allReviewed: items.length === 0 || pending === 0,
+  }
+}
+
+export function getEntrySubmissionBlockers(input: {
+  documents: RequiredEntryDocumentReview[]
+  compliance: EntryComplianceItem[]
+  outcome: string
+}): string[] {
+  const blockers: string[] = []
+  const complianceStats = getComplianceChecklistStats(input.compliance)
+
+  if (complianceStats.total > 0 && !complianceStats.allReviewed) {
+    blockers.push(
+      `Finish the compliance checklist (${complianceStats.reviewed}/${complianceStats.total} reviewed).`,
+    )
+  }
+
+  const reviewStats = getRequiredEntryDocumentReviewStats(input.documents)
+
+  if (reviewStats.total === 0) {
+    blockers.push('No required documents were found for this entry.')
+  } else if (!reviewStats.allEvaluated) {
+    blockers.push(
+      `Review all required documents (${reviewStats.evaluated}/${reviewStats.total} completed).`,
+    )
+  } else if (!canSelectEntryFinalDecision(reviewStats, input.outcome)) {
+    blockers.push('Choose an entry outcome that matches the document review results.')
+  }
+
+  return blockers
+}
+
 export function validateEntryOutcomeSubmission(input: {
   documents: RequiredEntryDocumentReview[]
+  compliance: EntryComplianceItem[]
   outcome: string
 }): string | null {
-  const stats = getRequiredEntryDocumentReviewStats(input.documents)
-
-  if (stats.total === 0) {
-    return 'No required documents were found for this entry.'
-  }
-
-  if (!stats.allEvaluated) {
-    return `Review all required documents first (${stats.evaluated}/${stats.total} completed).`
-  }
-
-  if (!canSelectEntryFinalDecision(stats, input.outcome)) {
-    return 'This entry outcome is not allowed based on the current document reviews.'
-  }
-
-  return null
+  const blockers = getEntrySubmissionBlockers(input)
+  return blockers[0] ?? null
 }
 
 export function getEntryOutcomeConfirmationMessage(input: {

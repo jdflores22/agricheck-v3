@@ -344,6 +344,664 @@ public class DaOversightReportService : IDaOversightReportService
             await _db.AgencyBillings.CountAsync(b => b.Status == AgencyBillingStatus.Issued, cancellationToken),
             await _db.AgencyBillings.CountAsync(b => b.Status == AgencyBillingStatus.Paid, cancellationToken));
     }
+
+    public async Task<DaMavNationalReportDto> GetMavNationalReportAsync(int? mavYear, CancellationToken cancellationToken = default)
+    {
+        await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
+        var year = mavYear ?? DateTime.UtcNow.Year;
+        var licenses = await _db.MavLicenses
+            .AsNoTracking()
+            .Include(l => l.Account)
+            .Include(l => l.Application).ThenInclude(a => a.ApplicationPeriod).ThenInclude(p => p.Agency)
+            .Where(l => l.MavYear == year)
+            .ToListAsync(cancellationToken);
+        var apps = _db.MavApplications.Where(a => a.ApplicationPeriod.MavYear == year);
+        var appCounts = await apps
+            .GroupBy(a => a.HsCode)
+            .Select(g => new { HsCode = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        var categories = await _db.MavHsCategories.AsNoTracking().Include(c => c.Agency).Where(c => c.IsActive).ToListAsync(cancellationToken);
+
+        string ResolveAgency(string hsCode, long? periodAgencyId, string? periodAgencyCode)
+        {
+            if (!string.IsNullOrWhiteSpace(periodAgencyCode)) return periodAgencyCode;
+            var match = categories.FirstOrDefault(c => hsCode.StartsWith(c.HsCode, StringComparison.OrdinalIgnoreCase));
+            return match?.Agency?.Code ?? "Shared";
+        }
+
+        var mavAgencyIds = await _db.MavApplicationPeriods
+            .Where(p => p.MavYear == year && p.AgencyId != null)
+            .Select(p => p.AgencyId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        mavAgencyIds.AddRange(categories.Where(c => c.AgencyId.HasValue).Select(c => c.AgencyId!.Value));
+        var mavAgencySet = mavAgencyIds.ToHashSet();
+
+        var yearStart = new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var yearEnd = yearStart.AddYears(1);
+        var importEntries = await _db.Entries
+            .AsNoTracking()
+            .Include(e => e.Detail)
+            .Include(e => e.Agency)
+            .Include(e => e.MicUtilizations)
+            .Where(e =>
+                e.EntryType == EntryType.Import
+                && e.Status != EntryStatus.Draft
+                && e.Status != EntryStatus.Rejected
+                && e.Status != EntryStatus.Cancelled
+                && ((e.SubmittedAt ?? e.CreatedAt) >= yearStart && (e.SubmittedAt ?? e.CreatedAt) < yearEnd)
+                && (e.ImportTrack == EntryImportTrack.Mav || mavAgencySet.Contains(e.AgencyId)))
+            .ToListAsync(cancellationToken);
+
+        var regularEntries = importEntries
+            .Where(e => e.ImportTrack == EntryImportTrack.Regular)
+            .Select(e => new
+            {
+                AgencyCode = e.Agency?.Code ?? "Shared",
+                HsCode = ResolveEntryHsCode(e, categories),
+                CommodityName = FirstNonEmpty(e.Detail?.CommodityName, "Unclassified") ?? "Unclassified",
+                VolumeMt = DaStockVolumeHelper.ToKilograms(e) / 1000m,
+            })
+            .ToList();
+
+        var regularByAgency = regularEntries
+            .GroupBy(e => Norm(e.AgencyCode))
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.VolumeMt));
+        var regularByCommodity = regularEntries
+            .GroupBy(e => (Norm(e.AgencyCode), Norm(e.HsCode), Norm(e.CommodityName)))
+            .ToDictionary(
+                g => g.Key,
+                g => (
+                    AgencyCode: g.First().AgencyCode,
+                    HsCode: g.First().HsCode,
+                    CommodityName: g.First().CommodityName,
+                    Volume: g.Sum(x => x.VolumeMt)));
+
+        var byAgency = licenses
+            .GroupBy(l => ResolveAgency(l.HsCode, l.Application?.ApplicationPeriod.AgencyId, l.Application?.ApplicationPeriod.Agency?.Code))
+            .Select(g =>
+            {
+                var utilizedVolume = g.Sum(l => l.Account?.UtilizedVolume ?? 0m);
+                var regularVolume = regularByAgency.GetValueOrDefault(Norm(g.Key));
+                return new DaMavAgencyRowDto(
+                    g.Key,
+                    g.Count(l => l.Status == MavLicenseStatus.Active),
+                    g.Sum(l => l.AwardedVolume),
+                    utilizedVolume,
+                    g.Sum(l => l.AwardedVolume - (l.Account?.UtilizedVolume ?? 0m)),
+                    regularVolume,
+                    utilizedVolume + regularVolume);
+            })
+            .ToList();
+
+        foreach (var (agencyKey, regularVolume) in regularByAgency.Where(pair => byAgency.All(row => Norm(row.AgencyCode) != pair.Key)))
+        {
+            var agencyCode = regularEntries.First(e => Norm(e.AgencyCode) == agencyKey).AgencyCode;
+            byAgency.Add(new DaMavAgencyRowDto(agencyCode, 0, 0, 0, 0, regularVolume, regularVolume));
+        }
+
+        var byCommodity = licenses
+            .GroupBy(l => new { l.HsCode, l.CommodityName, Agency = ResolveAgency(l.HsCode, l.Application?.ApplicationPeriod.AgencyId, l.Application?.ApplicationPeriod.Agency?.Code) })
+            .Select(g =>
+            {
+                var utilizedVolume = g.Sum(l => l.Account?.UtilizedVolume ?? 0m);
+                var regularVolume = regularByCommodity.GetValueOrDefault((Norm(g.Key.Agency), Norm(g.Key.HsCode), Norm(g.Key.CommodityName))).Volume;
+                return new DaMavCommodityRowDto(
+                    g.Key.HsCode,
+                    g.Key.CommodityName,
+                    g.Key.Agency,
+                    appCounts.FirstOrDefault(a => string.Equals(a.HsCode, g.Key.HsCode, StringComparison.OrdinalIgnoreCase))?.Count ?? 0,
+                    g.Count(l => l.Status == MavLicenseStatus.Active),
+                    g.Sum(l => l.AwardedVolume),
+                    utilizedVolume,
+                    g.Sum(l => l.AwardedVolume - (l.Account?.UtilizedVolume ?? 0m)),
+                    regularVolume,
+                    utilizedVolume + regularVolume);
+            })
+            .ToList();
+
+        foreach (var (key, value) in regularByCommodity.Where(pair =>
+                     byCommodity.All(row =>
+                         Norm(row.AgencyCode) != pair.Key.Item1
+                         || Norm(row.HsCode) != pair.Key.Item2
+                         || Norm(row.CommodityName) != pair.Key.Item3)))
+        {
+            byCommodity.Add(new DaMavCommodityRowDto(
+                value.HsCode,
+                value.CommodityName,
+                value.AgencyCode,
+                appCounts.FirstOrDefault(a => string.Equals(a.HsCode, value.HsCode, StringComparison.OrdinalIgnoreCase))?.Count ?? 0,
+                0,
+                0,
+                0,
+                0,
+                value.Volume,
+                value.Volume));
+        }
+
+        var awarded = licenses.Sum(l => l.AwardedVolume);
+        var utilized = licenses.Sum(l => l.Account?.UtilizedVolume ?? 0m);
+        var regularVolumeTotal = regularEntries.Sum(e => e.VolumeMt);
+
+        return new DaMavNationalReportDto(
+            year,
+            await _db.MavApplicationPeriods.CountAsync(p => p.Status == MavApplicationPeriodStatus.Open, cancellationToken),
+            await apps.CountAsync(cancellationToken),
+            await apps.CountAsync(a => a.Status == MavApplicationStatus.Approved, cancellationToken),
+            licenses.Count(l => l.Status == MavLicenseStatus.Active),
+            await _db.MavImportCertificates.CountAsync(m => m.License.MavYear == year, cancellationToken),
+            awarded,
+            utilized,
+            awarded - utilized,
+            regularEntries.Count,
+            regularVolumeTotal,
+            utilized + regularVolumeTotal,
+            byAgency.OrderBy(r => r.AgencyCode).ToList(),
+            byCommodity.OrderBy(r => r.AgencyCode).ThenBy(r => r.HsCode).ToList());
+    }
+
+    private static string ResolveEntryHsCode(Entry entry, IReadOnlyCollection<MavHsCategory> categories)
+    {
+        var fromForm = ReadEntryHsCode(entry.FormDataJson);
+        if (!string.IsNullOrWhiteSpace(fromForm))
+        {
+            return fromForm;
+        }
+
+        var commodityName = entry.Detail?.CommodityName;
+        if (!string.IsNullOrWhiteSpace(commodityName))
+        {
+            var match = categories.FirstOrDefault(c =>
+                c.Description.Contains(commodityName, StringComparison.OrdinalIgnoreCase)
+                || commodityName.Contains(c.Description, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                return match.HsCode;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string? ReadEntryHsCode(string? formDataJson)
+    {
+        if (string.IsNullOrWhiteSpace(formDataJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(formDataJson);
+            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != System.Text.Json.JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                if (property.Name.Equals("hs_code", StringComparison.OrdinalIgnoreCase)
+                    || property.Name.Equals("hsCode", StringComparison.OrdinalIgnoreCase)
+                    || property.Name.EndsWith("_hs_code", StringComparison.OrdinalIgnoreCase))
+                {
+                    var value = property.Value.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        return value;
+                    }
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    public async Task<DaCommodityStockReportDto> GetCommodityStockReportAsync(
+        DaCommodityStockQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
+
+        var categories = await _db.MavHsCategories.AsNoTracking().Where(c => c.IsActive).ToListAsync(cancellationToken);
+        var stockLines = await LoadStoredStockLinesAsync(categories, cancellationToken);
+        var hsFilter = query.HsCode?.Trim();
+        var commodityFilter = query.CommodityName?.Trim();
+        var agencyFilter = query.AgencyCode?.Trim();
+
+        var filtered = stockLines
+            .Where(l => MatchesCommodityFilter(l.HsCode, l.CommodityName, hsFilter, commodityFilter))
+            .Where(l => string.IsNullOrWhiteSpace(agencyFilter)
+                || string.Equals(l.AgencyCode, agencyFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var commodities = filtered
+            .GroupBy(l => (Norm(l.HsCode), Norm(l.CommodityName)))
+            .Select(g =>
+            {
+                var sample = g.First();
+                var entryIds = g.Select(l => l.EntryId).Distinct().Count();
+                return new DaCommodityStockRowDto(
+                    string.IsNullOrWhiteSpace(sample.HsCode) ? "—" : sample.HsCode,
+                    sample.CommodityName,
+                    g.Sum(l => l.VolumeKg),
+                    g.Where(l => l.ImportTrack == EntryImportTrack.Mav).Sum(l => l.VolumeKg),
+                    g.Where(l => l.ImportTrack == EntryImportTrack.Regular).Sum(l => l.VolumeKg),
+                    g.Count(),
+                    g.Select(l => l.FacilityId).Distinct().Count(),
+                    g.Select(l => l.AgencyCode).Distinct().Count(),
+                    entryIds);
+            })
+            .OrderByDescending(r => r.StockKg)
+            .ThenBy(r => r.CommodityName)
+            .ToList();
+
+        var byAgency = filtered
+            .GroupBy(l => (l.AgencyCode, Norm(l.HsCode), Norm(l.CommodityName)))
+            .Select(g =>
+            {
+                var sample = g.First();
+                return new DaCommodityStockAgencyRowDto(
+                    sample.AgencyCode,
+                    string.IsNullOrWhiteSpace(sample.HsCode) ? "—" : sample.HsCode,
+                    sample.CommodityName,
+                    g.Sum(l => l.VolumeKg),
+                    g.Where(l => l.ImportTrack == EntryImportTrack.Mav).Sum(l => l.VolumeKg),
+                    g.Where(l => l.ImportTrack == EntryImportTrack.Regular).Sum(l => l.VolumeKg),
+                    g.Count(),
+                    g.Select(l => l.FacilityId).Distinct().Count());
+            })
+            .OrderByDescending(r => r.StockKg)
+            .ThenBy(r => r.AgencyCode)
+            .ThenBy(r => r.CommodityName)
+            .ToList();
+
+        return new DaCommodityStockReportDto(
+            filtered.Sum(l => l.VolumeKg),
+            filtered.Where(l => l.ImportTrack == EntryImportTrack.Mav).Sum(l => l.VolumeKg),
+            filtered.Where(l => l.ImportTrack == EntryImportTrack.Regular).Sum(l => l.VolumeKg),
+            commodities.Count,
+            filtered.Count,
+            filtered.Select(l => l.FacilityId).Distinct().Count(),
+            commodities,
+            byAgency);
+    }
+
+    public async Task<DaGeoStockReportDto> GetGeoStockReportAsync(DaGeoStockQuery query, CancellationToken cancellationToken = default)
+    {
+        await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
+
+        var categories = await _db.MavHsCategories.AsNoTracking().Where(c => c.IsActive).ToListAsync(cancellationToken);
+        var stockLines = await LoadStoredStockLinesAsync(categories, cancellationToken);
+        var facilities = await _db.WarehouseFacilities
+            .AsNoTracking()
+            .Include(f => f.Region)
+            .Include(f => f.Province)
+            .Include(f => f.City)
+            .Include(f => f.Barangay)
+            .Where(f => f.IsActive)
+            .ToListAsync(cancellationToken);
+
+        var storedByFacility = stockLines
+            .GroupBy(l => l.FacilityId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var hsFilter = query.HsCode?.Trim();
+        var commodityFilter = query.CommodityName?.Trim();
+
+        var lines = stockLines
+            .Where(l => MatchesCommodityFilter(l.HsCode, l.CommodityName, hsFilter, commodityFilter))
+            .Select(l => new GeoStockLine(
+                l.FacilityId,
+                l.RegionId,
+                l.RegionName,
+                l.ProvinceId,
+                l.ProvinceName,
+                l.CityId,
+                l.CityName,
+                l.BarangayId,
+                l.BarangayName,
+                l.HsCode,
+                l.CommodityName,
+                l.VolumeKg))
+            .ToList();
+
+        var scopedFacilities = facilities.Where(f => MatchesGeo(f, query)).ToList();
+        var scopedLines = lines.Where(l => MatchesGeo(l, query)).ToList();
+        var (level, scopeLabel, path) = await BuildGeoPathAsync(query, cancellationToken);
+        var commodities = AggregateCommodities(scopedLines);
+        var locations = await BuildChildLocationsAsync(level, query, scopedFacilities, scopedLines, storedByFacility, cancellationToken);
+        var warehouses = level is "city" or "barangay"
+            ? scopedFacilities
+                .Select(f => MapWarehouseStock(f, scopedLines, storedByFacility.GetValueOrDefault(f.Id)))
+                .OrderByDescending(w => w.VolumeKg)
+                .ThenBy(w => w.Name)
+                .ToList()
+            : new List<DaGeoStockWarehouseRowDto>();
+
+        var storedContainers = scopedFacilities.Sum(f => storedByFacility.GetValueOrDefault(f.Id));
+        var capacity = scopedFacilities.Sum(f => Math.Max(0, f.Capacity));
+        return new DaGeoStockReportDto(
+            level,
+            scopeLabel,
+            scopedLines.Sum(l => l.VolumeKg),
+            scopedFacilities.Count,
+            storedContainers,
+            capacity,
+            UtilizationPercent(storedContainers, capacity),
+            path,
+            commodities,
+            locations,
+            warehouses);
+    }
+
+    private async Task<(string Level, string ScopeLabel, IReadOnlyList<DaGeoStockBreadcrumbDto> Path)> BuildGeoPathAsync(
+        DaGeoStockQuery query,
+        CancellationToken cancellationToken)
+    {
+        var path = new List<DaGeoStockBreadcrumbDto> { new("nation", null, "Philippines") };
+        if (query.RegionId is long regionId)
+        {
+            var region = await _db.AddressRegions.AsNoTracking().FirstOrDefaultAsync(r => r.Id == regionId, cancellationToken);
+            path.Add(new("region", regionId, region?.Name ?? "Region"));
+        }
+
+        if (query.ProvinceId is long provinceId)
+        {
+            var province = await _db.AddressProvinces.AsNoTracking().FirstOrDefaultAsync(p => p.Id == provinceId, cancellationToken);
+            path.Add(new("province", provinceId, province?.Name ?? "Province"));
+        }
+
+        if (query.CityId is long cityId)
+        {
+            var city = await _db.AddressCities.AsNoTracking().FirstOrDefaultAsync(c => c.Id == cityId, cancellationToken);
+            path.Add(new("city", cityId, city?.Name ?? "City/Municipality"));
+        }
+
+        if (query.BarangayId is long barangayId)
+        {
+            var barangay = await _db.AddressBarangays.AsNoTracking().FirstOrDefaultAsync(b => b.Id == barangayId, cancellationToken);
+            path.Add(new("barangay", barangayId, barangay?.Name ?? "Barangay"));
+        }
+
+        var current = path[^1];
+        return (current.Level, current.Name, path);
+    }
+
+    private async Task<IReadOnlyList<DaGeoStockLocationRowDto>> BuildChildLocationsAsync(
+        string level,
+        DaGeoStockQuery query,
+        IReadOnlyList<WarehouseFacility> scopedFacilities,
+        IReadOnlyList<GeoStockLine> scopedLines,
+        IReadOnlyDictionary<long, int> storedByFacility,
+        CancellationToken cancellationToken)
+    {
+        if (level == "nation")
+        {
+            var regions = await _db.AddressRegions.AsNoTracking().Where(r => r.IsActive).OrderBy(r => r.Name).ToListAsync(cancellationToken);
+            var rows = regions.Select(region => MapLocation(
+                "region",
+                region.Id,
+                region.Name,
+                scopedFacilities.Where(f => f.RegionId == region.Id).ToList(),
+                scopedLines.Where(l => l.RegionId == region.Id).ToList(),
+                storedByFacility)).ToList();
+            var unclassified = scopedFacilities.Where(f => f.RegionId == null).ToList();
+            if (unclassified.Count > 0)
+            {
+                rows.Add(MapLocation("region", null, "Unclassified Region", unclassified, scopedLines.Where(l => l.RegionId == null).ToList(), storedByFacility));
+            }
+
+            return rows.OrderByDescending(r => r.VolumeKg).ThenBy(r => r.Name).ToList();
+        }
+
+        if (level == "region" && query.RegionId is long regionId)
+        {
+            var provinces = await _db.AddressProvinces.AsNoTracking()
+                .Where(p => p.IsActive && p.RegionId == regionId)
+                .OrderBy(p => p.Name)
+                .ToListAsync(cancellationToken);
+            return provinces
+                .Select(province => MapLocation(
+                    "province",
+                    province.Id,
+                    province.Name,
+                    scopedFacilities.Where(f => f.ProvinceId == province.Id).ToList(),
+                    scopedLines.Where(l => l.ProvinceId == province.Id).ToList(),
+                    storedByFacility))
+                .Where(row => row.WarehouseCount > 0 || row.VolumeKg > 0)
+                .OrderByDescending(r => r.VolumeKg)
+                .ThenBy(r => r.Name)
+                .ToList();
+        }
+
+        if (level == "province" && query.ProvinceId is long provinceId)
+        {
+            var cities = await _db.AddressCities.AsNoTracking()
+                .Where(c => c.IsActive && c.ProvinceId == provinceId)
+                .OrderBy(c => c.Name)
+                .ToListAsync(cancellationToken);
+            return cities
+                .Select(city => MapLocation(
+                    "city",
+                    city.Id,
+                    city.Name,
+                    scopedFacilities.Where(f => f.CityId == city.Id).ToList(),
+                    scopedLines.Where(l => l.CityId == city.Id).ToList(),
+                    storedByFacility))
+                .Where(row => row.WarehouseCount > 0 || row.VolumeKg > 0)
+                .OrderByDescending(r => r.VolumeKg)
+                .ThenBy(r => r.Name)
+                .ToList();
+        }
+
+        if (level == "city" && query.CityId is long cityId)
+        {
+            var barangays = await _db.AddressBarangays.AsNoTracking()
+                .Where(b => b.IsActive && b.CityId == cityId)
+                .OrderBy(b => b.Name)
+                .ToListAsync(cancellationToken);
+            return barangays
+                .Select(barangay => MapLocation(
+                    "barangay",
+                    barangay.Id,
+                    barangay.Name,
+                    scopedFacilities.Where(f => f.BarangayId == barangay.Id).ToList(),
+                    scopedLines.Where(l => l.BarangayId == barangay.Id).ToList(),
+                    storedByFacility))
+                .Where(row => row.WarehouseCount > 0 || row.VolumeKg > 0)
+                .OrderByDescending(r => r.VolumeKg)
+                .ThenBy(r => r.Name)
+                .ToList();
+        }
+
+        return Array.Empty<DaGeoStockLocationRowDto>();
+    }
+
+    private static DaGeoStockLocationRowDto MapLocation(
+        string level,
+        long? id,
+        string name,
+        IReadOnlyList<WarehouseFacility> facilities,
+        IReadOnlyList<GeoStockLine> lines,
+        IReadOnlyDictionary<long, int> storedByFacility)
+    {
+        var stored = facilities.Sum(f => storedByFacility.GetValueOrDefault(f.Id));
+        var capacity = facilities.Sum(f => Math.Max(0, f.Capacity));
+        return new DaGeoStockLocationRowDto(
+            level,
+            id,
+            name,
+            lines.Sum(l => l.VolumeKg),
+            facilities.Count,
+            stored,
+            capacity,
+            UtilizationPercent(stored, capacity),
+            AggregateCommodities(lines).Take(3).ToList());
+    }
+
+    private static DaGeoStockWarehouseRowDto MapWarehouseStock(
+        WarehouseFacility facility,
+        IReadOnlyList<GeoStockLine> lines,
+        int storedContainers)
+    {
+        var capacity = Math.Max(0, facility.Capacity);
+        var warehouseLines = lines.Where(l => l.FacilityId == facility.Id).ToList();
+        var top = warehouseLines
+            .GroupBy(l => new { l.HsCode, l.CommodityName })
+            .Select(g => new { g.Key.HsCode, g.Key.CommodityName, Volume = g.Sum(l => l.VolumeKg) })
+            .OrderByDescending(g => g.Volume)
+            .FirstOrDefault();
+        return new DaGeoStockWarehouseRowDto(
+            facility.Id,
+            facility.Code,
+            facility.Name,
+            warehouseLines.Sum(l => l.VolumeKg),
+            storedContainers,
+            capacity,
+            UtilizationPercent(storedContainers, capacity),
+            facility.Barangay?.Name,
+            top?.CommodityName,
+            string.IsNullOrWhiteSpace(top?.HsCode) ? null : top.HsCode);
+    }
+
+    private static IReadOnlyList<DaGeoStockCommodityRowDto> AggregateCommodities(IReadOnlyList<GeoStockLine> lines) =>
+        lines
+            .GroupBy(l => new { Hs = string.IsNullOrWhiteSpace(l.HsCode) ? "—" : l.HsCode, l.CommodityName })
+            .Select(g => new DaGeoStockCommodityRowDto(
+                g.Key.Hs,
+                g.Key.CommodityName,
+                g.Sum(l => l.VolumeKg),
+                g.Count(),
+                g.Select(l => l.FacilityId).Distinct().Count()))
+            .OrderByDescending(r => r.VolumeKg)
+            .ThenBy(r => r.CommodityName)
+            .ToList();
+
+    private static bool MatchesGeo(WarehouseFacility facility, DaGeoStockQuery query) =>
+        (query.RegionId is null || facility.RegionId == query.RegionId)
+        && (query.ProvinceId is null || facility.ProvinceId == query.ProvinceId)
+        && (query.CityId is null || facility.CityId == query.CityId)
+        && (query.BarangayId is null || facility.BarangayId == query.BarangayId);
+
+    private static bool MatchesGeo(GeoStockLine line, DaGeoStockQuery query) =>
+        (query.RegionId is null || line.RegionId == query.RegionId)
+        && (query.ProvinceId is null || line.ProvinceId == query.ProvinceId)
+        && (query.CityId is null || line.CityId == query.CityId)
+        && (query.BarangayId is null || line.BarangayId == query.BarangayId);
+
+    private static bool MatchesCommodityFilter(string hsCode, string commodityName, string? hsFilter, string? commodityFilter)
+    {
+        if (!string.IsNullOrWhiteSpace(hsFilter)
+            && !hsCode.StartsWith(hsFilter, StringComparison.OrdinalIgnoreCase)
+            && !hsFilter.StartsWith(hsCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return string.IsNullOrWhiteSpace(commodityFilter)
+            || commodityName.Contains(commodityFilter, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static decimal ResolveEntryVolumeKg(Entry entry) => DaStockVolumeHelper.ToKilograms(entry);
+
+    private static decimal UtilizationPercent(int stored, int capacity) =>
+        capacity > 0 ? Math.Round((decimal)stored / capacity * 100m, 1) : 0m;
+
+    private static string? FirstNonEmpty(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+
+    private static string Norm(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant();
+
+    private async Task<List<StockInventoryLine>> LoadStoredStockLinesAsync(
+        IReadOnlyCollection<MavHsCategory> categories,
+        CancellationToken cancellationToken)
+    {
+        var inventories = await _db.WarehouseInventories
+            .AsNoTracking()
+            .Include(i => i.WarehouseFacility).ThenInclude(f => f.Region)
+            .Include(i => i.WarehouseFacility).ThenInclude(f => f.Province)
+            .Include(i => i.WarehouseFacility).ThenInclude(f => f.City)
+            .Include(i => i.WarehouseFacility).ThenInclude(f => f.Barangay)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Agency)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
+            .Where(i => i.Status == WarehouseInventoryStatus.Stored)
+            .ToListAsync(cancellationToken);
+
+        var storedByEntry = inventories
+            .GroupBy(i => i.Container.EntryId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var lines = new List<StockInventoryLine>();
+        foreach (var item in inventories)
+        {
+            var facility = item.WarehouseFacility;
+            var entry = item.Container.Entry;
+            var mic = entry.MicUtilizations.OrderByDescending(u => u.UtilizedAt).Select(u => u.Mic).FirstOrDefault();
+            var hsCode = FirstNonEmpty(mic?.HsCode?.Trim(), ResolveEntryHsCode(entry, categories)) ?? string.Empty;
+            var commodityName = FirstNonEmpty(mic?.CommodityName, entry.Detail?.CommodityName) ?? "Unclassified";
+            var split = storedByEntry.GetValueOrDefault(entry.Id, 1);
+            var volumeKg = DaStockVolumeHelper.ToKilograms(entry) / Math.Max(split, 1);
+            lines.Add(new StockInventoryLine(
+                facility.Id,
+                entry.Id,
+                entry.Agency?.Code ?? "Shared",
+                entry.ImportTrack,
+                facility.RegionId,
+                facility.Region?.Name ?? "Unclassified Region",
+                facility.ProvinceId,
+                facility.Province?.Name ?? "Unclassified Province",
+                facility.CityId,
+                facility.City?.Name ?? "Unclassified City/Municipality",
+                facility.BarangayId,
+                facility.Barangay?.Name ?? "Unclassified Barangay",
+                hsCode,
+                commodityName,
+                volumeKg));
+        }
+
+        return lines;
+    }
+
+    private sealed record StockInventoryLine(
+        long FacilityId,
+        long EntryId,
+        string AgencyCode,
+        EntryImportTrack ImportTrack,
+        long? RegionId,
+        string RegionName,
+        long? ProvinceId,
+        string ProvinceName,
+        long? CityId,
+        string CityName,
+        long? BarangayId,
+        string BarangayName,
+        string HsCode,
+        string CommodityName,
+        decimal VolumeKg);
+
+    private sealed record GeoStockLine(
+        long FacilityId,
+        long? RegionId,
+        string RegionName,
+        long? ProvinceId,
+        string ProvinceName,
+        long? CityId,
+        string CityName,
+        long? BarangayId,
+        string BarangayName,
+        string HsCode,
+        string CommodityName,
+        decimal VolumeKg);
 }
 
 public class DaWarehouseManagementService : IDaWarehouseManagementService
@@ -402,26 +1060,74 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
                 && b.Status != WarehouseBookingStatus.Completed,
             cancellationToken);
 
-        var inventory = await _db.WarehouseInventories
+        var inventoryEntities = await _db.WarehouseInventories
             .AsNoTracking()
-            .Include(i => i.Container).ThenInclude(c => c.Entry)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .Include(i => i.ReceivedBy).ThenInclude(u => u.Profile)
             .Where(i => i.WarehouseFacilityId == id)
             .OrderByDescending(i => i.Status == WarehouseInventoryStatus.Stored)
             .ThenByDescending(i => i.ReceivedAt)
             .Take(100)
-            .Select(i => new DaWarehouseInventoryItemDto(
+            .ToListAsync(cancellationToken);
+
+        var storedForVolume = await _db.WarehouseInventories
+            .AsNoTracking()
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
+            .Where(i => i.WarehouseFacilityId == id && i.Status == WarehouseInventoryStatus.Stored)
+            .ToListAsync(cancellationToken);
+        var storedByEntry = storedForVolume
+            .GroupBy(i => i.Container.EntryId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var commodityLines = storedForVolume.Select(item =>
+        {
+            var entry = item.Container.Entry;
+            var mic = entry.MicUtilizations.OrderByDescending(u => u.UtilizedAt).Select(u => u.Mic).FirstOrDefault();
+            var split = storedByEntry.GetValueOrDefault(entry.Id, 1);
+            return new DaGeoStockCommodityRowDto(
+                string.IsNullOrWhiteSpace(mic?.HsCode) ? "—" : mic!.HsCode.Trim(),
+                string.IsNullOrWhiteSpace(mic?.CommodityName) ? (entry.Detail?.CommodityName ?? "Unclassified") : mic.CommodityName.Trim(),
+                DaStockVolumeHelper.ToKilograms(entry) / Math.Max(split, 1),
+                1,
+                1);
+        }).ToList();
+        var commodities = commodityLines
+            .GroupBy(l => new { l.HsCode, l.CommodityName })
+            .Select(g => new DaGeoStockCommodityRowDto(
+                g.Key.HsCode,
+                g.Key.CommodityName,
+                g.Sum(l => l.VolumeKg),
+                g.Count(),
+                1))
+            .OrderByDescending(r => r.VolumeKg)
+            .ThenBy(r => r.CommodityName)
+            .ToList();
+
+        var inventory = inventoryEntities.Select(i =>
+        {
+            var entry = i.Container.Entry;
+            var mic = entry.MicUtilizations.OrderByDescending(u => u.UtilizedAt).Select(u => u.Mic).FirstOrDefault();
+            var split = storedByEntry.GetValueOrDefault(entry.Id, 1);
+            var volumeKg = i.Status == WarehouseInventoryStatus.Stored
+                ? DaStockVolumeHelper.ToKilograms(entry) / Math.Max(split, 1)
+                : (decimal?)null;
+            return new DaWarehouseInventoryItemDto(
                 i.Uuid,
                 i.Container.ContainerNumber,
                 i.Container.ContainerType,
-                i.Container.Entry.ReferenceNo,
+                entry.ReferenceNo,
                 i.LocationCode,
                 i.Status.ToString(),
                 i.ReceivedAt,
                 i.ReceivedBy.Profile != null
                     ? (i.ReceivedBy.Profile.FirstName + " " + i.ReceivedBy.Profile.LastName).Trim()
-                    : i.ReceivedBy.Email))
-            .ToListAsync(cancellationToken);
+                    : i.ReceivedBy.Email,
+                string.IsNullOrWhiteSpace(mic?.HsCode) ? null : mic.HsCode.Trim(),
+                string.IsNullOrWhiteSpace(mic?.CommodityName) ? entry.Detail?.CommodityName : mic.CommodityName.Trim(),
+                volumeKg);
+        }).ToList();
 
         var capacity = Math.Max(0, facility.Capacity);
         var utilizationPercent = capacity > 0
@@ -435,6 +1141,8 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
             pendingBookings,
             capacity,
             utilizationPercent,
+            commodities.Sum(c => c.VolumeKg),
+            commodities,
             inventory);
     }
 
@@ -594,4 +1302,21 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
 
     private static string? NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+internal static class DaStockVolumeHelper
+{
+    public static decimal ToKilograms(Entry entry)
+    {
+        var quantity = entry.Detail?.Quantity ?? 0m;
+        var micVolume = entry.MicUtilizations.Sum(u => u.Volume);
+        var source = quantity > 0 ? quantity : micVolume;
+        var normalized = (entry.Detail?.Unit ?? "kg").Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "mt" or "m.t." or "metric ton" or "metric tons" or "ton" or "tons" or "tonne" or "tonnes" => source * 1000m,
+            "g" or "gram" or "grams" => source / 1000m,
+            _ => source
+        };
+    }
 }

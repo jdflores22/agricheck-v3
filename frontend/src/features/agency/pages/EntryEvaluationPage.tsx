@@ -19,7 +19,7 @@ import {
   Typography,
 } from '@mui/material'
 import { AccreditationStatusTimeline } from '../../client/components/AccreditationStatusTimeline'
-import { parseFormDataJson, parseFormSchema } from '../../forms/formSchema'
+import { applyMavEntrySchema, parseFormDataJson, parseFormSchema } from '../../forms/formSchema'
 import { AccreditationDocumentReviewControls } from '../../accreditation-officer/components/AccreditationDocumentReviewControls'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalPanel } from '../../../components/portal/PortalPanel'
@@ -28,9 +28,9 @@ import { portalColors } from '../../../components/portal/portalTheme'
 import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
 import { EntryEvaluationSummary } from '../components/EntryEvaluationSummary'
 import { EntryMavEvaluationPanel } from '../components/EntryMavEvaluationPanel'
+import { EntryOutcomePanel } from '../components/EntryOutcomePanel'
 import {
   buildAutoEntryComment,
-  canSelectEntryFinalDecision,
   getEntryOutcomeConfirmationMessage,
   getRequiredEntryDocumentReviewStats,
   listRequiredEntryDocumentReviews,
@@ -44,32 +44,6 @@ import {
   useGetAgencyEntryQuery,
   useUpdateComplianceMutation,
 } from '../api/agencyApi'
-
-function SummaryStat({
-  label,
-  value,
-  tone = 'default',
-}: {
-  label: string
-  value: string | number
-  tone?: 'default' | 'success' | 'warning' | 'error'
-}) {
-  const colors = {
-    default: { bg: portalColors.bgMuted, color: portalColors.textDark },
-    success: { bg: '#f0fdf4', color: '#15803d' },
-    warning: { bg: '#fffbeb', color: '#b45309' },
-    error: { bg: '#fef2f2', color: '#b91c1c' },
-  }[tone]
-
-  return (
-    <Box sx={{ borderRadius: 2, px: 1.5, py: 1.25, bgcolor: colors.bg }}>
-      <Typography variant="caption" sx={{ color: portalColors.textMuted, display: 'block' }}>
-        {label}
-      </Typography>
-      <Typography sx={{ fontWeight: 700, color: colors.color }}>{value}</Typography>
-    </Box>
-  )
-}
 
 export function EntryEvaluationPage() {
   const { uuid = '' } = useParams()
@@ -87,9 +61,18 @@ export function EntryEvaluationPage() {
   const commentManuallyEdited = useRef(false)
   const entry = data?.data
 
+  const isMavTrack = entry?.entryType === 'Import' && (
+    entry.mav?.importTrack === 'Mav'
+    || (!entry.mav?.importTrack && Boolean(entry.mav?.mavNo || (entry.mav?.micUtilizations?.length ?? 0) > 0))
+  )
   const schemaFields = useMemo(
-    () => (entry?.formSchemaJson ? parseFormSchema(entry.formSchemaJson) : []),
-    [entry?.formSchemaJson],
+    () => (entry?.formSchemaJson
+      ? applyMavEntrySchema(parseFormSchema(entry.formSchemaJson), {
+          showMavFields: isMavTrack,
+          requireCommodityHs: false,
+        })
+      : []),
+    [entry?.formSchemaJson, isMavTrack],
   )
   const formValues = useMemo(
     () => parseFormDataJson(entry?.formDataJson),
@@ -124,11 +107,6 @@ export function EntryEvaluationPage() {
     entry.isAssignedToMe &&
     !['Approved', 'Rejected'].includes(entry.status)
 
-  const validationError = validateEntryOutcomeSubmission({
-    documents: requiredDocuments,
-    outcome,
-  })
-
   const confirmation = getEntryOutcomeConfirmationMessage({
     referenceNo: entry.referenceNo,
     companyName: entry.companyName,
@@ -154,6 +132,7 @@ export function EntryEvaluationPage() {
     setSubmitError('')
     const error = validateEntryOutcomeSubmission({
       documents: requiredDocuments,
+      compliance: entry.compliance,
       outcome,
     })
     if (error) {
@@ -226,6 +205,7 @@ export function EntryEvaluationPage() {
               uuid: entry.uuid,
               referenceNo: entry.referenceNo,
               entryType: entry.entryType,
+              importTrack: entry.mav?.importTrack,
               companyName: entry.companyName,
               applicantName: entry.applicantName,
               submittedAt: entry.submittedAt,
@@ -268,10 +248,14 @@ export function EntryEvaluationPage() {
             </Box>
           </PortalPanel>
 
-          {entry.compliance.length > 0 ? (
-            <PortalPanel title="Compliance Checklist">
-              <Box sx={{ px: 2.5, py: 2 }}>
-                {entry.compliance.map((item) => (
+          <PortalPanel title="Compliance Checklist">
+            <Box sx={{ px: 2.5, py: 2 }}>
+              {entry.compliance.length === 0 ? (
+                <Typography variant="body2" sx={{ color: portalColors.textMuted }}>
+                  Checklist items are loading or not configured for this agency.
+                </Typography>
+              ) : (
+                entry.compliance.map((item) => (
                   <Box key={item.itemId} sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 1.5 }}>
                     <Typography variant="body2" sx={{ flex: 1 }}>
                       {item.label}
@@ -291,10 +275,10 @@ export function EntryEvaluationPage() {
                       </Select>
                     </FormControl>
                   </Box>
-                ))}
-              </Box>
-            </PortalPanel>
-          ) : null}
+                ))
+              )}
+            </Box>
+          </PortalPanel>
 
           <PortalPanel title="Evaluator Notes">
             <Box sx={{ px: 2.5, py: 2 }}>
@@ -340,92 +324,24 @@ export function EntryEvaluationPage() {
           </PortalPanel>
 
           {canEvaluate ? (
-            <PortalPanel title="Entry Outcome">
-              <Stack spacing={2} sx={{ px: 2.5, py: 2 }}>
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gap: 1.5,
-                    gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' },
-                  }}
-                >
-                  <SummaryStat label="Required Docs" value={`${reviewStats.evaluated}/${reviewStats.total}`} />
-                  <SummaryStat label="Approved" value={reviewStats.approved} tone="success" />
-                  <SummaryStat label="Needs Revision" value={reviewStats.revisionRequired} tone="warning" />
-                  <SummaryStat label="Rejected" value={reviewStats.rejected} tone="error" />
-                </Box>
-
-                {!reviewStats.allEvaluated ? (
-                  <Alert severity="warning">
-                    {reviewStats.pending} required document{reviewStats.pending === 1 ? '' : 's'} still need
-                    evaluation. Submit is disabled until all required documents are reviewed.
-                  </Alert>
-                ) : reviewStats.requiresRevisionOutcome ? (
-                  <Alert severity="warning">
-                    Some documents still need action. The entry outcome must stay as{' '}
-                    <strong>Revision Required</strong> until every required document is approved.
-                  </Alert>
-                ) : (
-                  <Alert severity="success">
-                    All required documents are approved. You may approve the entry or reject it at the entry level.
-                  </Alert>
-                )}
-
-                <FormControl fullWidth>
-                  <InputLabel>Entry Outcome</InputLabel>
-                  <Select
-                    label="Entry Outcome"
-                    value={outcome}
-                    onChange={(e) => {
-                      commentManuallyEdited.current = false
-                      setOutcome(e.target.value)
-                      setSubmitError('')
-                    }}
-                  >
-                    <MenuItem value="Approved" disabled={!canSelectEntryFinalDecision(reviewStats, 'Approved')}>
-                      Approved
-                    </MenuItem>
-                    <MenuItem
-                      value="RevisionRequired"
-                      disabled={!canSelectEntryFinalDecision(reviewStats, 'RevisionRequired')}
-                    >
-                      Revision Required
-                    </MenuItem>
-                    <MenuItem value="Rejected" disabled={!canSelectEntryFinalDecision(reviewStats, 'Rejected')}>
-                      Rejected
-                    </MenuItem>
-                  </Select>
-                </FormControl>
-
-                <TextField
-                  label="Evaluation Comment"
-                  value={comment}
-                  onChange={(e) => {
-                    commentManuallyEdited.current = true
-                    setComment(e.target.value)
-                  }}
-                  multiline
-                  rows={5}
-                  fullWidth
-                  helperText={
-                    outcome === 'RevisionRequired'
-                      ? 'Auto-generated from document remarks. You may edit before submitting.'
-                      : 'Summary comment sent to the applicant.'
-                  }
-                />
-
-                {submitError ? <Alert severity="error">{submitError}</Alert> : null}
-
-                <Button
-                  variant="contained"
-                  sx={portalPrimaryButtonSx}
-                  disabled={completing || Boolean(validationError)}
-                  onClick={openOutcomeConfirm}
-                >
-                  Submit Entry Outcome
-                </Button>
-              </Stack>
-            </PortalPanel>
+            <EntryOutcomePanel
+              compliance={entry.compliance}
+              documents={requiredDocuments}
+              outcome={outcome}
+              comment={comment}
+              submitError={submitError}
+              completing={completing}
+              onOutcomeChange={(value) => {
+                commentManuallyEdited.current = false
+                setOutcome(value)
+                setSubmitError('')
+              }}
+              onCommentChange={(value) => {
+                commentManuallyEdited.current = true
+                setComment(value)
+              }}
+              onSubmit={openOutcomeConfirm}
+            />
           ) : null}
         </Stack>
       </Box>

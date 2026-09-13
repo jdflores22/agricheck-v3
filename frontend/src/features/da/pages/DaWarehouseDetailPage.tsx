@@ -66,7 +66,7 @@ export function DaWarehouseDetailPage() {
     return <Alert severity="error">Warehouse not found.</Alert>
   }
 
-  const { warehouse, storedContainers, releasedContainers, pendingBookings, capacity, utilizationPercent, inventory } = detail
+  const { warehouse, storedContainers, releasedContainers, capacity, utilizationPercent, totalVolumeKg, commodities, inventory } = detail
   const storedInventory = inventory.filter((item) => item.status === 'Stored')
   const releasedInventory = inventory.filter((item) => item.status !== 'Stored')
   const availableSlots = Math.max(capacity - storedContainers, 0)
@@ -139,15 +139,25 @@ export function DaWarehouseDetailPage() {
                 </Stack>
               </Box>
             </Stack>
-            <Button
-              component={RouterLink}
-              to="/da/warehouses"
-              variant="outlined"
-              startIcon={<ArrowBackIcon />}
-              sx={{ ...portalOutlinedButtonSx, flexShrink: 0 }}
-            >
-              Back to registry
-            </Button>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ flexShrink: 0 }}>
+              <Button
+                component={RouterLink}
+                to={warehouse.regionId ? `/da/reports/stock?regionId=${warehouse.regionId}` : '/da/reports/stock'}
+                variant="outlined"
+                sx={portalOutlinedButtonSx}
+              >
+                Region stock
+              </Button>
+              <Button
+                component={RouterLink}
+                to="/da/warehouses"
+                variant="outlined"
+                startIcon={<ArrowBackIcon />}
+                sx={portalOutlinedButtonSx}
+              >
+                Back to registry
+              </Button>
+            </Stack>
           </Stack>
         </Box>
 
@@ -196,17 +206,36 @@ export function DaWarehouseDetailPage() {
           { key: 'storedContainers', label: 'Stored Containers', caption: `${availableSlots.toLocaleString()} slots available` },
           { key: 'releasedContainers', label: 'Released (All Time)', caption: 'Historical throughput' },
           { key: 'utilizationPercent', label: 'Capacity Used (%)', caption: `${capacity.toLocaleString()} total slots` },
-          { key: 'pendingBookings', label: 'Pending Bookings', caption: 'Scheduled arrivals' },
+          { key: 'totalVolumeKg', label: 'Stored commodity (KG)', caption: `${commodities.length} commodity type${commodities.length === 1 ? '' : 's'}` },
         ]}
         stats={{
           storedContainers,
           releasedContainers,
           utilizationPercent,
-          pendingBookings,
+          totalVolumeKg,
         }}
         isLoading={false}
         columns={{ xs: '1fr 1fr', md: 'repeat(4, 1fr)' }}
       />
+
+      <Box sx={{ mt: 3 }}>
+        <PortalTablePanel
+          title="Commodities in this warehouse"
+          columns={['Commodity', 'HS Code', 'Volume', 'Containers']}
+          isLoading={false}
+          isEmpty={commodities.length === 0}
+          emptyMessage="No stored commodity yet. Volume appears here after warehouse staff receive an import container."
+        >
+          {commodities.map((commodity) => (
+            <TableRow key={`${commodity.hsCode}-${commodity.commodityName}`} hover>
+              <TableCell sx={{ fontWeight: 700 }}>{commodity.commodityName}</TableCell>
+              <TableCell>{commodity.hsCode}</TableCell>
+              <TableCell>{commodity.volumeKg.toLocaleString()} KG</TableCell>
+              <TableCell>{commodity.storedContainers}</TableCell>
+            </TableRow>
+          ))}
+        </PortalTablePanel>
+      </Box>
 
       <Grid container spacing={3} sx={{ mt: 3 }}>
         <Grid size={{ xs: 12, md: 7 }}>
@@ -314,7 +343,7 @@ export function DaWarehouseDetailPage() {
           ) : (
             <PortalTablePanel
               title=""
-              columns={['Container', 'Type', 'Entry', 'Location', 'Status', 'Received', 'Received by']}
+              columns={['Container', 'Commodity', 'HS Code', 'Volume', 'Entry', 'Location', 'Status']}
               isLoading={false}
               isEmpty={false}
             >
@@ -326,14 +355,14 @@ export function DaWarehouseDetailPage() {
                       <Typography sx={{ fontWeight: 600 }}>{item.containerNumber}</Typography>
                     </Stack>
                   </TableCell>
-                  <TableCell>{item.containerType ?? '—'}</TableCell>
+                  <TableCell>{item.commodityName ?? '—'}</TableCell>
+                  <TableCell>{item.hsCode ?? '—'}</TableCell>
+                  <TableCell>{item.volumeKg != null ? `${item.volumeKg.toLocaleString()} KG` : '—'}</TableCell>
                   <TableCell>{item.entryReference}</TableCell>
                   <TableCell>{item.locationCode ?? '—'}</TableCell>
                   <TableCell>
                     <Chip size="small" label={item.status} sx={portalStatusChipSx(item.status)} />
                   </TableCell>
-                  <TableCell>{new Date(item.receivedAt).toLocaleString()}</TableCell>
-                  <TableCell>{item.receivedByName ?? '—'}</TableCell>
                 </TableRow>
               ))}
             </PortalTablePanel>

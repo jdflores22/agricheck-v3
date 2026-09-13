@@ -32,7 +32,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { DragEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { DragEvent, forwardRef, MouseEvent as ReactMouseEvent, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { portalColors } from '../../../../components/portal/portalTheme'
 import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../../components/portal/portalStyles'
@@ -63,18 +63,39 @@ const paletteIcons: Record<BuilderElementType, typeof TextFieldsIcon> = {
   LINE: MinimizeIcon,
 }
 
+export type CertificateBuilderSavePayload = {
+  elements: ReturnType<typeof builderElementToApiInput>[]
+  layoutJson: string
+}
+
+export type CertificateBuilderHandle = {
+  getSavePayload: () => CertificateBuilderSavePayload
+}
+
 interface CertificateBuilderProps {
   template: CertificateTemplateDetail
-  saving: boolean
-  onSave: (payload: {
-    elements: ReturnType<typeof builderElementToApiInput>[]
-    layoutJson: string
-  }) => Promise<void>
-  onPreview: () => Promise<void>
+  saving?: boolean
+  processTypes?: string[]
+  toolbarMode?: 'full' | 'canvas-only'
+  onElementCountChange?: (count: number) => void
+  onSave?: (payload: CertificateBuilderSavePayload) => Promise<void>
+  onPreview?: () => Promise<void>
   onUploadImage: (file: File) => Promise<string>
 }
 
-export function CertificateBuilder({ template, saving, onSave, onPreview, onUploadImage }: CertificateBuilderProps) {
+export const CertificateBuilder = forwardRef<CertificateBuilderHandle, CertificateBuilderProps>(function CertificateBuilder(
+  {
+    template,
+    saving = false,
+    processTypes,
+    toolbarMode = 'full',
+    onElementCountChange,
+    onSave,
+    onPreview,
+    onUploadImage,
+  },
+  ref,
+) {
   const [layout, setLayout] = useState<CertificateLayoutConfig>(() => parseLayout(template.layoutJson))
   const [elements, setElements] = useState<BuilderElement[]>(() => template.elements.map(apiElementToBuilder))
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -92,7 +113,8 @@ export function CertificateBuilder({ template, saving, onSave, onPreview, onUplo
   const canvasWidth = paper.width * MM_TO_PX * scale
   const canvasHeight = paper.height * MM_TO_PX * scale
 
-  const primaryProcess = template.processTypes[0] ?? 'Accreditation'
+  const effectiveProcessTypes = processTypes ?? template.processTypes
+  const primaryProcess = effectiveProcessTypes[0] ?? 'Accreditation'
   const variables = TEMPLATE_VARIABLES[primaryProcess] ?? TEMPLATE_VARIABLES.Accreditation
 
   const pushHistory = useCallback((next: BuilderElement[]) => {
@@ -229,12 +251,23 @@ export function CertificateBuilder({ template, saving, onSave, onPreview, onUplo
     }
   }, [pushHistory, scale])
 
-  const handleSave = async () => {
+  const getSavePayload = useCallback((): CertificateBuilderSavePayload => {
     const sorted = [...elements].sort((a, b) => a.zIndex - b.zIndex || a.displayOrder - b.displayOrder)
-    await onSave({
+    return {
       layoutJson: JSON.stringify(layout),
       elements: sorted.map((element, index) => builderElementToApiInput({ ...element, displayOrder: index + 1 }, index + 1)),
-    })
+    }
+  }, [elements, layout])
+
+  useImperativeHandle(ref, () => ({ getSavePayload }), [getSavePayload])
+
+  useEffect(() => {
+    onElementCountChange?.(elements.length)
+  }, [elements.length, onElementCountChange])
+
+  const handleSave = async () => {
+    if (!onSave) return
+    await onSave(getSavePayload())
   }
 
   const sortedElements = useMemo(
@@ -245,9 +278,11 @@ export function CertificateBuilder({ template, saving, onSave, onPreview, onUplo
   return (
     <Box>
       <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Button component={RouterLink} to={`/admin/certificate-templates/${template.uuid}`} variant="outlined" sx={portalOutlinedButtonSx}>
-          View Details
-        </Button>
+        {toolbarMode === 'full' ? (
+          <Button component={RouterLink} to={`/admin/certificate-templates/${template.uuid}`} variant="outlined" sx={portalOutlinedButtonSx}>
+            View Details
+          </Button>
+        ) : null}
         <Button variant="outlined" sx={portalOutlinedButtonSx} startIcon={<UndoIcon />} onClick={handleUndo} disabled={historyIndex <= 0}>
           Undo
         </Button>
@@ -267,12 +302,16 @@ export function CertificateBuilder({ template, saving, onSave, onPreview, onUplo
         <Button variant={gridEnabled ? 'contained' : 'outlined'} sx={gridEnabled ? portalPrimaryButtonSx : portalOutlinedButtonSx} startIcon={<GridOnIcon />} onClick={() => setGridEnabled((v) => !v)}>
           Grid
         </Button>
-        <Button variant="outlined" sx={portalOutlinedButtonSx} startIcon={<VisibilityIcon />} onClick={() => void onPreview()}>
-          Preview
-        </Button>
-        <Button variant="contained" sx={portalPrimaryButtonSx} onClick={() => void handleSave()} disabled={saving}>
-          Save
-        </Button>
+        {toolbarMode === 'full' && onPreview ? (
+          <Button variant="outlined" sx={portalOutlinedButtonSx} startIcon={<VisibilityIcon />} onClick={() => void onPreview()}>
+            Preview
+          </Button>
+        ) : null}
+        {toolbarMode === 'full' && onSave ? (
+          <Button variant="contained" sx={portalPrimaryButtonSx} onClick={() => void handleSave()} disabled={saving}>
+            Save
+          </Button>
+        ) : null}
       </Stack>
 
       <Box
@@ -757,4 +796,4 @@ export function CertificateBuilder({ template, saving, onSave, onPreview, onUplo
       </Alert>
     </Box>
   )
-}
+})

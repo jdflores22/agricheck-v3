@@ -2,6 +2,7 @@ using AgriCheck.Application.AdminPortal;
 using AgriCheck.Application.AdminPortal.Dtos;
 using AgriCheck.Application.ClientPortal;
 using AgriCheck.Application.ClientPortal.Dtos;
+using AgriCheck.Application.Notifications;
 using AgriCheck.Domain.Entities;
 using AgriCheck.Domain.Enums;
 using AgriCheck.Infrastructure.Auth;
@@ -743,11 +744,16 @@ public class AdminEntryPaymentService : IAdminEntryPaymentService
 {
     private readonly AgriCheckDbContext _db;
     private readonly ICurrentUserService _currentUser;
+    private readonly INotificationService _notifications;
 
-    public AdminEntryPaymentService(AgriCheckDbContext db, ICurrentUserService currentUser)
+    public AdminEntryPaymentService(
+        AgriCheckDbContext db,
+        ICurrentUserService currentUser,
+        INotificationService notifications)
     {
         _db = db;
         _currentUser = currentUser;
+        _notifications = notifications;
     }
 
     public async Task<PagedResult<AdminEntryPaymentListItemDto>> ListAsync(int page, int pageSize, string? status, CancellationToken cancellationToken = default)
@@ -757,7 +763,7 @@ public class AdminEntryPaymentService : IAdminEntryPaymentService
         pageSize = Math.Clamp(pageSize, 1, 100);
 
         var query = _db.ClientBillPayments.AsNoTracking()
-            .Where(p => p.ClientBill.EntryId != null);
+            .Where(p => p.ClientBill.EntryId != null && p.ClientBill.AgencyBillingId == null);
 
         if (!string.IsNullOrWhiteSpace(status))
         {
@@ -795,7 +801,7 @@ public class AdminEntryPaymentService : IAdminEntryPaymentService
         await AdminContextHelper.RequireAdminAsync(_db, _currentUser, cancellationToken);
 
         var entryPayments = _db.ClientBillPayments.AsNoTracking()
-            .Where(p => p.ClientBill.EntryId != null);
+            .Where(p => p.ClientBill.EntryId != null && p.ClientBill.AgencyBillingId == null);
 
         var paidPayments = entryPayments.Where(p => p.Status == "completed");
         var totalCollected = await paidPayments.SumAsync(p => p.Amount, cancellationToken);
@@ -804,7 +810,8 @@ public class AdminEntryPaymentService : IAdminEntryPaymentService
         var failedCount = await entryPayments.CountAsync(p => p.Status == "failed", cancellationToken);
 
         var pendingAmount = await _db.ClientBills.AsNoTracking()
-            .Where(b => b.EntryId != null && b.Status != ClientBillStatus.Paid && b.Status != ClientBillStatus.Cancelled)
+            .Where(b => b.EntryId != null && b.AgencyBillingId == null &&
+                        b.Status != ClientBillStatus.Paid && b.Status != ClientBillStatus.Cancelled)
             .SumAsync(b => b.Amount, cancellationToken);
 
         var paidRows = await paidPayments
@@ -845,6 +852,88 @@ public class AdminEntryPaymentService : IAdminEntryPaymentService
             failedCount,
             byAgency,
             byMonth);
+    }
+
+    public async Task<IReadOnlyList<AdminPendingEntryCashPaymentDto>> ListPendingCashPaymentsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await AdminContextHelper.RequireAdminAsync(_db, _currentUser, cancellationToken);
+
+        return await _db.ClientBillPayments.AsNoTracking()
+            .Where(p =>
+                p.Status == "awaiting_verification" &&
+                p.PaymentMethod == "cash" &&
+                p.ClientBill.EntryId != null &&
+                p.ClientBill.AgencyBillingId == null)
+            .OrderByDescending(p => p.CreatedAt)
+            .Select(p => new AdminPendingEntryCashPaymentDto(
+                p.ClientBill.Uuid,
+                p.ClientBill.BillNumber,
+                p.ClientBill.Entry!.ReferenceNo,
+                p.ClientBill.Entry.Agency.Code,
+                p.ClientBill.User.Profile != null
+                    ? (p.ClientBill.User.Profile.FirstName + " " + p.ClientBill.User.Profile.LastName).Trim()
+                    : p.ClientBill.User.Email,
+                p.Amount,
+                p.ExternalReference,
+                p.CreatedAt))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task VerifyCashPaymentAsync(
+        Guid billUuid,
+        VerifyAdminEntryCashPaymentRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await AdminContextHelper.RequireAdminAsync(_db, _currentUser, cancellationToken);
+
+        var bill = await _db.ClientBills
+            .Include(b => b.Payments)
+            .Include(b => b.Entry)
+            .FirstOrDefaultAsync(
+                b => b.Uuid == billUuid && b.EntryId != null && b.AgencyBillingId == null,
+                cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Bill not found.");
+
+        var pending = bill.Payments.FirstOrDefault(p => p.Status == "awaiting_verification" && p.PaymentMethod == "cash")
+            ?? throw new ClientPortalException("INVALID_STATUS", "No pending cash payment to verify.");
+
+        if (!request.Approved)
+        {
+            pending.Status = "rejected";
+            bill.Status = ClientBillStatus.Unpaid;
+            await _db.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
+        if (bill.Status == ClientBillStatus.Paid)
+        {
+            throw new ClientPortalException("ALREADY_PAID", "Bill is already paid.");
+        }
+
+        bill.Status = ClientBillStatus.Paid;
+        bill.PaidAt = DateTime.UtcNow;
+        pending.Status = "completed";
+
+        var paidEntry = bill.Entry ?? await _db.Entries.FirstAsync(e => e.Id == bill.EntryId, cancellationToken);
+        paidEntry.PaymentStatus = PaymentStatus.Paid;
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        await _notifications.NotifyAsync(
+            bill.UserId,
+            "payment_completed",
+            "Payment received",
+            $"Payment for bill {bill.BillNumber} has been completed.",
+            "Bill",
+            bill.Uuid.ToString(),
+            cancellationToken);
+
+        await AgencyEvaluatorNotificationHelper.NotifyEntryReadyForEvaluationAsync(
+            _db,
+            _notifications,
+            paidEntry,
+            cancellationToken);
     }
 }
 

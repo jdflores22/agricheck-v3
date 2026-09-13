@@ -26,7 +26,9 @@ public record MavApplicationPeriodListItemDto(
     DateTime OpeningDate,
     DateTime ClosingDate,
     int ApplicationCount,
-    int AllocationCount);
+    int AllocationCount,
+    long? AgencyId,
+    string? AgencyCode);
 
 public record MavApplicationPeriodDetailDto(
     Guid Uuid,
@@ -35,7 +37,19 @@ public record MavApplicationPeriodDetailDto(
     string Status,
     DateTime OpeningDate,
     DateTime ClosingDate,
-    IReadOnlyList<MavCommodityAllocationDto> Allocations);
+    IReadOnlyList<MavCommodityAllocationDto> Allocations,
+    long? AgencyId,
+    string? AgencyCode);
+
+public record MavAgencyContextDto(
+    long AgencyId,
+    bool IsActive,
+    int OpenPeriodCount,
+    int ActiveLicenseCount,
+    int AvailableMicCount,
+    string? AgencyCode,
+    bool IsProgramAvailable,
+    bool ImporterHasMavAccess);
 
 public record MavCommodityAllocationDto(
     long Id,
@@ -77,7 +91,9 @@ public record MavApplicationDetailDto(
     DateTime? SubmittedAt,
     DateTime? ReviewedAt,
     string? RejectionReason,
-    Guid? LicenseUuid);
+    Guid? LicenseUuid,
+    long? AgencyId,
+    string? AgencyCode);
 
 public record CreateMavApplicationRequest(Guid PeriodUuid, string HsCode, string CommodityName, decimal RequestedVolume, long? AccreditationSubmissionId, Guid? HsDetailUuid = null);
 

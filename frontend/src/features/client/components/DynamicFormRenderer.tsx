@@ -19,11 +19,13 @@ import {
 import {
   evaluateConditional,
   getWarehouseAutofillTarget,
+  isMavControlField,
   sanitizeDisplayText,
   type FormFieldSchema,
   parseFormSchema,
 } from '../../forms/formSchema'
 import { AddressFieldRenderer } from '../../addresses/AddressFieldRenderer'
+import { CommodityHsFieldRenderer } from '../../mav/components/CommodityHsFieldRenderer'
 import { WarehouseFieldRenderer } from '../../warehouses/WarehouseFieldRenderer'
 import { portalColors } from '../../../components/portal/portalTheme'
 import { portalOutlinedButtonSx } from '../../../components/portal/portalStyles'
@@ -53,6 +55,10 @@ interface DynamicFormRendererProps {
   /** When true, file fields show a hint that uploads unlock after the draft is saved. */
   filesPendingDraft?: boolean
   fieldErrors?: Record<string, string>
+  agencyId?: number
+  mavRequired?: boolean
+  showMavFields?: boolean
+  showCommodityHs?: boolean
 }
 
 export type { FormFieldSchema }
@@ -80,7 +86,7 @@ function getFieldGridSize(field: FormFieldSchema) {
     return { xs: 12 as const, sm: 6 as const, lg: 4 as const }
   }
 
-  if (field.type === 'textarea' || field.type === 'address') {
+  if (field.type === 'textarea' || field.type === 'address' || field.type === 'commodity') {
     return { xs: 12 as const }
   }
 
@@ -292,7 +298,13 @@ export function DynamicFormRenderer({
   uploadingField,
   filesPendingDraft,
   fieldErrors,
+  agencyId,
+  mavRequired = false,
+  showMavFields,
+  showCommodityHs,
 }: DynamicFormRendererProps) {
+  const includeMavFields = showMavFields ?? mavRequired
+  const includeCommodityHs = showCommodityHs ?? mavRequired
   const fields = parseFormSchema(schemaJson)
   if (fields.length === 0) return null
 
@@ -308,8 +320,15 @@ export function DynamicFormRenderer({
     <Grid container spacing={2.5}>
       {fields.map((field) => {
         if (!evaluateConditional(field, values)) return null
+        if (isMavControlField(field.name) && !includeMavFields) return null
 
         const value = values[field.name] ?? ''
+        const treatAsCommodity = field.type === 'commodity' || (includeCommodityHs && field.name === 'commodityName')
+        const renderedField = treatAsCommodity
+          ? { ...field, type: 'commodity' as const, required: includeCommodityHs || field.required }
+          : isMavControlField(field.name) && includeMavFields
+            ? { ...field, required: true }
+            : field
         const isFirstSection = field.type === 'section' && sectionIndex++ === 0
         const fieldError = fieldErrors?.[field.name]
 
@@ -387,7 +406,7 @@ export function DynamicFormRenderer({
           return (
             <FieldWrapper key={field.id} field={field}>
               <FileUploadCard
-                field={field}
+                field={renderedField}
                 value={value}
                 fileUuid={fileUuid}
                 disabled={disabled}
@@ -429,22 +448,22 @@ export function DynamicFormRenderer({
           )
         }
 
-        if (field.type === 'commodity') {
+        if (treatAsCommodity) {
           return (
-            <FieldWrapper key={field.id} field={field}>
-              <TextField
-                fullWidth
-                size="small"
-                label={field.label}
-                value={value}
-                required={field.required}
+            <FieldWrapper key={field.id} field={renderedField} hideHelpText>
+              <CommodityHsFieldRenderer
+                field={renderedField}
+                values={values}
+                onChange={onChange}
+                onBatchChange={onBatchChange}
+                agencyId={agencyId}
                 disabled={disabled}
-                placeholder={field.placeholder ?? 'Search commodity or HS code'}
-                error={Boolean(fieldError)}
-                helperText={fieldError}
-                onChange={(e) => onChange(field.name, e.target.value)}
-                sx={fieldInputSx}
               />
+              {fieldError ? (
+                <FormHelperText error sx={{ mx: 0, mt: 0.75 }}>
+                  {fieldError}
+                </FormHelperText>
+              ) : null}
             </FieldWrapper>
           )
         }
@@ -508,12 +527,15 @@ export function DynamicFormRenderer({
 }
 
 export function mapDynamicValuesToEntryDetail(values: Record<string, string>, commodityId?: string, unit = 'kg') {
-  const commodityKeys = Object.keys(values).filter((key) => key.startsWith('commodity_') || key === 'commodityName' || key === 'commodity')
-  const commodityValue = commodityKeys.map((key) => values[key]).find(Boolean) ?? values.commodityName ?? values.commodity ?? ''
+  const commodityName =
+    Object.entries(values).find(([key, value]) => key.endsWith('_commodity_name') && value.trim())?.[1]
+    ?? values.commodityName
+    ?? values.commodity
+    ?? ''
 
   return {
     commodityId: commodityId ? Number(commodityId) : null,
-    commodityName: commodityValue,
+    commodityName,
     description: values.description ?? '',
     quantity: Number(values.quantity ?? values.txt_volume_weight ?? 1),
     unit: values.unit ?? unit,

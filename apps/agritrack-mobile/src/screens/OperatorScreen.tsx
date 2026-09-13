@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -12,6 +13,7 @@ import {
 } from 'react-native'
 import { assignDriver, claimContainer, getClaimableContainers } from '../api/agritrackApi'
 import type { ContainerListItem } from '../types/api'
+import { OperatorQrScanScreen } from './OperatorQrScanScreen'
 import { colors } from '../theme'
 
 export function OperatorScreen() {
@@ -21,6 +23,7 @@ export function OperatorScreen() {
   const [assignTarget, setAssignTarget] = useState<string | null>(null)
   const [driverUuid, setDriverUuid] = useState('')
   const [busy, setBusy] = useState(false)
+  const [scanOpen, setScanOpen] = useState(false)
 
   const load = useCallback(async () => {
     setError('')
@@ -72,7 +75,10 @@ export function OperatorScreen() {
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { setLoading(true); void load() }} />}
     >
       <Text style={styles.title}>Claimable Containers</Text>
-      <Text style={styles.subtitle}>Claim tagged containers and assign drivers.</Text>
+      <Text style={styles.subtitle}>Scan a transport QR or claim from the list, then assign drivers.</Text>
+      <Pressable style={styles.scanBtn} disabled={busy} onPress={() => setScanOpen(true)}>
+        <Text style={styles.scanBtnText}>Scan transport QR</Text>
+      </Pressable>
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {!loading && containers.length === 0 ? <Text style={styles.empty}>No claimable containers right now.</Text> : null}
@@ -113,6 +119,16 @@ export function OperatorScreen() {
           </View>
         </View>
       ) : null}
+
+      <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>
+        <OperatorQrScanScreen
+          onClose={() => setScanOpen(false)}
+          onClaimed={() => {
+            setLoading(true)
+            void load()
+          }}
+        />
+      </Modal>
     </ScrollView>
   )
 }
@@ -121,6 +137,15 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg, padding: 16 },
   title: { fontSize: 24, fontWeight: '800', color: colors.text },
   subtitle: { color: colors.muted, marginBottom: 12, marginTop: 4 },
+  scanBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  scanBtnText: { color: '#fff', fontWeight: '800' },
   error: { color: colors.danger, marginBottom: 12 },
   empty: { color: colors.muted },
   card: {

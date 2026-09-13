@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using AgriCheck.Application.AdminPortal;
 using AgriCheck.Application.Payments;
 using AgriCheck.Infrastructure.Helpers;
 using AgriCheck.Infrastructure.Persistence;
@@ -36,72 +37,93 @@ public class PayMongoGatewayService : IPaymentGatewayService
         string paymentMethod,
         string successUrl,
         string cancelUrl,
+        long? agencyId = null,
         CancellationToken cancellationToken = default)
     {
-        var payMongoEnabled = await PaymentSettingsReader.IsPayMongoEnabledAsync(_db, cancellationToken);
-        var apiKey = await PaymentSettingsReader.GetPayMongoApiKeyAsync(_db, _configuration, cancellationToken);
+        var gateway = agencyId is long resolvedAgencyId
+            ? await PaymentSettingsReader.ResolveForAgencyAsync(_db, resolvedAgencyId, _configuration, cancellationToken)
+            : await ResolveGlobalGatewayAsync(cancellationToken);
 
-        if (!payMongoEnabled || string.IsNullOrWhiteSpace(apiKey))
+        if (!gateway.PayMongoEnabled || string.IsNullOrWhiteSpace(gateway.PayMongoApiKey))
         {
             return new PaymentIntentResult(paymentReference, null, null, "simulated");
         }
+
+        var apiKey = gateway.PayMongoApiKey;
 
         try
         {
             var client = CreateAuthorizedClient(apiKey);
             var amountCentavos = (int)(amount * 100);
 
-            var checkoutPayload = new
+            var methodSets = ResolvePaymentMethodAttempts(paymentMethod);
+            string? lastErrorBody = null;
+
+            foreach (var methodTypes in methodSets)
             {
-                data = new
+                var checkoutPayload = new
                 {
-                    attributes = new
+                    data = new
                     {
-                        line_items = new[]
+                        attributes = new
                         {
-                            new
+                            line_items = new[]
                             {
-                                currency = "PHP",
-                                amount = amountCentavos,
-                                name = description,
-                                quantity = 1,
+                                new
+                                {
+                                    currency = "PHP",
+                                    amount = amountCentavos,
+                                    name = description,
+                                    quantity = 1,
+                                },
+                            },
+                            payment_method_types = methodTypes,
+                            success_url = successUrl,
+                            cancel_url = cancelUrl,
+                            reference_number = paymentReference,
+                            description,
+                            send_email_receipt = true,
+                            metadata = new
+                            {
+                                payment_reference = paymentReference,
+                                payment_method = paymentMethod,
                             },
                         },
-                        payment_method_types = ResolvePaymentMethodTypes(paymentMethod),
-                        success_url = successUrl,
-                        cancel_url = cancelUrl,
-                        reference_number = paymentReference,
-                        description,
-                        metadata = new
-                        {
-                            payment_reference = paymentReference,
-                            payment_method = paymentMethod,
-                        },
                     },
-                },
-            };
+                };
 
-            using var checkoutResponse = await client.PostAsync(
-                "https://api.paymongo.com/v1/checkout_sessions",
-                new StringContent(JsonSerializer.Serialize(checkoutPayload), Encoding.UTF8, "application/json"),
-                cancellationToken);
+                using var checkoutResponse = await client.PostAsync(
+                    "https://api.paymongo.com/v1/checkout_sessions",
+                    new StringContent(JsonSerializer.Serialize(checkoutPayload), Encoding.UTF8, "application/json"),
+                    cancellationToken);
 
-            var checkoutBody = await checkoutResponse.Content.ReadAsStringAsync(cancellationToken);
-            if (checkoutResponse.IsSuccessStatusCode)
-            {
-                var checkoutUrl = ExtractCheckoutSessionUrl(checkoutBody);
-                var sessionId = ExtractCheckoutSessionId(checkoutBody);
-                if (!string.IsNullOrWhiteSpace(checkoutUrl))
+                var checkoutBody = await checkoutResponse.Content.ReadAsStringAsync(cancellationToken);
+                if (checkoutResponse.IsSuccessStatusCode)
                 {
-                    return new PaymentIntentResult(paymentReference, sessionId, checkoutUrl, "paymongo");
+                    var checkoutUrl = ExtractCheckoutSessionUrl(checkoutBody);
+                    var sessionId = ExtractCheckoutSessionId(checkoutBody);
+                    if (!string.IsNullOrWhiteSpace(checkoutUrl))
+                    {
+                        return new PaymentIntentResult(paymentReference, sessionId, checkoutUrl, "paymongo");
+                    }
+                }
+
+                lastErrorBody = checkoutBody;
+                _logger.LogWarning(
+                    "PayMongo checkout_sessions failed: {Status} {Body}",
+                    checkoutResponse.StatusCode,
+                    checkoutBody);
+
+                if (!IsPaymentMethodNotAllowed(checkoutBody))
+                {
+                    break;
                 }
             }
-            else
-            {
-                _logger.LogWarning("PayMongo checkout_sessions failed: {Status} {Body}", checkoutResponse.StatusCode, checkoutBody);
-            }
 
-            throw new InvalidOperationException("PayMongo checkout session could not be created.");
+            throw new InvalidOperationException(
+                string.IsNullOrWhiteSpace(lastErrorBody)
+                    ? "PayMongo checkout session could not be created."
+                    : "PayMongo checkout session could not be created.");
         }
         catch (Exception ex) when (ex is not InvalidOperationException)
         {
@@ -215,13 +237,43 @@ public class PayMongoGatewayService : IPaymentGatewayService
 
     public async Task<bool> VerifyWebhookSignatureAsync(string payload, string signature, CancellationToken cancellationToken = default)
     {
-        var secret = await PaymentSettingsReader.GetPayMongoWebhookSecretAsync(_db, _configuration, cancellationToken);
-        if (string.IsNullOrWhiteSpace(secret)) return true;
+        var secrets = await PaymentSettingsReader.GetWebhookSecretsAsync(_db, _configuration, cancellationToken);
+        if (secrets.Count == 0) return true;
+        if (string.IsNullOrWhiteSpace(signature)) return false;
 
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
-        var computed = Convert.ToHexString(hash).ToLowerInvariant();
-        return string.Equals(computed, signature, StringComparison.OrdinalIgnoreCase);
+        foreach (var secret in secrets)
+        {
+            if (VerifyWebhookSignatureWithSecret(payload, signature, secret))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool VerifyWebhookSignatureWithSecret(string payload, string signature, string secret)
+    {
+        var timestamp = ReadSignaturePart(signature, "t");
+        var testSignature = ReadSignaturePart(signature, "te");
+        var liveSignature = ReadSignaturePart(signature, "li");
+
+        if (string.IsNullOrWhiteSpace(timestamp))
+        {
+            return SecureEquals(ComputeHexHmac(secret, payload), signature);
+        }
+
+        if (long.TryParse(timestamp, out var unixSeconds))
+        {
+            var age = DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
+            if (age.Duration() > TimeSpan.FromMinutes(10))
+            {
+                return false;
+            }
+        }
+
+        var computed = ComputeHexHmac(secret, $"{timestamp}.{payload}");
+        return SecureEquals(computed, liveSignature) || SecureEquals(computed, testSignature);
     }
 
     public Task<(string PaymentReference, string Status)?> ParseWebhookPayloadAsync(string payload, CancellationToken cancellationToken = default)
@@ -230,36 +282,28 @@ public class PayMongoGatewayService : IPaymentGatewayService
         {
             using var doc = JsonDocument.Parse(payload);
             var root = doc.RootElement;
+            var eventNode = root.TryGetProperty("data", out var data) ? data : root;
+            var eventType = ReadEventType(eventNode);
 
-            if (root.TryGetProperty("data", out var data) && data.TryGetProperty("attributes", out var eventAttributes))
+            if (TryReadNestedResource(eventNode, out var resourceId, out var attributes))
             {
-                var eventType = eventAttributes.TryGetProperty("type", out var eventTypeEl)
-                    ? eventTypeEl.GetString()
-                    : data.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
-
-                if (eventAttributes.TryGetProperty("data", out var nestedData) &&
-                    nestedData.TryGetProperty("attributes", out var nestedAttributes))
+                var paymentReference = ReadPaymentReference(attributes) ?? resourceId;
+                var status = ReadPaymentStatus(attributes, eventType);
+                if (HasPaidCheckoutPayment(payload) || IsPaidEvent(eventType))
                 {
-                    var paymentReference = ReadPaymentReference(nestedAttributes);
-                    var status = ReadPaymentStatus(nestedAttributes, eventType);
-                    if (!string.IsNullOrWhiteSpace(paymentReference))
-                    {
-                        return Task.FromResult<(string PaymentReference, string Status)?>((paymentReference, status));
-                    }
+                    status = "paid";
                 }
 
-                var directReference = ReadPaymentReference(eventAttributes);
-                var directStatus = ReadPaymentStatus(eventAttributes, eventType);
-                if (!string.IsNullOrWhiteSpace(directReference))
+                if (!string.IsNullOrWhiteSpace(paymentReference))
                 {
-                    return Task.FromResult<(string PaymentReference, string Status)?>((directReference, directStatus));
+                    return Task.FromResult<(string PaymentReference, string Status)?>((paymentReference, status));
                 }
             }
 
-            if (root.TryGetProperty("attributes", out var flatAttributes))
+            if (eventNode.TryGetProperty("attributes", out var eventAttributes))
             {
-                var paymentReference = ReadPaymentReference(flatAttributes);
-                var status = ReadPaymentStatus(flatAttributes, null);
+                var paymentReference = ReadPaymentReference(eventAttributes);
+                var status = ReadPaymentStatus(eventAttributes, eventType);
                 if (!string.IsNullOrWhiteSpace(paymentReference))
                 {
                     return Task.FromResult<(string PaymentReference, string Status)?>((paymentReference, status));
@@ -283,24 +327,123 @@ public class PayMongoGatewayService : IPaymentGatewayService
         return client;
     }
 
-    private static string[] ResolvePaymentMethodTypes(string paymentMethod)
+    private static IReadOnlyList<string[]> ResolvePaymentMethodAttempts(string paymentMethod)
     {
         switch (paymentMethod.ToLowerInvariant())
         {
             case "gcash":
-                return new[] { "gcash" };
+                return new[] { new[] { "gcash" } };
             case "paymaya":
             case "maya":
-                return new[] { "paymaya" };
+                return new[] { new[] { "paymaya" } };
             case "qrph":
             case "qr":
-                return new[] { "qrph" };
+                return new[] { new[] { "qrph" } };
             case "card":
-                return new[] { "card" };
+                return new[]
+                {
+                    new[] { "card", "gcash", "paymaya", "qrph" },
+                    new[] { "gcash", "paymaya", "qrph" },
+                    new[] { "card" },
+                };
             default:
-                return new[] { "card", "gcash", "paymaya", "qrph" };
+                return new[]
+                {
+                    new[] { "gcash", "paymaya", "qrph", "card" },
+                    new[] { "gcash", "paymaya", "qrph" },
+                    new[] { "gcash" },
+                };
         }
     }
+
+    private static bool IsPaymentMethodNotAllowed(string body) =>
+        body.Contains("payment method", StringComparison.OrdinalIgnoreCase)
+        && (body.Contains("not allowed", StringComparison.OrdinalIgnoreCase)
+            || body.Contains("not enabled", StringComparison.OrdinalIgnoreCase));
+
+    private static string? ReadSignaturePart(string header, string key)
+    {
+        foreach (var part in header.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separator = part.IndexOf('=');
+            if (separator <= 0) continue;
+            if (part[..separator].Equals(key, StringComparison.OrdinalIgnoreCase))
+            {
+                return part[(separator + 1)..];
+            }
+        }
+
+        return null;
+    }
+
+    private static string ComputeHexHmac(string secret, string value)
+    {
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        return Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+    }
+
+    private static bool SecureEquals(string left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(right) || left.Length != right.Length)
+        {
+            return false;
+        }
+
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(left),
+            Encoding.UTF8.GetBytes(right.ToLowerInvariant()));
+    }
+
+    private static string? ReadEventType(JsonElement eventNode)
+    {
+        if (eventNode.TryGetProperty("type", out var typeEl))
+        {
+            return typeEl.GetString();
+        }
+
+        if (eventNode.TryGetProperty("attributes", out var attrs) &&
+            attrs.TryGetProperty("type", out var nestedType))
+        {
+            return nestedType.GetString();
+        }
+
+        return null;
+    }
+
+    private static bool TryReadNestedResource(JsonElement eventNode, out string? resourceId, out JsonElement attributes)
+    {
+        resourceId = null;
+        attributes = default;
+
+        JsonElement resource = default;
+        if (eventNode.TryGetProperty("data", out var nested) && nested.ValueKind == JsonValueKind.Object)
+        {
+            resource = nested;
+        }
+        else if (eventNode.TryGetProperty("attributes", out var attrs) &&
+                 attrs.TryGetProperty("data", out var legacy) &&
+                 legacy.ValueKind == JsonValueKind.Object)
+        {
+            resource = legacy;
+        }
+        else
+        {
+            return false;
+        }
+
+        resourceId = resource.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+        if (!resource.TryGetProperty("attributes", out attributes))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsPaidEvent(string? eventType) =>
+        !string.IsNullOrWhiteSpace(eventType) &&
+        (eventType.Contains("payment.paid", StringComparison.OrdinalIgnoreCase) ||
+         eventType.Contains("checkout_session.payment.paid", StringComparison.OrdinalIgnoreCase));
 
     private static string? ExtractCheckoutSessionUrl(string body)
     {
@@ -329,14 +472,26 @@ public class PayMongoGatewayService : IPaymentGatewayService
     private static bool HasPaidCheckoutPayment(string body)
     {
         using var doc = JsonDocument.Parse(body);
-        if (!doc.RootElement.TryGetProperty("data", out var data) ||
-            !data.TryGetProperty("attributes", out var attrs) ||
-            !attrs.TryGetProperty("payments", out var payments))
+        if (!TryGetCheckoutAttributes(doc.RootElement, out var attrs))
         {
             return false;
         }
 
-        if (payments.ValueKind != JsonValueKind.Array)
+        if (attrs.TryGetProperty("status", out var sessionStatus) && IsPaidStatus(sessionStatus.GetString()))
+        {
+            return true;
+        }
+
+        if (attrs.TryGetProperty("payment_intent", out var paymentIntent) &&
+            paymentIntent.ValueKind == JsonValueKind.Object &&
+            paymentIntent.TryGetProperty("attributes", out var intentAttrs) &&
+            intentAttrs.TryGetProperty("status", out var intentStatus) &&
+            IsPaidStatus(intentStatus.GetString()))
+        {
+            return true;
+        }
+
+        if (!attrs.TryGetProperty("payments", out var payments) || payments.ValueKind != JsonValueKind.Array)
         {
             return false;
         }
@@ -352,6 +507,24 @@ public class PayMongoGatewayService : IPaymentGatewayService
         }
 
         return false;
+    }
+
+    private static bool TryGetCheckoutAttributes(JsonElement root, out JsonElement attrs)
+    {
+        attrs = default;
+        if (!root.TryGetProperty("data", out var data))
+        {
+            return false;
+        }
+
+        if (data.TryGetProperty("data", out var nested) &&
+            nested.ValueKind == JsonValueKind.Object &&
+            nested.TryGetProperty("attributes", out attrs))
+        {
+            return true;
+        }
+
+        return data.TryGetProperty("attributes", out attrs);
     }
 
     private static bool IsLegacyLinkMarkedPaid(string body)
@@ -437,5 +610,23 @@ public class PayMongoGatewayService : IPaymentGatewayService
         }
 
         return "unknown";
+    }
+
+    private async Task<ResolvedAgencyPaymentGateway> ResolveGlobalGatewayAsync(CancellationToken cancellationToken)
+    {
+        var enabled = await PaymentSettingsReader.IsPayMongoEnabledAsync(_db, cancellationToken);
+        var apiKey = await PaymentSettingsReader.GetPayMongoApiKeyAsync(_db, _configuration, cancellationToken);
+        var webhook = await PaymentSettingsReader.GetPayMongoWebhookSecretAsync(_db, _configuration, cancellationToken);
+        var settings = await PaymentSettingsReader.GetAllAsync(_db, cancellationToken);
+        var publicKey = settings.GetValueOrDefault(PaymentSettingsDefaults.PayMongoPublicKey);
+
+        return new ResolvedAgencyPaymentGateway(
+            enabled,
+            true,
+            enabled ? "paymongo" : "simulated",
+            apiKey,
+            webhook,
+            string.IsNullOrWhiteSpace(publicKey) ? null : publicKey,
+            false);
     }
 }

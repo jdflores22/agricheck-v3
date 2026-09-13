@@ -280,6 +280,12 @@ public class MobileOperatorContainersController : OpsPortalControllerBase
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.ClaimContainerAsync(uuid, cancellationToken));
 
+    [HttpPost("scan")]
+    public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> ScanAndClaim(
+        [FromBody] ScanTransportQrRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ClaimContainerByQrAsync(request, cancellationToken));
+
     [HttpPost("{uuid:guid}/assign-driver")]
     public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> AssignDriver(
         Guid uuid,

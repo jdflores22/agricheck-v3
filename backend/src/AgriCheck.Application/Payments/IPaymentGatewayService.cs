@@ -15,6 +15,7 @@ public interface IPaymentGatewayService
         string paymentMethod,
         string successUrl,
         string cancelUrl,
+        long? agencyId = null,
         CancellationToken cancellationToken = default);
 
     Task<bool> IsCheckoutSessionPaidAsync(string checkoutSessionId, CancellationToken cancellationToken = default);

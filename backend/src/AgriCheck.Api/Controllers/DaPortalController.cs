@@ -44,6 +44,33 @@ public class DaPortalController : AgencyPortalControllerBase
     public async Task<ActionResult<ApiResponse<DaOversightReportDto>>> ReportSummary(CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _reportService.GetReportAsync(cancellationToken));
 
+    [HttpGet("reports/mav")]
+    public async Task<ActionResult<ApiResponse<DaMavNationalReportDto>>> MavNationalReport([FromQuery] int? mavYear, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _reportService.GetMavNationalReportAsync(mavYear, cancellationToken));
+
+    [HttpGet("reports/commodity-stock")]
+    public async Task<ActionResult<ApiResponse<DaCommodityStockReportDto>>> CommodityStockReport(
+        [FromQuery] string? hsCode,
+        [FromQuery] string? commodityName,
+        [FromQuery] string? agencyCode,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _reportService.GetCommodityStockReportAsync(
+            new DaCommodityStockQuery(hsCode, commodityName, agencyCode),
+            cancellationToken));
+
+    [HttpGet("reports/geo-stock")]
+    public async Task<ActionResult<ApiResponse<DaGeoStockReportDto>>> GeoStockReport(
+        [FromQuery] long? regionId,
+        [FromQuery] long? provinceId,
+        [FromQuery] long? cityId,
+        [FromQuery] long? barangayId,
+        [FromQuery] string? hsCode,
+        [FromQuery] string? commodityName,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _reportService.GetGeoStockReportAsync(
+            new DaGeoStockQuery(regionId, provinceId, cityId, barangayId, hsCode, commodityName),
+            cancellationToken));
+
     [HttpGet("warehouses")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<DaWarehouseListItemDto>>>> Warehouses(CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _warehouseService.ListAsync(cancellationToken));

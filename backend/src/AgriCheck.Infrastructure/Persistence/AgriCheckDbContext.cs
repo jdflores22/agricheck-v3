@@ -40,6 +40,7 @@ public class AgriCheckDbContext : DbContext
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
     public DbSet<EvaluatorAssignment> EvaluatorAssignments => Set<EvaluatorAssignment>();
+    public DbSet<InspectorAssignment> InspectorAssignments => Set<InspectorAssignment>();
     public DbSet<FileEvaluation> FileEvaluations => Set<FileEvaluation>();
     public DbSet<EvaluatorNote> EvaluatorNotes => Set<EvaluatorNote>();
     public DbSet<ComplianceChecklist> ComplianceChecklists => Set<ComplianceChecklist>();
@@ -48,6 +49,7 @@ public class AgriCheckDbContext : DbContext
     public DbSet<Inspection> Inspections => Set<Inspection>();
     public DbSet<InspectionPhoto> InspectionPhotos => Set<InspectionPhoto>();
     public DbSet<AgencyBilling> AgencyBillings => Set<AgencyBilling>();
+    public DbSet<AgencyBillingCharge> AgencyBillingCharges => Set<AgencyBillingCharge>();
     public DbSet<SubmissionFileReview> SubmissionFileReviews => Set<SubmissionFileReview>();
     public DbSet<CertificateTemplate> CertificateTemplates => Set<CertificateTemplate>();
     public DbSet<CertificateTemplateVersion> CertificateTemplateVersions => Set<CertificateTemplateVersion>();
@@ -57,6 +59,7 @@ public class AgriCheckDbContext : DbContext
     public DbSet<FormTemplateVersion> FormTemplateVersions => Set<FormTemplateVersion>();
     public DbSet<FormAgencyTag> FormAgencyTags => Set<FormAgencyTag>();
     public DbSet<ProcessingFeeConfig> ProcessingFeeConfigs => Set<ProcessingFeeConfig>();
+    public DbSet<AgencyPaymentSettings> AgencyPaymentSettings => Set<AgencyPaymentSettings>();
     public DbSet<MavApplicationPeriod> MavApplicationPeriods => Set<MavApplicationPeriod>();
     public DbSet<MavCommodityAllocation> MavCommodityAllocations => Set<MavCommodityAllocation>();
     public DbSet<MavApplication> MavApplications => Set<MavApplication>();

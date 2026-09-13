@@ -95,7 +95,52 @@ function DaBillingCard({
         <Box sx={{ px: 2.5, py: 2 }}>
           <Stack spacing={1.25}>
             <Typography variant="body2">{billing.description}</Typography>
-            <Typography variant="body2">Amount: PHP {billing.amount.toLocaleString()}</Typography>
+            {(billing.charges?.length ?? 0) > 0 ? (
+              <Box
+                sx={{
+                  border: `1px solid ${portalColors.border}`,
+                  borderRadius: '0.5rem',
+                  overflow: 'hidden',
+                }}
+              >
+                {billing.charges?.map((charge) => (
+                  <Box
+                    key={`${charge.sortOrder}-${charge.description}`}
+                    sx={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 2,
+                      px: 1.5,
+                      py: 1,
+                      borderBottom: `1px solid ${portalColors.border}`,
+                      '&:last-child': { borderBottom: 0 },
+                    }}
+                  >
+                    <Typography variant="body2">{charge.description}</Typography>
+                    <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                      PHP {charge.amount.toLocaleString()}
+                    </Typography>
+                  </Box>
+                ))}
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 2,
+                    px: 1.5,
+                    py: 1,
+                    bgcolor: portalColors.bgMuted,
+                  }}
+                >
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>Total</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                    PHP {billing.amount.toLocaleString()}
+                  </Typography>
+                </Box>
+              </Box>
+            ) : (
+              <Typography variant="body2">Amount: PHP {billing.amount.toLocaleString()}</Typography>
+            )}
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <Typography variant="body2">Status:</Typography>
               <Chip

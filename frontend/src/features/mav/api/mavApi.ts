@@ -29,6 +29,19 @@ export interface MavPeriodListItem {
   closingDate: string
   applicationCount: number
   allocationCount: number
+  agencyId?: number | null
+  agencyCode?: string | null
+}
+
+export interface MavAgencyContext {
+  agencyId: number
+  isActive: boolean
+  openPeriodCount: number
+  activeLicenseCount: number
+  availableMicCount: number
+  agencyCode?: string | null
+  isProgramAvailable?: boolean
+  importerHasMavAccess?: boolean
 }
 
 export interface MavCommodityAllocation {
@@ -74,6 +87,8 @@ export interface MavApplicationDetail {
   reviewedAt?: string
   rejectionReason?: string
   licenseUuid?: string
+  agencyId?: number | null
+  agencyCode?: string | null
 }
 
 export interface MavLicenseListItem {
@@ -210,6 +225,10 @@ export const mavApi = createApi({
       query: () => '/mav/periods/open',
       providesTags: ['MavPeriods'],
     }),
+    getMavAgencyContext: builder.query<ApiEnvelope<MavAgencyContext>, number>({
+      query: (agencyId) => `/mav/periods/agency-context?agencyId=${agencyId}`,
+      providesTags: (_r, _e, agencyId) => [{ type: 'MavPeriods', id: `agency-${agencyId}` }],
+    }),
     getMavAdminPeriods: builder.query<ApiEnvelope<MavPeriodListItem[]>, void>({
       query: () => '/mav/admin/periods',
       providesTags: ['MavPeriods'],
@@ -218,7 +237,7 @@ export const mavApi = createApi({
       query: (uuid) => `/mav/periods/${uuid}`,
       providesTags: (_r, _e, uuid) => [{ type: 'MavPeriods', id: uuid }],
     }),
-    createMavPeriod: builder.mutation<ApiEnvelope<MavPeriodDetail>, { mavYear: number; poolType: string; openingDate: string; closingDate: string }>({
+    createMavPeriod: builder.mutation<ApiEnvelope<MavPeriodDetail>, { mavYear: number; poolType: string; openingDate: string; closingDate: string; agencyId?: number }>({
       query: (body) => ({ url: '/mav/admin/periods', method: 'POST', body }),
       invalidatesTags: ['MavPeriods', 'MavDashboard'],
     }),
@@ -354,6 +373,7 @@ export const {
   useGetMavImporterDashboardQuery,
   useGetMavAdminDashboardQuery,
   useGetOpenMavPeriodsQuery,
+  useGetMavAgencyContextQuery,
   useGetMavAdminPeriodsQuery,
   useGetMavPeriodQuery,
   useCreateMavPeriodMutation,

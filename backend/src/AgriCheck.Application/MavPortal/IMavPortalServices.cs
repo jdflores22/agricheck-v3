@@ -17,6 +17,7 @@ public interface IMavApplicationPeriodService
     Task<MavApplicationPeriodDetailDto> OpenAsync(Guid uuid, CancellationToken cancellationToken = default);
     Task<MavApplicationPeriodDetailDto> CloseAsync(Guid uuid, CancellationToken cancellationToken = default);
     Task<MavCommodityAllocationDto> UpsertAllocationAsync(Guid periodUuid, UpsertMavCommodityAllocationRequest request, CancellationToken cancellationToken = default);
+    Task<MavAgencyContextDto> GetAgencyContextAsync(long agencyId, CancellationToken cancellationToken = default);
 }
 
 public interface IMavApplicationService

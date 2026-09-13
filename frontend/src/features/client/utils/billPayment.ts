@@ -14,11 +14,17 @@ type InitiateBillPaymentResponse = ApiEnvelope<{
 }>
 
 export async function redirectToBillPayment(
-  initiate: (args: { uuid: string; paymentMethod: string }) => { unwrap: () => Promise<InitiateBillPaymentResponse> },
+  initiate: (args: { uuid: string; paymentMethod: string; returnBaseUrl?: string }) => {
+    unwrap: () => Promise<InitiateBillPaymentResponse>
+  },
   billUuid: string,
-  paymentMethod = 'card',
+  paymentMethod = 'any',
 ): Promise<'redirected' | 'completed' | 'failed'> {
-  const result = await initiate({ uuid: billUuid, paymentMethod }).unwrap()
+  const result = await initiate({
+    uuid: billUuid,
+    paymentMethod,
+    returnBaseUrl: window.location.origin,
+  }).unwrap()
 
   if (result.success && result.data.paymentUrl) {
     window.location.href = result.data.paymentUrl

@@ -6,8 +6,10 @@ import { store } from '../store'
 import { router } from '../router'
 import { agricheckTheme } from '../../theme/theme'
 import { useAppDispatch, useAppSelector } from '../hooks'
-import { selectCurrentUser, selectIsAuthenticated, setUser } from '../../features/auth/authSlice'
+import { logout, selectCurrentUser, setUser } from '../../features/auth/authSlice'
 import { useMeQuery } from '../../features/auth/api/authApi'
+import { hasStoredAuthTokens, hasUsableSession, isTokenExpired } from '../../features/auth/authTokenUtils'
+import { useNotificationRealtime } from '../../features/notifications/useNotificationRealtime'
 import { SystemBrandingProvider, useSystemBranding } from '../../features/system/SystemBrandingProvider'
 import { resolveBrandingAssetUrl, useGetSystemBrandingQuery } from '../../features/system/systemBrandingApi'
 
@@ -41,12 +43,28 @@ function BrandingDocumentSync() {
   return null
 }
 
+function AuthenticatedRealtimeBridge() {
+  useNotificationRealtime()
+  return null
+}
+
 function AuthBootstrap({ children }: PropsWithChildren) {
   const dispatch = useAppDispatch()
-  const isAuthenticated = useAppSelector(selectIsAuthenticated)
+  const auth = useAppSelector((state) => state.auth)
   const user = useAppSelector(selectCurrentUser)
-  const { data, isLoading, isFetching, isError } = useMeQuery(undefined, { skip: !isAuthenticated })
+  const sessionReady = hasUsableSession(auth)
+  const { data, isLoading, isFetching, isError } = useMeQuery(undefined, { skip: !sessionReady })
   const { spinnerColor } = useSystemBranding()
+
+  useLayoutEffect(() => {
+    if (auth.accessToken && !auth.refreshToken) {
+      dispatch(logout())
+      return
+    }
+    if (auth.refreshToken && isTokenExpired(auth.refreshTokenExpiresAt)) {
+      dispatch(logout())
+    }
+  }, [auth.accessToken, auth.refreshToken, auth.refreshTokenExpiresAt, dispatch])
 
   useLayoutEffect(() => {
     if (data?.success && data.data?.user) {
@@ -54,7 +72,13 @@ function AuthBootstrap({ children }: PropsWithChildren) {
     }
   }, [data, dispatch])
 
-  if (isAuthenticated && !user) {
+  useLayoutEffect(() => {
+    if (sessionReady && isError) {
+      dispatch(logout())
+    }
+  }, [dispatch, isError, sessionReady])
+
+  if (hasStoredAuthTokens(auth) && !user) {
     if (isLoading || isFetching || (data?.success && data.data?.user)) {
       return (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100dvh' }}>
@@ -63,11 +87,20 @@ function AuthBootstrap({ children }: PropsWithChildren) {
       )
     }
     if (isError) {
-      return children ?? <RouterProvider router={router} />
+      return (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100dvh' }}>
+          <CircularProgress size={32} sx={{ color: spinnerColor }} />
+        </Box>
+      )
     }
   }
 
-  return children ?? <RouterProvider router={router} />
+  return (
+    <>
+      {user ? <AuthenticatedRealtimeBridge /> : null}
+      {children ?? <RouterProvider router={router} />}
+    </>
+  )
 }
 
 export function AppProviders({ children }: PropsWithChildren) {

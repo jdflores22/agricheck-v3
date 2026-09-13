@@ -110,6 +110,151 @@ export interface DaWarehouseInventoryItem {
   status: string
   receivedAt: string
   receivedByName?: string | null
+  hsCode?: string | null
+  commodityName?: string | null
+  volumeKg?: number | null
+}
+
+export interface DaMavAgencyRow {
+  agencyCode: string
+  activeLicenses: number
+  awardedVolume: number
+  utilizedVolume: number
+  remainingVolume: number
+  regularVolume?: number
+  combinedVolume?: number
+}
+
+export interface DaMavCommodityRow {
+  hsCode: string
+  commodityName: string
+  agencyCode?: string | null
+  applicationCount: number
+  activeLicenses: number
+  awardedVolume: number
+  utilizedVolume: number
+  remainingVolume: number
+  regularVolume?: number
+  combinedVolume?: number
+}
+
+export interface DaMavNationalReport {
+  mavYear: number
+  openPeriods: number
+  totalApplications: number
+  approvedApplications: number
+  activeLicenses: number
+  issuedMics: number
+  totalAwardedVolume: number
+  totalUtilizedVolume: number
+  totalRemainingVolume: number
+  regularImportCount?: number
+  totalRegularVolume?: number
+  totalCombinedVolume?: number
+  byAgency: DaMavAgencyRow[]
+  byCommodity: DaMavCommodityRow[]
+}
+
+export interface DaGeoStockQuery {
+  regionId?: number
+  provinceId?: number
+  cityId?: number
+  barangayId?: number
+  hsCode?: string
+  commodityName?: string
+}
+
+export interface DaGeoStockBreadcrumb {
+  level: string
+  id?: number | null
+  name: string
+}
+
+export interface DaGeoStockCommodity {
+  hsCode: string
+  commodityName: string
+  volumeKg: number
+  storedContainers: number
+  warehouseCount: number
+}
+
+export interface DaGeoStockLocation {
+  level: string
+  id?: number | null
+  name: string
+  volumeKg: number
+  warehouseCount: number
+  storedContainers: number
+  capacity: number
+  utilizationPercent: number
+  topCommodities: DaGeoStockCommodity[]
+}
+
+export interface DaGeoStockWarehouse {
+  id: number
+  code: string
+  name: string
+  volumeKg: number
+  storedContainers: number
+  capacity: number
+  utilizationPercent: number
+  barangayName?: string | null
+  topCommodityName?: string | null
+  topCommodityHsCode?: string | null
+}
+
+export interface DaCommodityStockQuery {
+  hsCode?: string
+  commodityName?: string
+  agencyCode?: string
+}
+
+export interface DaCommodityStockRow {
+  hsCode: string
+  commodityName: string
+  stockKg: number
+  mavStockKg: number
+  regularStockKg: number
+  storedContainers: number
+  warehouseCount: number
+  agencyCount: number
+  linkedImportEntries: number
+}
+
+export interface DaCommodityStockAgencyRow {
+  agencyCode: string
+  hsCode: string
+  commodityName: string
+  stockKg: number
+  mavStockKg: number
+  regularStockKg: number
+  storedContainers: number
+  warehouseCount: number
+}
+
+export interface DaCommodityStockReport {
+  totalStockKg: number
+  totalMavStockKg: number
+  totalRegularStockKg: number
+  commodityCount: number
+  storedContainers: number
+  warehouseCount: number
+  commodities: DaCommodityStockRow[]
+  byAgency: DaCommodityStockAgencyRow[]
+}
+
+export interface DaGeoStockReport {
+  level: string
+  scopeLabel: string
+  totalVolumeKg: number
+  warehouseCount: number
+  storedContainers: number
+  capacity: number
+  utilizationPercent: number
+  path: DaGeoStockBreadcrumb[]
+  commodities: DaGeoStockCommodity[]
+  locations: DaGeoStockLocation[]
+  warehouses: DaGeoStockWarehouse[]
 }
 
 export interface DaWarehouseDetail {
@@ -119,6 +264,8 @@ export interface DaWarehouseDetail {
   pendingBookings: number
   capacity: number
   utilizationPercent: number
+  totalVolumeKg: number
+  commodities: DaGeoStockCommodity[]
   inventory: DaWarehouseInventoryItem[]
 }
 
@@ -141,6 +288,35 @@ export const daApi = createApi({
     }),
     getDaReport: builder.query<ApiEnvelope<DaOversightReport>, void>({
       query: () => '/da/reports/summary',
+      providesTags: ['DaReports'],
+    }),
+    getDaMavNationalReport: builder.query<ApiEnvelope<DaMavNationalReport>, { mavYear?: number }>({
+      query: ({ mavYear }) => `/da/reports/mav${mavYear ? `?mavYear=${mavYear}` : ''}`,
+      providesTags: ['DaReports'],
+    }),
+    getDaCommodityStockReport: builder.query<ApiEnvelope<DaCommodityStockReport>, DaCommodityStockQuery>({
+      query: (params) => {
+        const search = new URLSearchParams()
+        if (params.hsCode) search.set('hsCode', params.hsCode)
+        if (params.commodityName) search.set('commodityName', params.commodityName)
+        if (params.agencyCode) search.set('agencyCode', params.agencyCode)
+        const qs = search.toString()
+        return `/da/reports/commodity-stock${qs ? `?${qs}` : ''}`
+      },
+      providesTags: ['DaReports'],
+    }),
+    getDaGeoStockReport: builder.query<ApiEnvelope<DaGeoStockReport>, DaGeoStockQuery>({
+      query: (params) => {
+        const search = new URLSearchParams()
+        if (params.regionId) search.set('regionId', String(params.regionId))
+        if (params.provinceId) search.set('provinceId', String(params.provinceId))
+        if (params.cityId) search.set('cityId', String(params.cityId))
+        if (params.barangayId) search.set('barangayId', String(params.barangayId))
+        if (params.hsCode) search.set('hsCode', params.hsCode)
+        if (params.commodityName) search.set('commodityName', params.commodityName)
+        const qs = search.toString()
+        return `/da/reports/geo-stock${qs ? `?${qs}` : ''}`
+      },
       providesTags: ['DaReports'],
     }),
     getDaWarehouses: builder.query<ApiEnvelope<DaWarehouse[]>, void>({
@@ -167,6 +343,9 @@ export const {
   useGetDaAgenciesQuery,
   useGetDaAgencyOversightQuery,
   useGetDaReportQuery,
+  useGetDaMavNationalReportQuery,
+  useGetDaCommodityStockReportQuery,
+  useGetDaGeoStockReportQuery,
   useGetDaWarehousesQuery,
   useGetDaWarehouseDetailQuery,
   useCreateDaWarehouseMutation,

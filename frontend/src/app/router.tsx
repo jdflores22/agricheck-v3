@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createBrowserRouter, Navigate, useParams } from 'react-router-dom'
 
 import { GuestRoute, ProtectedRoute, RoleProtectedRoute } from './ProtectedRoute'
 
@@ -27,6 +27,7 @@ import { EntriesListPage } from '../features/client/pages/EntriesListPage'
 import { EntryFormPage } from '../features/client/pages/EntryFormPage'
 
 import { EntryViewPage } from '../features/client/pages/EntryViewPage'
+import { EntryInspectionUploadPage } from '../features/client/pages/EntryInspectionUploadPage'
 
 import { AccreditationListPage } from '../features/client/pages/AccreditationListPage'
 import { AccreditationDetailPage } from '../features/client/pages/AccreditationDetailPage'
@@ -64,12 +65,16 @@ import { EvaluatorAssignmentsPage } from '../features/agency/pages/EvaluatorAssi
 import { EntryEvaluationPage } from '../features/agency/pages/EntryEvaluationPage'
 
 import { InspectionsPage } from '../features/agency/pages/InspectionsPage'
+import { ContainerInspectionReviewPage } from '../features/agency/pages/ContainerInspectionReviewPage'
 
 import { BillingPage } from '../features/agency/pages/BillingPage'
+import { CreateBillingPage } from '../features/agency/pages/CreateBillingPage'
+import { AgencyPaymentConfigPage } from '../features/agency/pages/AgencyPaymentConfigPage'
 
 import { AccreditationReviewPage } from '../features/agency/pages/AccreditationReviewPage'
 
 import { SecretaryReportsPage } from '../features/agency/pages/SecretaryReportsPage'
+import { AgencyBillingReportsPage } from '../features/agency/pages/AgencyBillingReportsPage'
 
 import { AccreditationReviewDetailPage } from '../features/agency/pages/AccreditationReviewDetailPage'
 import { InspectorDashboardPage } from '../features/agency/pages/InspectorDashboardPage'
@@ -122,14 +127,21 @@ import { DriverProfilePage } from '../features/ops/pages/DriverProfilePage'
 import { OperatorContainersPage } from '../features/ops/pages/OperatorContainersPage'
 import { DoctorContainersPage } from '../features/ops/pages/DoctorContainersPage'
 import { TransportTagPage } from '../features/agency/pages/TransportTagPage'
+import { TransportTagDetailPage } from '../features/agency/pages/TransportTagDetailPage'
 import { DaDashboardPage } from '../features/da/pages/DaDashboardPage'
 import { DaAgenciesPage } from '../features/da/pages/DaAgenciesPage'
 import { DaAgencyOversightPage } from '../features/da/pages/DaAgencyOversightPage'
 import { DaReportsPage } from '../features/da/pages/DaReportsPage'
+import { DaMavNationalReportPage } from '../features/da/pages/DaMavNationalReportPage'
+import { DaCommodityStockPage } from '../features/da/pages/DaCommodityStockPage'
+import { DaGeoStockPage } from '../features/da/pages/DaGeoStockPage'
 import { DaWarehousesPage } from '../features/da/pages/DaWarehousesPage'
 import { DaWarehouseDetailPage } from '../features/da/pages/DaWarehouseDetailPage'
 
-
+function InspectorContainerInspectionRedirect() {
+  const { containerUuid = '' } = useParams()
+  return <Navigate to={`/inspector/inspections/containers/${containerUuid}`} replace />
+}
 
 export const router = createBrowserRouter([
 
@@ -215,6 +227,7 @@ export const router = createBrowserRouter([
               { path: 'entries/:uuid', element: <EntryViewPage /> },
               { path: 'entries/:uuid/confirmation', element: <EntryConfirmationPage /> },
               { path: 'entries/:uuid/compliance', element: <EntryCompliancePage /> },
+              { path: 'entries/:uuid/inspection', element: <EntryInspectionUploadPage /> },
 
               { path: 'accreditation', element: <AccreditationListPage /> },
               { path: 'accreditation/status', element: <Navigate to="/client/accreditation" replace /> },
@@ -260,11 +273,29 @@ export const router = createBrowserRouter([
 
               { path: 'evaluator/entries/:uuid', element: <EntryEvaluationPage /> },
 
-              { path: 'inspections', element: <InspectionsPage /> },
+              {
+                element: <RoleProtectedRoute roles={['ROLE_INSPECTOR', 'ROLE_ADMIN']} redirectTo="/agency" />,
+                children: [
+                  { path: 'inspections', element: <Navigate to="/inspector/inspections" replace /> },
+                  { path: 'inspections/containers/:containerUuid', element: <InspectorContainerInspectionRedirect /> },
+                ],
+              },
 
-              { path: 'billing', element: <BillingPage /> },
+              {
+                element: <RoleProtectedRoute roles={['ROLE_BILLING_AGENT', 'ROLE_ACCOUNTANT', 'ROLE_ADMIN']} />,
+                children: [
+                  { path: 'billing/create', element: <CreateBillingPage /> },
+                  { path: 'billing/create/:entryUuid', element: <CreateBillingPage /> },
+                  { path: 'billing/:billingUuid', element: <CreateBillingPage /> },
+                  { path: 'billing', element: <BillingPage /> },
+                  { path: 'billing-reports', element: <AgencyBillingReportsPage /> },
+                ],
+              },
+
+              { path: 'payment-config', element: <AgencyPaymentConfigPage /> },
 
               { path: 'transport-tags', element: <TransportTagPage /> },
+              { path: 'transport-tags/:containerUuid', element: <TransportTagDetailPage /> },
 
               { path: 'accreditation', element: <AccreditationReviewPage /> },
 
@@ -299,6 +330,9 @@ export const router = createBrowserRouter([
                   { path: 'warehouses/:id', element: <DaWarehouseDetailPage /> },
 
                   { path: 'reports', element: <DaReportsPage /> },
+                  { path: 'reports/mav', element: <DaMavNationalReportPage /> },
+                  { path: 'reports/commodities', element: <DaCommodityStockPage /> },
+                  { path: 'reports/stock', element: <DaGeoStockPage /> },
 
                 ],
 
@@ -338,13 +372,24 @@ export const router = createBrowserRouter([
 
           {
 
-            path: '/inspector',
+            element: <RoleProtectedRoute roles={['ROLE_INSPECTOR', 'ROLE_ADMIN']} redirectTo="/agency" />,
 
             children: [
 
-              { index: true, element: <InspectorDashboardPage /> },
+              {
 
-              { path: 'inspections', element: <InspectionsPage /> },
+                path: '/inspector',
+
+                children: [
+
+                  { index: true, element: <InspectorDashboardPage /> },
+
+                  { path: 'inspections', element: <InspectionsPage /> },
+                  { path: 'inspections/containers/:containerUuid', element: <ContainerInspectionReviewPage /> },
+
+                ],
+
+              },
 
             ],
 

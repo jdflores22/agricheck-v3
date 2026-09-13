@@ -194,6 +194,22 @@ public class AdminEntryPaymentsController : AdminPortalControllerBase
     [HttpGet("revenue")]
     public async Task<ActionResult<ApiResponse<AdminRevenueSummaryDto>>> Revenue(CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.GetRevenueSummaryAsync(cancellationToken));
+
+    [HttpGet("pending-cash")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<AdminPendingEntryCashPaymentDto>>>> ListPendingCash(
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListPendingCashPaymentsAsync(cancellationToken));
+
+    [HttpPost("pending-cash/{billUuid:guid}/verify")]
+    public async Task<ActionResult<ApiResponse<object>>> VerifyCash(
+        Guid billUuid,
+        [FromBody] VerifyAdminEntryCashPaymentRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(async () =>
+        {
+            await _service.VerifyCashPaymentAsync(billUuid, request, cancellationToken);
+            return (object)new { verified = request.Approved };
+        });
 }
 
 [ApiController]
@@ -224,6 +240,10 @@ public class AdminFormsController : AdminPortalControllerBase
     [HttpPut("{uuid:guid}")]
     public async Task<ActionResult<ApiResponse<FormTemplateDetailDto>>> Update(Guid uuid, [FromBody] SaveFormTemplateRequest request, CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.SaveAsync(uuid, request, cancellationToken));
+
+    [HttpPost("{uuid:guid}/activate")]
+    public async Task<ActionResult<ApiResponse<FormTemplateDetailDto>>> SetActive(Guid uuid, [FromBody] SetFormActiveRequest request, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.SetActiveAsync(uuid, request.IsActive, cancellationToken));
 
     [HttpPost("{uuid:guid}/clone")]
     public async Task<ActionResult<ApiResponse<FormTemplateDetailDto>>> Clone(Guid uuid, [FromBody] CloneFormTemplateRequest request, CancellationToken cancellationToken) =>
@@ -285,6 +305,41 @@ public class AdminCertificateTemplatesController : AdminPortalControllerBase
     [HttpPut("{uuid:guid}")]
     public async Task<ActionResult<ApiResponse<CertificateTemplateDetailDto>>> Update(Guid uuid, [FromBody] SaveCertificateTemplateRequest request, CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.SaveAsync(uuid, request, cancellationToken));
+
+    [HttpPost("{uuid:guid}/clone")]
+    public async Task<ActionResult<ApiResponse<CertificateTemplateDetailDto>>> Clone(Guid uuid, [FromBody] CloneFormTemplateRequest request, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.CloneAsync(uuid, request, cancellationToken));
+
+    [HttpPost("{uuid:guid}/activate")]
+    public async Task<ActionResult<ApiResponse<CertificateTemplateDetailDto>>> SetActive(Guid uuid, [FromBody] SetFormActiveRequest request, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.SetActiveAsync(uuid, request.IsActive, cancellationToken));
+
+    [HttpDelete("{uuid:guid}")]
+    public async Task<ActionResult<ApiResponse<object>>> Delete(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(async () =>
+        {
+            await _service.DeleteAsync(uuid, cancellationToken);
+            return (object)new { deleted = true };
+        });
+
+    [HttpGet("{uuid:guid}/export")]
+    public async Task<IActionResult> Export(Guid uuid, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var json = await _service.ExportAsync(uuid, cancellationToken);
+            var fileName = $"certificate-template-{uuid}.json";
+            return File(Encoding.UTF8.GetBytes(json), "application/json", fileName);
+        }
+        catch (ClientPortalException ex) when (ex.Code == "NOT_FOUND")
+        {
+            return NotFound(ApiResponse<object>.Fail(ex.Code, ex.Message));
+        }
+    }
+
+    [HttpPost("import")]
+    public async Task<ActionResult<ApiResponse<CertificateTemplateDetailDto>>> Import([FromBody] JsonElement payload, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ImportAsync(payload, cancellationToken));
 
     [HttpGet("{uuid:guid}/preview")]
     public async Task<IActionResult> Preview(Guid uuid, CancellationToken cancellationToken)

@@ -30,6 +30,8 @@ public class ContainerTransportTagConfiguration : IEntityTypeConfiguration<Conta
         builder.Property(x => x.Uuid).IsRequired();
         builder.HasIndex(x => x.Uuid).IsUnique();
         builder.Property(x => x.TransportType).HasMaxLength(64).IsRequired();
+        builder.Property(x => x.QrPayload).HasColumnType("longtext");
+        builder.Property(x => x.QrCodeData).HasColumnType("longtext");
         builder.HasOne(x => x.Container).WithMany(x => x.TransportTags).HasForeignKey(x => x.ContainerId);
         builder.HasOne(x => x.Entry).WithMany().HasForeignKey(x => x.EntryId);
         builder.HasOne(x => x.TaggedBy).WithMany().HasForeignKey(x => x.TaggedByUserId);

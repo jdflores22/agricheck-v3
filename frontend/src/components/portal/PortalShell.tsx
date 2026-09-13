@@ -305,9 +305,12 @@ export function PortalShell({ portalLabel, brandHref, navItems, badgeCounts }: P
         component="main"
         sx={{
           flexGrow: 1,
-          width: { md: `calc(100% - ${drawerWidth}px)` },
+          width: { xs: '100%', md: `calc(100% - ${drawerWidth}px)` },
+          maxWidth: '100%',
           mt: 8,
           minHeight: 'calc(100dvh - 64px)',
+          minWidth: 0,
+          overflowX: 'hidden',
         }}
       >
         <Box sx={{ px: { xs: 2, sm: 3, lg: 4 }, py: { xs: 3, sm: 4 } }}>

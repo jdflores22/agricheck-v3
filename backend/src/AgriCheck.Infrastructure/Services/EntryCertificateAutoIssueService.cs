@@ -22,6 +22,7 @@ public class EntryCertificateAutoIssueService : IEntryCertificateAutoIssueServic
     private readonly IFileStorageService _fileStorage;
     private readonly IConfiguration _configuration;
     private readonly INotificationService _notifications;
+    private readonly IEntryCertificateGenerationService _certificateGeneration;
     private readonly ILogger<EntryCertificateAutoIssueService> _logger;
 
     public EntryCertificateAutoIssueService(
@@ -29,12 +30,14 @@ public class EntryCertificateAutoIssueService : IEntryCertificateAutoIssueServic
         IFileStorageService fileStorage,
         IConfiguration configuration,
         INotificationService notifications,
+        IEntryCertificateGenerationService certificateGeneration,
         ILogger<EntryCertificateAutoIssueService> logger)
     {
         _db = db;
         _fileStorage = fileStorage;
         _configuration = configuration;
         _notifications = notifications;
+        _certificateGeneration = certificateGeneration;
         _logger = logger;
     }
 
@@ -47,27 +50,34 @@ public class EntryCertificateAutoIssueService : IEntryCertificateAutoIssueServic
             return false;
         }
 
-        var template = await _db.CertificateProcessAssignments
-            .Include(a => a.Template).ThenInclude(t => t!.Versions)
-            .Where(a => a.AgencyId == entry.AgencyId &&
-                        a.ProcessType == CertificateProcessType.ImportEntry &&
-                        a.IsActive)
-            .Select(a => a.Template)
-            .FirstOrDefaultAsync(cancellationToken);
+        if (entry.User is null)
+        {
+            entry.User = await _db.Users.Include(u => u.Profile).FirstAsync(u => u.Id == entry.UserId, cancellationToken);
+        }
 
-        var version = template?.Versions
-            .OrderByDescending(v => v.VersionNumber)
-            .FirstOrDefault(v => v.IsPublished)
-            ?? template?.Versions.OrderByDescending(v => v.VersionNumber).FirstOrDefault();
+        if (entry.Agency is null)
+        {
+            entry.Agency = await _db.Agencies.FirstAsync(a => a.Id == entry.AgencyId, cancellationToken);
+        }
 
+        if (entry.Detail is null)
+        {
+            entry.Detail = await _db.EntryDetails.FirstOrDefaultAsync(d => d.EntryId == entry.Id, cancellationToken);
+        }
+
+        var version = await _certificateGeneration.ResolveTemplateVersionAsync(entry, cancellationToken: cancellationToken);
         var verificationCode = Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
         var publicBase = _configuration["App:PublicBaseUrl"] ?? "http://localhost:5173";
         var verifyUrl = $"{publicBase.TrimEnd('/')}/verify?code={verificationCode}";
         var qrData = QrCodeGenerator.ToBase64Png(verifyUrl);
-        var holderName = entry.User?.Profile is not null
-            ? $"{entry.User.Profile.FirstName} {entry.User.Profile.LastName}"
-            : entry.User?.Email ?? "Client";
-        var title = $"Import Certificate - {entry.ReferenceNo}";
+        var holderName = entry.User.Profile is not null
+            ? $"{entry.User.Profile.FirstName} {entry.User.Profile.LastName}".Trim()
+            : entry.User.Email;
+        var entryLabel = entry.EntryType == EntryType.Export ? "Export" : "Import";
+        var title = $"{entryLabel} Certificate - {entry.ReferenceNo}";
+        var issuedAt = DateTime.UtcNow;
+        var expiresAt = issuedAt.AddYears(1);
+        var certificateNumber = await ReferenceNumberGenerator.CertificateAsync(_db, cancellationToken);
 
         var certificate = new Certificate
         {
@@ -77,24 +87,37 @@ public class EntryCertificateAutoIssueService : IEntryCertificateAutoIssueServic
             AgencyId = entry.AgencyId,
             TemplateVersionId = version?.Id,
             IssuedByUserId = issuedByUserId,
-            CertificateNumber = await ReferenceNumberGenerator.CertificateAsync(_db, cancellationToken),
+            CertificateNumber = certificateNumber,
             VerificationCode = verificationCode,
             Title = title,
             Status = CertificateStatus.Active,
-            IssuedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddYears(1),
+            IssuedAt = issuedAt,
+            ExpiresAt = expiresAt,
             QrCodeData = qrData,
             SummaryJson = JsonSerializer.Serialize(new
             {
+                processType = entry.EntryType == EntryType.Export
+                    ? CertificateProcessType.ExportEntry.ToString()
+                    : CertificateProcessType.ImportEntry.ToString(),
                 entry.ReferenceNo,
-                entry.Agency?.Code,
+                entry.Agency.Code,
                 entry.Detail?.CommodityName,
                 holderName
             })
         };
 
-        var pdfBytes = CertificatePdfGenerator.Generate(
-            title, certificate.CertificateNumber, holderName, verificationCode, verifyUrl, qrData);
+        var pdfBytes = await _certificateGeneration.GeneratePdfAsync(
+            entry,
+            certificate.CertificateNumber,
+            title,
+            verificationCode,
+            verifyUrl,
+            qrData,
+            issuedAt,
+            expiresAt,
+            issuedByUserId,
+            cancellationToken: cancellationToken);
+
         await using var pdfStream = new MemoryStream(pdfBytes);
         var (storedFileName, _) = await _fileStorage.SaveAsync(
             pdfStream, $"certificates/{certificate.Uuid}", $"{certificate.CertificateNumber}.pdf", cancellationToken);

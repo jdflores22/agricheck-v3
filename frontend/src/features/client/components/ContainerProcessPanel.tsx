@@ -1,5 +1,6 @@
 import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined'
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
+import QrCode2OutlinedIcon from '@mui/icons-material/QrCode2Outlined'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
 import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined'
 import WarehouseOutlinedIcon from '@mui/icons-material/WarehouseOutlined'
@@ -20,16 +21,35 @@ import {
   Typography,
 } from '@mui/material'
 import { Link as RouterLink } from 'react-router-dom'
+import { useGetRegisteredWarehousesQuery } from '../../addresses/addressApi'
 import { PortalPanel } from '../../../components/portal/PortalPanel'
 import { portalTableHeadCellSx, portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
 import { portalStatusChipSx } from '../../../components/portal/PortalTablePanel'
 import { portalAnalyticsColors, portalColors } from '../../../components/portal/portalTheme'
 import type { ClientContainerDetail } from '../api/clientApi'
 import type { FormFieldSchema } from '../../forms/formSchema'
-import { getAddressValueKeys, parseFormDataJson, visibleFormFields } from '../../forms/formSchema'
+import { formatCommodityHsSummary, getAddressValueKeys, parseFormDataJson, visibleFormFields } from '../../forms/formSchema'
 
-function formatFieldValue(field: FormFieldSchema, values: Record<string, string>): string {
+function formatFieldValue(
+  field: FormFieldSchema,
+  values: Record<string, string>,
+  warehouseNameById: Map<string, string>,
+): string {
   if (field.type === 'section') return ''
+
+  if (field.type === 'warehouse') {
+    const storedLabel = values[`${field.name}_label`]?.trim()
+    if (storedLabel) return storedLabel
+
+    const raw = values[field.name]?.trim()
+    if (!raw) return '—'
+
+    return warehouseNameById.get(raw) ?? raw
+  }
+
+  if (field.type === 'commodity') {
+    return formatCommodityHsSummary(field.name, values) || '—'
+  }
 
   if (field.type === 'address') {
     const keys = getAddressValueKeys(field.name)
@@ -113,6 +133,11 @@ export function ContainerProcessPanel({
   container: ClientContainerDetail
   schemaFields: FormFieldSchema[]
 }) {
+  const { data: warehouseData } = useGetRegisteredWarehousesQuery()
+  const warehouseNameById = new Map(
+    (warehouseData?.data ?? []).map((warehouse) => [String(warehouse.id), warehouse.name]),
+  )
+
   const parsedValues = {
     ...parseFormDataJson(container.formDataJson),
     container_number: container.containerNumber,
@@ -181,6 +206,52 @@ export function ContainerProcessPanel({
         </Box>
       </PortalPanel>
 
+      {container.transportTag?.qrCodeData ? (
+        <PortalPanel title="Transport QR for driver">
+          <Box sx={{ px: 2.5, py: 2 }}>
+            <Stack spacing={2} sx={{ alignItems: { xs: 'stretch', sm: 'flex-start' } }}>
+              <Typography sx={{ fontSize: '0.875rem', color: portalColors.textMuted, lineHeight: 1.6 }}>
+                Share this QR code with your driver or transport operator. They can scan it in AgriTrack to claim this
+                container for warehouse transport and 2nd border inspection.
+              </Typography>
+              {container.transportTag.scheduledWarehouseDate ? (
+                <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted }}>
+                  Scheduled warehouse inspection:{' '}
+                  <strong>
+                    {new Date(`${container.transportTag.scheduledWarehouseDate.slice(0, 10)}T00:00:00`).toLocaleDateString()}
+                  </strong>
+                </Typography>
+              ) : null}
+              <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted }}>
+                Tagged {new Date(container.transportTag.taggedAt).toLocaleString()}
+              </Typography>
+              <Box
+                sx={{
+                  alignSelf: { xs: 'center', sm: 'flex-start' },
+                  p: 1.5,
+                  borderRadius: '0.75rem',
+                  border: `1px solid ${portalColors.border}`,
+                  bgcolor: '#fff',
+                }}
+              >
+                <Box
+                  component="img"
+                  src={container.transportTag.qrCodeData}
+                  alt="Transport QR code for driver"
+                  sx={{ width: 220, height: 220, objectFit: 'contain', display: 'block' }}
+                />
+              </Box>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: portalColors.primary }}>
+                <QrCode2OutlinedIcon fontSize="small" />
+                <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+                  Show this code to the driver before dispatch
+                </Typography>
+              </Stack>
+            </Stack>
+          </Box>
+        </PortalPanel>
+      ) : null}
+
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
         <Box sx={{ flex: 1 }}>
           <PortalPanel title="Container information">
@@ -192,7 +263,11 @@ export function ContainerProcessPanel({
               <DetailRow label="Entry status" value={container.entryStatus} />
               <DetailRow label="Agency" value={`${container.agencyCode} · ${container.agencyName}`} />
               {detailFields.map((field) => (
-                <DetailRow key={field.name} label={field.label} value={formatFieldValue(field, parsedValues)} />
+                <DetailRow
+                  key={field.name}
+                  label={field.label}
+                  value={formatFieldValue(field, parsedValues, warehouseNameById)}
+                />
               ))}
             </Box>
           </PortalPanel>

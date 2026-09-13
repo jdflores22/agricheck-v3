@@ -62,7 +62,7 @@ export function MavApplicationDetailPage() {
       <PortalPageHeader
         eyebrow="Application"
         title={app.referenceNumber}
-        subtitle={`${app.commodityName} (${app.hsCode}) · ${app.mavYear} ${app.poolType}`}
+        subtitle={`${app.commodityName} (${app.hsCode}) · ${app.mavYear} ${app.poolType}${app.agencyCode ? ` · ${app.agencyCode}` : ''}`}
         actions={
           <Stack direction="row" spacing={1}>
             {isDraft && !editing && (
@@ -86,7 +86,7 @@ export function MavApplicationDetailPage() {
         <PortalPanel title="Edit Draft Application">
           <Box component="form" onSubmit={handleSave} sx={{ px: 2.5, py: 2 }}>
             <Stack spacing={2}>
-              <HsCodePicker value={hsSelection} onChange={setHsSelection} />
+              <HsCodePicker value={hsSelection} onChange={setHsSelection} agencyId={app.agencyId ?? undefined} />
               <TextField
                 label="Requested Volume (MT)"
                 type="number"
@@ -105,6 +105,7 @@ export function MavApplicationDetailPage() {
       ) : (
         <PortalPanel title="Application Details">
           <Stack spacing={1.5} sx={{ px: 2.5, py: 2 }}>
+            {app.agencyCode && <Typography><strong>Agency:</strong> {app.agencyCode}</Typography>}
             <Typography><strong>Status:</strong> {app.status}</Typography>
             <Typography><strong>Requested Volume:</strong> {app.requestedVolume} MT</Typography>
             {app.allocatedVolume != null && (

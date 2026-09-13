@@ -14,6 +14,16 @@ import { PortalTablePanel, portalStatusChipSx } from '../../../components/portal
 import { portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
 import { useGetEntriesQuery } from '../api/clientApi'
 
+function formatLastUpdated(value: string) {
+  return new Date(value).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 export function EntriesListPage() {
   const [searchParams] = useSearchParams()
   const [status, setStatus] = useState(searchParams.get('status') ?? '')
@@ -57,7 +67,7 @@ export function EntriesListPage() {
       </Box>
       <PortalTablePanel
         title="All entries"
-        columns={['Reference', 'Type', 'Agency', 'Status', 'Payment', '']}
+        columns={['Reference', 'Type', 'Agency', 'Status', 'Last updated', 'Payment', '']}
         isLoading={isLoading}
         isEmpty={!isLoading && entries.length === 0}
         emptyMessage="No entries yet."
@@ -69,6 +79,9 @@ export function EntriesListPage() {
             <TableCell>{entry.agencyCode}</TableCell>
             <TableCell>
               <Chip size="small" label={entry.status} sx={portalStatusChipSx(entry.status)} />
+            </TableCell>
+            <TableCell sx={{ whiteSpace: 'nowrap', color: 'text.secondary', fontSize: '0.875rem' }}>
+              {formatLastUpdated(entry.updatedAt ?? entry.createdAt)}
             </TableCell>
             <TableCell>{entry.paymentStatus}</TableCell>
             <TableCell>

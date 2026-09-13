@@ -161,6 +161,17 @@ export interface AdminEntryPaymentListItem {
   paidAt?: string | null
 }
 
+export interface AdminPendingEntryCashPayment {
+  billUuid: string
+  billNumber: string
+  entryReferenceNo?: string | null
+  agencyCode?: string | null
+  clientName: string
+  amount: number
+  externalReference?: string | null
+  submittedAt: string
+}
+
 export interface AdminRevenueAgencyBreakdown {
   agencyCode: string
   agencyName: string
@@ -219,8 +230,10 @@ export interface CertificateTemplateListItem {
   agencyCode?: string
   isActive: boolean
   latestVersion: number
+  hasPublishedVersion: boolean
   elementCount: number
   processTypes: string[]
+  createdAt: string
 }
 
 export interface CertificateElement {
@@ -229,6 +242,12 @@ export interface CertificateElement {
   label: string
   configJson?: string
   sortOrder: number
+}
+
+export interface CertificateTemplateVersionSummary {
+  versionNumber: number
+  isPublished: boolean
+  createdAt: string
 }
 
 export interface CertificateTemplateDetail {
@@ -242,6 +261,9 @@ export interface CertificateTemplateDetail {
   layoutJson?: string
   processTypes: string[]
   elements: CertificateElement[]
+  createdAt: string
+  updatedAt: string
+  versions: CertificateTemplateVersionSummary[]
 }
 
 export const CERTIFICATE_PROCESS_TYPES = ['Accreditation', 'ImportEntry', 'ExportEntry'] as const
@@ -481,6 +503,18 @@ export const adminApi = createApi({
       query: () => '/admin/entry-payments/revenue',
       providesTags: ['AdminRevenue'],
     }),
+    getAdminPendingEntryCashPayments: builder.query<ApiEnvelope<AdminPendingEntryCashPayment[]>, void>({
+      query: () => '/admin/entry-payments/pending-cash',
+      providesTags: ['AdminEntryPayments'],
+    }),
+    verifyAdminEntryCashPayment: builder.mutation<ApiEnvelope<{ verified: boolean }>, { billUuid: string; approved: boolean; notes?: string }>({
+      query: ({ billUuid, approved, notes }) => ({
+        url: `/admin/entry-payments/pending-cash/${billUuid}/verify`,
+        method: 'POST',
+        body: { approved, notes },
+      }),
+      invalidatesTags: ['AdminEntryPayments', 'AdminRevenue'],
+    }),
     getAdminForms: builder.query<ApiEnvelope<FormTemplateListItem[]>, void>({
       query: () => '/admin/forms',
       providesTags: ['AdminForms'],
@@ -488,6 +522,14 @@ export const adminApi = createApi({
     getAdminForm: builder.query<ApiEnvelope<FormTemplateDetail>, string>({
       query: (uuid) => `/admin/forms/${uuid}`,
       providesTags: (_r, _e, uuid) => [{ type: 'AdminForms', id: uuid }],
+    }),
+    setAdminFormActive: builder.mutation<ApiEnvelope<FormTemplateDetail>, { uuid: string; isActive: boolean }>({
+      query: ({ uuid, isActive }) => ({
+        url: `/admin/forms/${uuid}/activate`,
+        method: 'POST',
+        body: { isActive },
+      }),
+      invalidatesTags: (_r, _e, { uuid }) => ['AdminForms', { type: 'AdminForms', id: uuid }, 'AdminDashboard'],
     }),
     cloneAdminForm: builder.mutation<ApiEnvelope<FormTemplateDetail>, { uuid: string; name: string }>({
       query: ({ uuid, name }) => ({
@@ -553,6 +595,37 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['AdminCertTemplates', 'AdminDashboard'],
     }),
+    cloneAdminCertificateTemplate: builder.mutation<ApiEnvelope<CertificateTemplateDetail>, { uuid: string; name: string }>({
+      query: ({ uuid, name }) => ({
+        url: `/admin/certificate-templates/${uuid}/clone`,
+        method: 'POST',
+        body: { name },
+      }),
+      invalidatesTags: ['AdminCertTemplates', 'AdminDashboard'],
+    }),
+    importAdminCertificateTemplate: builder.mutation<ApiEnvelope<CertificateTemplateDetail>, Record<string, unknown>>({
+      query: (body) => ({
+        url: '/admin/certificate-templates/import',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['AdminCertTemplates', 'AdminDashboard'],
+    }),
+    setAdminCertificateTemplateActive: builder.mutation<ApiEnvelope<CertificateTemplateDetail>, { uuid: string; isActive: boolean }>({
+      query: ({ uuid, isActive }) => ({
+        url: `/admin/certificate-templates/${uuid}/activate`,
+        method: 'POST',
+        body: { isActive },
+      }),
+      invalidatesTags: (_r, _e, { uuid }) => ['AdminCertTemplates', { type: 'AdminCertTemplates', id: uuid }, 'AdminDashboard'],
+    }),
+    deleteAdminCertificateTemplate: builder.mutation<ApiEnvelope<{ deleted: boolean }>, string>({
+      query: (uuid) => ({
+        url: `/admin/certificate-templates/${uuid}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['AdminCertTemplates', 'AdminDashboard'],
+    }),
     getAdminCertificates: builder.query<ApiEnvelope<PagedResult<AdminCertificateListItem>>, { page?: number }>({
       query: ({ page = 1 }) => `/admin/certificates?page=${page}`,
       providesTags: ['AdminCertificates'],
@@ -601,16 +674,23 @@ export const {
   useUpdateAdminPaymentSettingsMutation,
   useUpsertAdminPaymentConfigMutation,
   useGetAdminEntryPaymentsQuery,
+  useGetAdminPendingEntryCashPaymentsQuery,
+  useVerifyAdminEntryCashPaymentMutation,
   useGetAdminRevenueSummaryQuery,
   useGetAdminFormsQuery,
   useGetAdminFormQuery,
   useSaveAdminFormMutation,
+  useSetAdminFormActiveMutation,
   useCloneAdminFormMutation,
   useDeleteAdminFormMutation,
   useImportAdminFormMutation,
   useGetAdminCertificateTemplatesQuery,
   useGetAdminCertificateTemplateQuery,
   useSaveAdminCertificateTemplateMutation,
+  useCloneAdminCertificateTemplateMutation,
+  useImportAdminCertificateTemplateMutation,
+  useSetAdminCertificateTemplateActiveMutation,
+  useDeleteAdminCertificateTemplateMutation,
   useGetAdminCertificatesQuery,
   useGetAdminApprovedEntriesQuery,
   useIssueAdminCertificateMutation,

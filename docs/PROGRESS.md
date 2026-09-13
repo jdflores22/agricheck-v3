@@ -62,7 +62,13 @@
 | Admin | `admin@agricheck.local` | `Admin@12345` | `/admin` |
 | Importer | `importer@agricheck.local` | `Importer@12345` | `/client` |
 | BAI Evaluator | `evaluator@agricheck.local` | `Evaluator@12345` | `/agency` |
+| BPI Evaluator | `evaluator.bpi@agricheck.local` | `Evaluator@12345` | `/agency` |
 | BFAR Evaluator | `evaluator.bfar@agricheck.local` | `Evaluator@12345` | `/agency` |
+| BAI Agency Admin | `bai.admin@agricheck.local` | `AgencyAdmin@12345` | `/agency` |
+| BPI Agency Admin | `bpi.admin@agricheck.local` | `AgencyAdmin@12345` | `/agency` |
+| BFAR Agency Admin | `bfar.admin@agricheck.local` | `AgencyAdmin@12345` | `/agency` |
+| SRA Agency Admin | `sra.admin@agricheck.local` | `AgencyAdmin@12345` | `/agency` |
+| NTA Agency Admin | `nta.admin@agricheck.local` | `AgencyAdmin@12345` | `/agency` |
 | Inspector | `inspector@agricheck.local` | `Inspector@12345` | `/inspector` |
 | Billing Agent | `billing@agricheck.local` | `Billing@12345` | `/agency` |
 | Accreditation Officer | `accred@agricheck.local` | `Accred@12345` | `/agency` |

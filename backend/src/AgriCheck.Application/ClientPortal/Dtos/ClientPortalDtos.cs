@@ -7,8 +7,8 @@ public record AgencyOptionDto(long Id, string Code, string Name);
 
 public record EntryListItemDto(
     Guid Uuid, string ReferenceNo, string EntryType, string Status, string AgencyCode,
-    string? CommodityName, DateTime CreatedAt, DateTime? SubmittedAt, string PaymentStatus, decimal? PaymentAmount,
-    DateTime? ComplianceDeadlineAt);
+    string? CommodityName, DateTime CreatedAt, DateTime UpdatedAt, DateTime? SubmittedAt, string PaymentStatus,
+    decimal? PaymentAmount, DateTime? ComplianceDeadlineAt);
 
 public record EntryDetailDto(
     long? CommodityId, string? CommodityName, string? Description, decimal Quantity, string Unit,
@@ -39,6 +39,7 @@ public record EntryMicUtilizationDto(
 
 public record EntryMavInfoDto(
     string? MavNo,
+    string ImportTrack,
     string MavDocumentStatus,
     string? MavRemarks,
     Guid? MavCertificateFileUuid,
@@ -68,8 +69,8 @@ public record EntryFileDto(
 public record StatusHistoryDto(string FromStatus, string ToStatus, string? Comment, DateTime CreatedAt);
 public record TimelineEventDto(string EventType, string Title, string? Description, DateTime CreatedAt);
 
-public record CreateEntryRequest(long AgencyId, string EntryType, EntryDetailInputDto Detail, string? Notes, string? FormDataJson, int? NumContainers, string? ContainersJson, string? MavNo = null);
-public record UpdateEntryRequest(EntryDetailInputDto Detail, string? Notes, string? FormDataJson, int? NumContainers, string? ContainersJson, string? MavNo = null);
+public record CreateEntryRequest(long AgencyId, string EntryType, EntryDetailInputDto Detail, string? Notes, string? FormDataJson, int? NumContainers, string? ContainersJson, string? MavNo = null, string? ImportTrack = null);
+public record UpdateEntryRequest(EntryDetailInputDto Detail, string? Notes, string? FormDataJson, int? NumContainers, string? ContainersJson, string? MavNo = null, string? ImportTrack = null);
 public record EntryDetailInputDto(long? CommodityId, string? CommodityName, string? Description, decimal Quantity, string Unit, string? OriginCountry, string? DestinationCountry, string? PortOfEntry);
 
 public record AccreditationListItemDto(Guid Uuid, string CompanyName, string SubmissionType, string Status, string DisplayStatus, DateTime? SubmittedAt, DateTime CreatedAt);
@@ -147,7 +148,13 @@ public record CreateWarehouseBookingRequest(
 public record ClientBillSummaryDto(Guid Uuid, string BillNumber, string Description, decimal Amount, string Status, DateTime? DueDate, DateTime? PaidAt);
 public record ClientBillDto(Guid Uuid, string BillNumber, string Description, decimal Amount, string Status, DateTime? DueDate, string? PaymentLinkToken, Guid? EntryUuid, string? EntryReferenceNo, IReadOnlyList<ClientBillPaymentDto> Payments);
 public record ClientBillPaymentDto(decimal Amount, string PaymentMethod, string Status, DateTime CreatedAt);
-public record PayBillRequest(string PaymentMethod);
+public record PayBillRequest(string PaymentMethod, string? ReturnBaseUrl = null, string? PaymentReference = null);
+
+public record BillPaymentOptionsDto(
+    bool PayMongoEnabled,
+    bool CashPaymentEnabled,
+    string GatewayMode,
+    string? CashPaymentInstructions);
 
 public record InitiateBillPaymentResultDto(
     string Mode,
@@ -273,6 +280,12 @@ public record ClientContainerWarehouseInfoDto(
     DateTime? ReceivedAt,
     string? Status);
 
+public record ClientContainerTransportTagDto(
+    Guid TagUuid,
+    DateOnly? ScheduledWarehouseDate,
+    DateTime TaggedAt,
+    string? QrCodeData);
+
 public record ClientContainerDetailDto(
     Guid Uuid,
     int SequenceNumber,
@@ -293,7 +306,8 @@ public record ClientContainerDetailDto(
     string? WarehouseBookingBlockedReason,
     IReadOnlyList<ClientContainerProcessStepDto> ProcessSteps,
     ClientContainerWarehouseInfoDto? WarehouseInfo,
-    IReadOnlyList<ClientContainerBookingSummaryDto> Bookings);
+    IReadOnlyList<ClientContainerBookingSummaryDto> Bookings,
+    ClientContainerTransportTagDto? TransportTag);
 
 public record ClientInspectionListItemDto(
     Guid Uuid,
@@ -328,6 +342,11 @@ public record ClientPaymentHistoryItemDto(
     string? ExternalReference,
     DateTime PaidAt);
 
+public record ClientDaBillingChargeDto(
+    string Description,
+    decimal Amount,
+    int SortOrder);
+
 public record ClientDaBillingDto(
     Guid Uuid,
     Guid EntryUuid,
@@ -342,7 +361,8 @@ public record ClientDaBillingDto(
     string? PaymentReference,
     string? PaymentProofOriginalFileName,
     DateTime? PaymentUploadedAt,
-    string? VerificationNotes);
+    string? VerificationNotes,
+    IReadOnlyList<ClientDaBillingChargeDto> Charges);
 
 public record UploadDaBillingPaymentRequest(string PaymentReference, string? Notes);
 
@@ -353,7 +373,9 @@ public record ClientContainerInspectionPhotoDto(
     string OriginalFileName,
     string ReviewDecision,
     string? ReviewComment,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    DateTime? ReviewedAt,
+    string? ReviewedByName);
 
 public record ClientContainerInspectionStatusDto(
     Guid ContainerUuid,

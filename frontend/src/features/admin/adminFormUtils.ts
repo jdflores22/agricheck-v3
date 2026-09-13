@@ -17,6 +17,19 @@ export function parseFormTypeTab(value: string | null): 'ALL' | FormType {
   return match ? (match.value as 'ALL' | FormType) : 'ALL'
 }
 
+export function getFormActivateTooltip(template: {
+  isActive: boolean
+  fieldCount?: number
+  hasPublishedVersion?: boolean
+}) {
+  if (template.isActive) return 'Hide this template from clients'
+  if ((template.fieldCount ?? 0) === 0) return 'Add fields in the builder before activating.'
+  if (!template.hasPublishedVersion) {
+    return 'Activates this template and publishes the latest version for clients.'
+  }
+  return 'Make this template available to clients'
+}
+
 export function getFormTypeLabel(formType: string) {
   switch (formType) {
     case 'ENTRY':

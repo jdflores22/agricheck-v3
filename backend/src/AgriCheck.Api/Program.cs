@@ -1,6 +1,9 @@
 using System.Text;
 using AgriCheck.Application;
 using AgriCheck.Application.Auth;
+using AgriCheck.Application.Notifications;
+using AgriCheck.Api.Hubs;
+using AgriCheck.Api.Services;
 using AgriCheck.Infrastructure;
 using AgriCheck.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -44,6 +47,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
             ClockSkew = TimeSpan.FromMinutes(1)
         };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -54,6 +71,9 @@ Directory.CreateDirectory(dataProtectionKeys);
 builder.Services.AddDataProtection()
     .SetApplicationName("AgriCheckV3")
     .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeys));
+
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<INotificationRealtimePublisher, SignalRNotificationRealtimePublisher>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -175,6 +195,7 @@ MapPublicUploads(Path.Combine(uploadsRoot, "agency-logos"), "/uploads/agency-log
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<NotificationsHub>("/hubs/notifications");
 app.MapHealthChecks("/health");
 
 app.MapGet("/", () => Results.Redirect("/swagger"));

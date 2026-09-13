@@ -34,7 +34,7 @@ public class MavHsLibraryService : IMavHsLibraryService
         var query = _db.MavHsCategories.Include(c => c.Agency).Include(c => c.Headings).AsQueryable();
         if (agencyId is not null)
         {
-            query = query.Where(c => c.AgencyId == agencyId);
+            query = query.Where(c => c.AgencyId == agencyId || c.AgencyId == null);
         }
 
         return await query
@@ -265,7 +265,8 @@ public class MavHsLibraryService : IMavHsLibraryService
     internal static async Task<(string HsCode, string CommodityName, long? DetailId)> ResolveApplicationCommodityAsync(
         AgriCheckDbContext db,
         CreateMavApplicationRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        long? periodAgencyId = null)
     {
         if (request.HsDetailUuid is null)
         {
@@ -276,6 +277,12 @@ public class MavHsLibraryService : IMavHsLibraryService
             .Include(d => d.Heading).ThenInclude(h => h.Category)
             .FirstOrDefaultAsync(d => d.Uuid == request.HsDetailUuid && d.IsActive, cancellationToken)
             ?? throw new ClientPortalException("HS_DETAIL_NOT_FOUND", "Selected HS commodity not found.");
+
+        var categoryAgencyId = detail.Heading.Category.AgencyId;
+        if (periodAgencyId.HasValue && categoryAgencyId.HasValue && categoryAgencyId != periodAgencyId)
+        {
+            throw new ClientPortalException("HS_AGENCY_MISMATCH", "Selected HS code is not assigned to this application period's agency.");
+        }
 
         return (MavHsDisplayHelper.BuildHsCode(detail), detail.Description.Trim(), detail.Id);
     }

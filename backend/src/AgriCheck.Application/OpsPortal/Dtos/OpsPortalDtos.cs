@@ -92,6 +92,8 @@ public record UpdateContainerStatusRequest(string Status);
 
 public record AssignDriverRequest(Guid DriverUserUuid);
 
+public record ScanTransportQrRequest([property: System.ComponentModel.DataAnnotations.MaxLength(8192)] string QrData);
+
 public record CompleteDoctorInspectionRequest(string Decision, string? Findings);
 
 public record RecordContainerLocationRequest(decimal Latitude, decimal Longitude);

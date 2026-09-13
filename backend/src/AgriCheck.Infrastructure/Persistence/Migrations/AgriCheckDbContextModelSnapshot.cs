@@ -323,6 +323,51 @@ namespace AgriCheck.Infrastructure.Persistence.Migrations
                     b.ToTable("agencies", (string)null);
                 });
 
+            modelBuilder.Entity("AgriCheck.Domain.Entities.AgencyPaymentSettings", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("AgencyId")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("CashPaymentEnabled")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("CashPaymentInstructions")
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("PayMongoApiKey")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<bool>("PayMongoEnabled")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("PayMongoPublicKey")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("PayMongoWebhookSecret")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgencyId")
+                        .IsUnique();
+
+                    b.ToTable("agency_payment_settings", (string)null);
+                });
+
             modelBuilder.Entity("AgriCheck.Domain.Entities.AgencyBilling", b =>
                 {
                     b.Property<long>("Id")
@@ -1200,6 +1245,15 @@ namespace AgriCheck.Infrastructure.Persistence.Migrations
                     b.Property<long>("EntryId")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("QrCodeData")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("QrPayload")
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime?>("ScheduledWarehouseDate")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<DateTime>("TaggedAt")
                         .HasColumnType("datetime(6)");
 
@@ -1426,6 +1480,11 @@ namespace AgriCheck.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("FormDataJson")
                         .HasColumnType("longtext");
+
+                    b.Property<string>("ImportTrack")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)");
 
                     b.Property<string>("MavDocumentStatus")
                         .IsRequired()
@@ -3740,6 +3799,17 @@ namespace AgriCheck.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Parent");
+                });
+
+            modelBuilder.Entity("AgriCheck.Domain.Entities.AgencyPaymentSettings", b =>
+                {
+                    b.HasOne("AgriCheck.Domain.Entities.Agency", "Agency")
+                        .WithMany()
+                        .HasForeignKey("AgencyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Agency");
                 });
 
             modelBuilder.Entity("AgriCheck.Domain.Entities.AgencyBilling", b =>

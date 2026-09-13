@@ -66,6 +66,7 @@ class OperatorRepository(private val container: AppContainer) {
 
     suspend fun claimableContainers() = api().claimableContainers().requireData()
     suspend fun claim(uuid: String) = api().claimContainer(uuid).requireData()
+    suspend fun claimByQr(qrData: String) = api().claimContainerByQr(ScanTransportQrRequest(qrData)).requireData()
     suspend fun assignDriver(uuid: String, driverUserUuid: String) =
         api().assignDriver(uuid, AssignDriverRequest(driverUserUuid)).requireData()
 }

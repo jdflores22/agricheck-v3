@@ -37,6 +37,7 @@ export function FormFieldEditor({ field, allFields, onChange }: FormFieldEditorP
   const isSection = field.type === 'section'
   const isAddress = field.type === 'address'
   const isWarehouse = field.type === 'warehouse'
+  const isCommodity = field.type === 'commodity'
   const hasOptions = field.type === 'select' || field.type === 'radio'
   const otherFields = allFields.filter((item) => item.id !== field.id && item.type !== 'section')
 
@@ -66,7 +67,7 @@ export function FormFieldEditor({ field, allFields, onChange }: FormFieldEditorP
         onChange={(e) => update({ name: slugifyFieldName(e.target.value) })}
       />
 
-      {!isSection && !isAddress && !isWarehouse && (
+      {!isSection && !isAddress && !isWarehouse && !isCommodity && (
         <>
           <TextField
             label="Placeholder"
@@ -101,6 +102,33 @@ export function FormFieldEditor({ field, allFields, onChange }: FormFieldEditorP
           </Alert>
           <TextField
             label="Street placeholder"
+            value={field.placeholder ?? ''}
+            fullWidth
+            size="small"
+            onChange={(e) => update({ placeholder: e.target.value })}
+          />
+          <TextField
+            label="Help text"
+            value={field.helpText ?? ''}
+            fullWidth
+            size="small"
+            multiline
+            minRows={2}
+            onChange={(e) => update({ helpText: e.target.value })}
+          />
+        </>
+      )}
+
+      {isCommodity && (
+        <>
+          <Alert severity="info">
+            Connected to the MAV HS Code library. On the entry form the importer searches an HS code first,
+            then picks a commodity under that code — same cascade as Region → Province.
+            HS codes are filtered by the agency tagged on this form template (plus shared library codes).
+            Assign categories to BAI / BFAR / BPI in MAV → HS Code Library.
+          </Alert>
+          <TextField
+            label="HS search placeholder"
             value={field.placeholder ?? ''}
             fullWidth
             size="small"

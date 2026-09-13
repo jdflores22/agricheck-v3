@@ -8,6 +8,7 @@ import TimelineOutlinedIcon from '@mui/icons-material/TimelineOutlined'
 import type { ReactNode } from 'react'
 import { Box, Chip, CircularProgress, Divider, Grid, Stack, Typography } from '@mui/material'
 import { useMemo } from 'react'
+import { Link as RouterLink } from 'react-router-dom'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { portalAnalyticsColors, portalColors } from '../../../components/portal/portalTheme'
 import {
@@ -86,6 +87,30 @@ export function DaReportsPage() {
           <Chip size="small" label="Full report" sx={{ bgcolor: portalAnalyticsColors.soft, color: portalAnalyticsColors.darkest, fontWeight: 700 }} />
           <Chip size="small" label="Network scope" variant="outlined" sx={{ fontWeight: 600 }} />
           <Chip size="small" label={`${attachedAgencies.length} bureaus`} sx={{ fontWeight: 600 }} />
+          <Chip
+            size="small"
+            clickable
+            component={RouterLink}
+            to="/da/reports/mav"
+            label="National MAV utilization"
+            sx={{ fontWeight: 700, bgcolor: portalAnalyticsColors.soft, color: portalAnalyticsColors.darkest }}
+          />
+          <Chip
+            size="small"
+            clickable
+            component={RouterLink}
+            to="/da/reports/commodities"
+            label="Commodity stock"
+            sx={{ fontWeight: 700, bgcolor: portalAnalyticsColors.soft, color: portalAnalyticsColors.darkest }}
+          />
+          <Chip
+            size="small"
+            clickable
+            component={RouterLink}
+            to="/da/reports/stock"
+            label="Stock map"
+            sx={{ fontWeight: 700 }}
+          />
         </Stack>
       </PortalPageHeader>
 

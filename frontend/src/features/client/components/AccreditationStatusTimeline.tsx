@@ -24,6 +24,7 @@ function getTimelineIcon(status: string) {
     case 'Draft':
       return EditOutlined
     case 'Submitted':
+    case 'PhotoUploaded':
       return SendOutlined
     case 'UnderReview':
       return HourglassEmptyOutlined

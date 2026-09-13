@@ -33,6 +33,20 @@ internal static class AgencyContextHelper
         return (user, membership.Agency);
     }
 
+    public static async Task<(User User, Agency Agency)> RequireAgencyAdminAsync(
+        AgriCheckDbContext db,
+        ICurrentUserService currentUser,
+        CancellationToken cancellationToken)
+    {
+        var (user, agency) = await RequireAgencyStaffAsync(db, currentUser, cancellationToken);
+        if (!currentUser.IsInRole("ROLE_AGENCY_ADMIN") && !currentUser.IsInRole("ROLE_ADMIN"))
+        {
+            throw new ClientPortalException("AGENCY_ADMIN_REQUIRED", "Agency administrator access required.");
+        }
+
+        return (user, agency);
+    }
+
     public static async Task<Entry> RequireAgencyEntryAsync(
         AgriCheckDbContext db,
         Agency agency,

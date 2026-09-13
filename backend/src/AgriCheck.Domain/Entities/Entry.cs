@@ -18,6 +18,7 @@ public class Entry : BaseEntity
     public string? FormDataJson { get; set; }
     public DateTime? ComplianceDeadlineAt { get; set; }
     public string? MavNo { get; set; }
+    public EntryImportTrack ImportTrack { get; set; } = EntryImportTrack.Regular;
     public EntryMavDocumentStatus MavDocumentStatus { get; set; } = EntryMavDocumentStatus.NotProvided;
     public string? MavRemarks { get; set; }
     public long? PrimaryMicId { get; set; }

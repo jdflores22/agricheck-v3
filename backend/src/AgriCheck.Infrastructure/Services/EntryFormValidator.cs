@@ -78,6 +78,13 @@ public static class EntryFormValidator
                 continue;
             }
 
+            if (entry.ImportTrack != EntryImportTrack.Mav
+                && (string.Equals(name, "mav_no", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(name, "mav_certificate", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
             if (fieldType is "file" or "geotag_photo")
             {
                 var hasFile = uploadedDocumentTypes.Contains(name)

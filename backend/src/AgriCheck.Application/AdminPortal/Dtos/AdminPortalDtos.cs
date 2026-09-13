@@ -171,6 +171,18 @@ public record AdminEntryPaymentListItemDto(
     DateTime CreatedAt,
     DateTime? PaidAt);
 
+public record AdminPendingEntryCashPaymentDto(
+    Guid BillUuid,
+    string BillNumber,
+    string? EntryReferenceNo,
+    string? AgencyCode,
+    string ClientName,
+    decimal Amount,
+    string? ExternalReference,
+    DateTime SubmittedAt);
+
+public record VerifyAdminEntryCashPaymentRequest(bool Approved, string? Notes);
+
 public record AdminRevenueAgencyBreakdownDto(string AgencyCode, string AgencyName, decimal Amount, int PaymentCount);
 
 public record AdminRevenueMonthlyBreakdownDto(string Month, decimal Amount, int PaymentCount);
@@ -214,6 +226,8 @@ public record FormTemplateDetailDto(
 
 public record SaveFormTemplateRequest(string Name, string FormType, string SchemaJson, IReadOnlyList<long> AgencyIds, bool Publish);
 
+public record SetFormActiveRequest(bool IsActive);
+
 public record CloneFormTemplateRequest(string Name);
 
 public record CertificateTemplateListItemDto(
@@ -223,8 +237,12 @@ public record CertificateTemplateListItemDto(
     string? AgencyCode,
     bool IsActive,
     int LatestVersion,
+    bool HasPublishedVersion,
     int ElementCount,
-    IReadOnlyList<string> ProcessTypes);
+    IReadOnlyList<string> ProcessTypes,
+    DateTime CreatedAt);
+
+public record CertificateTemplateVersionSummaryDto(int VersionNumber, bool IsPublished, DateTime CreatedAt);
 
 public record CertificateTemplateDetailDto(
     Guid Uuid,
@@ -236,7 +254,10 @@ public record CertificateTemplateDetailDto(
     bool IsPublished,
     string? LayoutJson,
     IReadOnlyList<string> ProcessTypes,
-    IReadOnlyList<CertificateElementDto> Elements);
+    IReadOnlyList<CertificateElementDto> Elements,
+    DateTime CreatedAt,
+    DateTime UpdatedAt,
+    IReadOnlyList<CertificateTemplateVersionSummaryDto> Versions);
 
 public record CertificateElementDto(long Id, string ElementType, string Label, string? ConfigJson, int SortOrder);
 

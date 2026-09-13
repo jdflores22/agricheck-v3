@@ -99,7 +99,10 @@ public record DaWarehouseInventoryItemDto(
     string? LocationCode,
     string Status,
     DateTime ReceivedAt,
-    string? ReceivedByName);
+    string? ReceivedByName,
+    string? HsCode,
+    string? CommodityName,
+    decimal? VolumeKg);
 
 public record DaWarehouseDetailDto(
     DaWarehouseListItemDto Warehouse,
@@ -108,4 +111,132 @@ public record DaWarehouseDetailDto(
     int PendingBookings,
     int Capacity,
     decimal UtilizationPercent,
+    decimal TotalVolumeKg,
+    IReadOnlyList<DaGeoStockCommodityRowDto> Commodities,
     IReadOnlyList<DaWarehouseInventoryItemDto> Inventory);
+
+public record DaMavAgencyRowDto(
+    string AgencyCode,
+    int ActiveLicenses,
+    decimal AwardedVolume,
+    decimal UtilizedVolume,
+    decimal RemainingVolume,
+    decimal RegularVolume,
+    decimal CombinedVolume);
+
+public record DaMavCommodityRowDto(
+    string HsCode,
+    string CommodityName,
+    string? AgencyCode,
+    int ApplicationCount,
+    int ActiveLicenses,
+    decimal AwardedVolume,
+    decimal UtilizedVolume,
+    decimal RemainingVolume,
+    decimal RegularVolume,
+    decimal CombinedVolume);
+
+public record DaMavNationalReportDto(
+    int MavYear,
+    int OpenPeriods,
+    int TotalApplications,
+    int ApprovedApplications,
+    int ActiveLicenses,
+    int IssuedMics,
+    decimal TotalAwardedVolume,
+    decimal TotalUtilizedVolume,
+    decimal TotalRemainingVolume,
+    int RegularImportCount,
+    decimal TotalRegularVolume,
+    decimal TotalCombinedVolume,
+    IReadOnlyList<DaMavAgencyRowDto> ByAgency,
+    IReadOnlyList<DaMavCommodityRowDto> ByCommodity);
+
+public record DaGeoStockQuery(
+    long? RegionId = null,
+    long? ProvinceId = null,
+    long? CityId = null,
+    long? BarangayId = null,
+    string? HsCode = null,
+    string? CommodityName = null);
+
+public record DaGeoStockBreadcrumbDto(
+    string Level,
+    long? Id,
+    string Name);
+
+public record DaGeoStockCommodityRowDto(
+    string HsCode,
+    string CommodityName,
+    decimal VolumeKg,
+    int StoredContainers,
+    int WarehouseCount);
+
+public record DaGeoStockLocationRowDto(
+    string Level,
+    long? Id,
+    string Name,
+    decimal VolumeKg,
+    int WarehouseCount,
+    int StoredContainers,
+    int Capacity,
+    decimal UtilizationPercent,
+    IReadOnlyList<DaGeoStockCommodityRowDto> TopCommodities);
+
+public record DaGeoStockWarehouseRowDto(
+    long Id,
+    string Code,
+    string Name,
+    decimal VolumeKg,
+    int StoredContainers,
+    int Capacity,
+    decimal UtilizationPercent,
+    string? BarangayName,
+    string? TopCommodityName,
+    string? TopCommodityHsCode);
+
+public record DaGeoStockReportDto(
+    string Level,
+    string ScopeLabel,
+    decimal TotalVolumeKg,
+    int WarehouseCount,
+    int StoredContainers,
+    int Capacity,
+    decimal UtilizationPercent,
+    IReadOnlyList<DaGeoStockBreadcrumbDto> Path,
+    IReadOnlyList<DaGeoStockCommodityRowDto> Commodities,
+    IReadOnlyList<DaGeoStockLocationRowDto> Locations,
+    IReadOnlyList<DaGeoStockWarehouseRowDto> Warehouses);
+
+public record DaCommodityStockQuery(string? HsCode = null, string? CommodityName = null, string? AgencyCode = null);
+
+public record DaCommodityStockRowDto(
+    string HsCode,
+    string CommodityName,
+    decimal StockKg,
+    decimal MavStockKg,
+    decimal RegularStockKg,
+    int StoredContainers,
+    int WarehouseCount,
+    int AgencyCount,
+    int LinkedImportEntries);
+
+public record DaCommodityStockAgencyRowDto(
+    string AgencyCode,
+    string HsCode,
+    string CommodityName,
+    decimal StockKg,
+    decimal MavStockKg,
+    decimal RegularStockKg,
+    int StoredContainers,
+    int WarehouseCount);
+
+public record DaCommodityStockReportDto(
+    decimal TotalStockKg,
+    decimal TotalMavStockKg,
+    decimal TotalRegularStockKg,
+    int CommodityCount,
+    int StoredContainers,
+    int WarehouseCount,
+    IReadOnlyList<DaCommodityStockRowDto> Commodities,
+    IReadOnlyList<DaCommodityStockAgencyRowDto> ByAgency);

@@ -66,7 +66,7 @@ export const FIELD_TYPE_DEFINITIONS: FieldTypeDefinition[] = [
   { type: 'select', label: 'Select', description: 'Dropdown selection', icon: '▼' },
   { type: 'checkbox', label: 'Checkbox', description: 'Yes / no checkbox', icon: '☑' },
   { type: 'radio', label: 'Radio', description: 'Single choice from options', icon: '◉' },
-  { type: 'commodity', label: 'Commodity', description: 'HS code / commodity selector', icon: '🌾' },
+  { type: 'commodity', label: 'Commodity', description: 'Searchable HS code, then commodity from the MAV library', icon: '🌾' },
   { type: 'geotag_photo', label: 'Geotag Photo', description: 'Photo with GPS metadata', icon: '📷' },
   { type: 'address', label: 'Address', description: 'Region, province, city, barangay, zip, street', icon: '📍' },
   { type: 'warehouse', label: 'Warehouse', description: 'Registered warehouse selector with auto address', icon: '🏭' },
@@ -77,6 +77,51 @@ export const COLUMN_WIDTHS = [12, 9, 8, 6, 4, 3] as const
 export function getWarehouseAutofillTarget(field: FormFieldSchema): string | undefined {
   const target = field.validationRules?.autofillTarget
   return typeof target === 'string' && target.trim() !== '' ? target : undefined
+}
+
+export function getCommodityHsValueKeys(fieldName: string) {
+  return {
+    categoryUuid: `${fieldName}_category_uuid`,
+    detailUuid: `${fieldName}_detail_uuid`,
+    hsCode: `${fieldName}_hs_code`,
+    commodityName: `${fieldName}_commodity_name`,
+  }
+}
+
+export function formatCommodityHsSummary(fieldName: string, values: Record<string, string>): string {
+  const keys = getCommodityHsValueKeys(fieldName)
+  const hsCode = values[keys.hsCode]?.trim()
+  const commodityName = values[keys.commodityName]?.trim()
+  if (hsCode && commodityName) return `${hsCode} — ${commodityName}`
+  return commodityName || hsCode || values[fieldName]?.trim() || ''
+}
+
+export function isMavControlField(fieldName: string) {
+  return fieldName === 'mav_no' || fieldName === 'mav_certificate'
+}
+
+export function applyMavEntrySchema(
+  fields: FormFieldSchema[],
+  options: boolean | { showMavFields?: boolean; requireCommodityHs?: boolean },
+): FormFieldSchema[] {
+  const showMavFields = typeof options === 'boolean' ? options : Boolean(options.showMavFields)
+  const requireCommodityHs = typeof options === 'boolean' ? options : Boolean(options.requireCommodityHs ?? options.showMavFields)
+
+  return fields.flatMap((field) => {
+    if (isMavControlField(field.name) && !showMavFields) {
+      return []
+    }
+
+    if (requireCommodityHs && (field.type === 'commodity' || field.name === 'commodityName')) {
+      return [{ ...field, type: 'commodity', required: true }]
+    }
+
+    if (isMavControlField(field.name) && showMavFields) {
+      return [{ ...field, required: true }]
+    }
+
+    return [field]
+  })
 }
 
 export function getAddressValueKeys(fieldName: string) {
@@ -118,9 +163,16 @@ export function createField(type: FormFieldType, order: number, existingNames: S
     name,
     label: def.label,
     type,
-    columnWidth: type === 'section' || type === 'address' ? 12 : 6,
+    columnWidth: type === 'section' || type === 'address' || type === 'commodity' ? 12 : 6,
     displayOrder: order,
     required: type !== 'section',
+  }
+
+  if (type === 'commodity') {
+    field.label = 'Commodity'
+    field.name = existingNames.has('commodity') ? name : 'commodity'
+    field.helpText = 'Search the HS code first. Commodities for that code will appear next, from the MAV library for this form’s agency.'
+    field.placeholder = 'Search HS code'
   }
 
   if (type === 'address') {

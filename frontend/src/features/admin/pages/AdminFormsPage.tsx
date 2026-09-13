@@ -5,6 +5,8 @@ import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined'
 import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined'
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
+import ToggleOffOutlinedIcon from '@mui/icons-material/ToggleOffOutlined'
+import ToggleOnOutlinedIcon from '@mui/icons-material/ToggleOnOutlined'
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined'
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import {
@@ -51,9 +53,11 @@ import {
   downloadAdminFormExport,
   formatFormDate,
   FORM_TYPE_TABS,
+  getFormActivateTooltip,
   getFormTypeLabel,
   parseFormTypeTab,
 } from '../adminFormUtils'
+import { getAdminApiErrorMessage } from '../components/adminAgencyUtils'
 import {
   useCloneAdminFormMutation,
   useDeleteAdminFormMutation,
@@ -61,6 +65,7 @@ import {
   useGetAdminFormsQuery,
   useImportAdminFormMutation,
   useSaveAdminFormMutation,
+  useSetAdminFormActiveMutation,
   type AdminAgency,
   type FormTemplateListItem,
 } from '../api/adminApi'
@@ -82,6 +87,7 @@ export function AdminFormsPage() {
   const [cloneForm, { isLoading: cloning }] = useCloneAdminFormMutation()
   const [deleteForm, { isLoading: deleting }] = useDeleteAdminFormMutation()
   const [importForm, { isLoading: importing }] = useImportAdminFormMutation()
+  const [setFormActive] = useSetAdminFormActiveMutation()
 
   const tab = parseFormTypeTab(searchParams.get('formType'))
   const statusFilter = searchParams.get('active') ?? ''
@@ -94,6 +100,8 @@ export function AdminFormsPage() {
   const [cloneName, setCloneName] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<FormTemplateListItem | null>(null)
   const [exportingUuid, setExportingUuid] = useState<string | null>(null)
+  const [togglingUuid, setTogglingUuid] = useState<string | null>(null)
+  const [actionError, setActionError] = useState('')
 
   const [form, setForm] = useState({
     name: '',
@@ -174,6 +182,21 @@ export function AdminFormsPage() {
     if (!deleteTarget) return
     await deleteForm(deleteTarget.uuid).unwrap()
     setDeleteTarget(null)
+  }
+
+  const handleSetActive = async (item: FormTemplateListItem, isActive: boolean) => {
+    setActionError('')
+    setTogglingUuid(item.uuid)
+    try {
+      await setFormActive({ uuid: item.uuid, isActive }).unwrap()
+    } catch (error) {
+      const fallback = isActive
+        ? `Unable to activate “${item.name}”.`
+        : `Unable to deactivate “${item.name}”.`
+      setActionError(getAdminApiErrorMessage(error, fallback))
+    } finally {
+      setTogglingUuid(null)
+    }
   }
 
   const handleImport = async (e: FormEvent<HTMLFormElement>) => {
@@ -260,7 +283,8 @@ export function AdminFormsPage() {
             </Select>
           </FormControl>
           <Typography sx={{ alignSelf: 'center', fontSize: '0.8125rem', color: portalColors.textMuted }}>
-            {filteredForms.length} template{filteredForms.length === 1 ? '' : 's'}
+            {filteredForms.length} template{filteredForms.length === 1 ? '' : 's'}. Inactive templates stay hidden from
+            clients even when published.
           </Typography>
         </Stack>
       </PortalPanel>
@@ -268,6 +292,12 @@ export function AdminFormsPage() {
       {isError ? (
         <Alert severity="error" sx={{ mt: 2 }}>
           Unable to load form templates. Restart the API after backend updates, then refresh.
+        </Alert>
+      ) : null}
+
+      {actionError ? (
+        <Alert severity="error" sx={{ mt: 2 }} onClose={() => setActionError('')}>
+          {actionError}
         </Alert>
       ) : null}
 
@@ -288,9 +318,7 @@ export function AdminFormsPage() {
                   <Typography sx={{ fontWeight: 600 }}>{item.name}</Typography>
                   <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap' }} useFlexGap>
                     <Chip size="small" label={item.status} sx={portalStatusChipSx(item.status)} />
-                    {item.hasPublishedVersion ? (
-                      <Chip size="small" label="Live" sx={getStatusBadgeStyle('ACTIVE')} />
-                    ) : null}
+                    {isLive ? <Chip size="small" label="Live" sx={getStatusBadgeStyle('ACTIVE')} /> : null}
                   </Stack>
                 </TableCell>
                 <TableCell>
@@ -322,7 +350,24 @@ export function AdminFormsPage() {
                   {formatFormDate(item.createdAt)}
                 </TableCell>
                 <TableCell>
-                  <Stack direction="row" spacing={0.5}>
+                  <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                    <Tooltip title={getFormActivateTooltip(item)}>
+                      <span>
+                        <Button
+                          size="small"
+                          variant={item.isActive ? 'outlined' : 'contained'}
+                          startIcon={item.isActive ? <ToggleOffOutlinedIcon /> : <ToggleOnOutlinedIcon />}
+                          sx={item.isActive ? portalOutlinedButtonSx : portalPrimaryButtonSx}
+                          disabled={
+                            togglingUuid === item.uuid ||
+                            (!item.isActive && (item.fieldCount ?? 0) === 0)
+                          }
+                          onClick={() => void handleSetActive(item, !item.isActive)}
+                        >
+                          {item.isActive ? 'Deactivate' : 'Activate'}
+                        </Button>
+                      </span>
+                    </Tooltip>
                     <Tooltip title="View details">
                       <IconButton component={RouterLink} to={`/admin/forms/${item.uuid}/view`} size="small" sx={adminFormActionIconSx}>
                         <VisibilityOutlinedIcon fontSize="small" />

@@ -39,6 +39,7 @@ internal static class EntryMavHelper
 
         return new EntryMavInfoDto(
             entry.MavNo,
+            entry.ImportTrack.ToString(),
             entry.MavDocumentStatus.ToString(),
             entry.MavRemarks,
             mavFile?.Uuid,
@@ -78,12 +79,44 @@ internal static class EntryMavHelper
         }
     }
 
+    public static EntryImportTrack ResolveImportTrack(
+        string? importTrack,
+        string? formDataJson = null,
+        EntryImportTrack? current = null)
+    {
+        if (Enum.TryParse<EntryImportTrack>(importTrack, true, out var parsed) && parsed is EntryImportTrack.Mav or EntryImportTrack.Regular)
+        {
+            return parsed;
+        }
+
+        var fromForm = ReadFormDataValue(formDataJson, "import_track");
+        if (Enum.TryParse<EntryImportTrack>(fromForm, true, out parsed) && parsed is EntryImportTrack.Mav or EntryImportTrack.Regular)
+        {
+            return parsed;
+        }
+
+        return current ?? EntryImportTrack.Regular;
+    }
+
+    public static void EnsureImportTrackChangeAllowed(Entry entry, EntryImportTrack next)
+    {
+        if (next == EntryImportTrack.Regular && entry.PrimaryMicId is not null)
+        {
+            throw new ClientPortalException(
+                "MAV_TRACK_LOCKED",
+                "This entry already has MIC utilization. Keep the MAV import track.");
+        }
+    }
+
+    public static bool IsMavTrack(Entry entry) =>
+        entry.EntryType == EntryType.Import && entry.ImportTrack == EntryImportTrack.Mav;
+
     public static async Task ValidateImportMavOnSubmitAsync(
         AgriCheckDbContext db,
         Entry entry,
         CancellationToken cancellationToken)
     {
-        if (entry.EntryType != EntryType.Import)
+        if (entry.EntryType != EntryType.Import || entry.ImportTrack != EntryImportTrack.Mav)
         {
             return;
         }
@@ -116,6 +149,79 @@ internal static class EntryMavHelper
             throw new ClientPortalException(
                 "MIC_UTILIZATION_REQUIRED",
                 $"Link an active MIC and utilize at least {requiredVolume:0.###} volume before submitting. Currently utilized: {utilizedVolume:0.###}.");
+        }
+    }
+
+    public static async Task<bool> ImporterHasMavAccessAsync(
+        AgriCheckDbContext db,
+        long agencyId,
+        long importerId,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var hsPrefixes = await db.MavHsCategories
+            .Where(c => c.IsActive && c.AgencyId == agencyId)
+            .Select(c => c.HsCode)
+            .ToListAsync(cancellationToken);
+
+        var licenseHsCodes = await db.MavLicenses
+            .Where(l => l.ImporterId == importerId && l.Status == MavLicenseStatus.Active && l.ExpiresAt >= now)
+            .Select(l => l.HsCode)
+            .ToListAsync(cancellationToken);
+        if (MatchesAgencyHs(licenseHsCodes, hsPrefixes))
+        {
+            return true;
+        }
+
+        var micHsCodes = await db.MavImportCertificates
+            .Where(m =>
+                m.ImporterId == importerId
+                && m.Status != MavImportCertificateStatus.Expired
+                && m.ExpiresAt >= now
+                && m.AuthorizedVolume > m.UtilizedVolume)
+            .Select(m => m.HsCode)
+            .ToListAsync(cancellationToken);
+
+        return MatchesAgencyHs(micHsCodes, hsPrefixes);
+    }
+
+    private static bool MatchesAgencyHs(IReadOnlyCollection<string> hsCodes, IReadOnlyCollection<string> hsPrefixes)
+    {
+        if (hsCodes.Count == 0)
+        {
+            return false;
+        }
+
+        if (hsPrefixes.Count == 0)
+        {
+            return true;
+        }
+
+        return hsCodes.Any(hs => hsPrefixes.Any(prefix => hs.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static string? ReadFormDataValue(string? formDataJson, string key)
+    {
+        if (string.IsNullOrWhiteSpace(formDataJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(formDataJson);
+            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            return document.RootElement.TryGetProperty(key, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String
+                ? value.GetString()
+                : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
         }
     }
 }

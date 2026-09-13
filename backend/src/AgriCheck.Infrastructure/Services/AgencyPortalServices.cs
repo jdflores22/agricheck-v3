@@ -12,6 +12,37 @@ using System.Text.Json;
 
 namespace AgriCheck.Infrastructure.Services;
 
+internal static class AgencyEntryPresentationHelper
+{
+    public static string? ResolveCompanyName(Entry entry)
+    {
+        if (!string.IsNullOrWhiteSpace(entry.FormDataJson))
+        {
+            try
+            {
+                var values = JsonSerializer.Deserialize<Dictionary<string, string>>(entry.FormDataJson);
+                if (values is not null)
+                {
+                    foreach (var key in new[] { "company_name", "companyName", "txt_company_name", "business_name" })
+                    {
+                        if (values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
+                        {
+                            return value.Trim();
+                        }
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                // Ignore malformed form payloads and fall back to profile data.
+            }
+        }
+
+        var profileCompany = entry.User.Profile?.CompanyName;
+        return string.IsNullOrWhiteSpace(profileCompany) ? null : profileCompany.Trim();
+    }
+}
+
 public class AgencyDashboardService : IAgencyDashboardService
 {
     private readonly AgriCheckDbContext _db;
@@ -28,6 +59,17 @@ public class AgencyDashboardService : IAgencyDashboardService
         var (user, agency) = await AgencyContextHelper.RequireAgencyStaffAsync(_db, _currentUser, cancellationToken);
         var entries = _db.Entries.Where(e => e.AgencyId == agency.Id);
 
+        var inspectionContainers = await _db.Containers
+            .Include(c => c.InspectionPhotos)
+            .Include(c => c.InspectorAssignments)
+            .Include(c => c.Entry).ThenInclude(e => e.TimelineEvents)
+            .Where(c => c.Entry.AgencyId == agency.Id && c.Entry.Status == EntryStatus.ForInspection)
+            .ToListAsync(cancellationToken);
+
+        var actionableContainers = inspectionContainers
+            .Where(ContainerInspectionQueueHelper.NeedsInspectorAction)
+            .ToList();
+
         return new AgencyDashboardDto(
             await entries.CountAsync(e =>
                 (e.Status == EntryStatus.Submitted || e.Status == EntryStatus.UnderReview) &&
@@ -37,10 +79,23 @@ public class AgencyDashboardService : IAgencyDashboardService
                 a.AgencyId == agency.Id && a.EvaluatorUserId == user.Id && a.Status == AssignmentStatus.Active, cancellationToken),
             await _db.Inspections.CountAsync(i =>
                 i.AgencyId == agency.Id && i.Status != InspectionStatus.Completed && i.Status != InspectionStatus.Failed, cancellationToken),
+            actionableContainers.Count(c => !ContainerInspectionQueueHelper.HasActiveAssignment(c)),
+            actionableContainers.Count(c => ContainerInspectionQueueHelper.IsAssignedTo(c, user.Id)),
             await _db.AgencyBillings.CountAsync(b =>
                 b.AgencyId == agency.Id && b.Status != AgencyBillingStatus.Paid && b.Status != AgencyBillingStatus.Cancelled, cancellationToken),
             await _db.AccreditationSubmissions.CountAsync(s =>
                 s.Status == AccreditationSubmissionStatus.Submitted || s.Status == AccreditationSubmissionStatus.UnderReview, cancellationToken),
+            await _db.ClientBillPayments.CountAsync(p =>
+                p.Status == "awaiting_verification" &&
+                p.PaymentMethod == "cash" &&
+                p.ClientBill.AgencyBillingId != null &&
+                p.ClientBill.Entry!.AgencyId == agency.Id, cancellationToken),
+            await _db.AgencyBillings.CountAsync(b =>
+                b.AgencyId == agency.Id && b.Status == AgencyBillingStatus.Paid, cancellationToken),
+            await entries.CountAsync(e =>
+                e.Status == EntryStatus.Approved &&
+                !_db.AgencyBillings.Any(b =>
+                    b.EntryId == e.Id && b.Status != AgencyBillingStatus.Cancelled), cancellationToken),
             agency.Code,
             agency.Name);
     }
@@ -158,6 +213,12 @@ public class EvaluatorService : IEvaluatorService
             .FirstOrDefaultAsync(e => e.Uuid == entryUuid && e.AgencyId == agency.Id, cancellationToken);
         if (entry is null) return null;
 
+        await EnsureComplianceResultsAsync(entry, agency, cancellationToken);
+        if (_db.ChangeTracker.HasChanges())
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
         var (formSchemaJson, formName) = await GetEntryFormMetaAsync(entry.AgencyId, cancellationToken);
         return MapEvaluation(entry, user.Id, formSchemaJson, formName);
     }
@@ -190,7 +251,8 @@ public class EvaluatorService : IEvaluatorService
         evaluation.Comment = request.Comment;
 
         if (string.Equals(file.DocumentType, EntryMavHelper.MavCertificateDocumentType, StringComparison.OrdinalIgnoreCase)
-            && file.Entry.EntryType == EntryType.Import)
+            && file.Entry.EntryType == EntryType.Import
+            && file.Entry.ImportTrack == EntryImportTrack.Mav)
         {
             file.Entry.MavDocumentStatus = EntryMavHelper.MapEvaluationToMavStatus(decision);
             file.Entry.MavRemarks = request.Comment;
@@ -224,9 +286,9 @@ public class EvaluatorService : IEvaluatorService
         var entry = await _db.Entries.FirstOrDefaultAsync(e => e.Uuid == entryUuid && e.AgencyId == agency.Id, cancellationToken)
             ?? throw new ClientPortalException("ENTRY_NOT_FOUND", "Entry not found.");
 
-        if (entry.EntryType != EntryType.Import)
+        if (entry.EntryType != EntryType.Import || entry.ImportTrack != EntryImportTrack.Mav)
         {
-            throw new ClientPortalException("INVALID_ENTRY_TYPE", "MAV review applies to import entries only.");
+            throw new ClientPortalException("INVALID_ENTRY_TYPE", "MAV review applies to MAV in-quota import entries only.");
         }
 
         await RequireActiveAssignmentAsync(entry.Id, user.Id, cancellationToken);
@@ -335,8 +397,10 @@ public class EvaluatorService : IEvaluatorService
             throw new ClientPortalException("INVALID_DECISION", "Decision must be Approved, Rejected, or RevisionRequired.");
         }
 
+        await EntryEvaluationValidator.EnsureReadyForOutcomeAsync(_db, entry, user.Id, cancellationToken);
+
         if (decision == EvaluationDecision.Approved &&
-            entry.EntryType == EntryType.Import &&
+            EntryMavHelper.IsMavTrack(entry) &&
             entry.MavDocumentStatus is not EntryMavDocumentStatus.Approved)
         {
             throw new ClientPortalException(
@@ -347,7 +411,7 @@ public class EvaluatorService : IEvaluatorService
         var previous = entry.Status;
         entry.Status = decision switch
         {
-            EvaluationDecision.Approved => EntryStatus.DaIssueBilling,
+            EvaluationDecision.Approved => EntryStatus.Approved,
             EvaluationDecision.Rejected => EntryStatus.Rejected,
             EvaluationDecision.RevisionRequired => EntryStatus.ForCompliance,
             _ => entry.Status
@@ -376,17 +440,41 @@ public class EvaluatorService : IEvaluatorService
 
         if (decision == EvaluationDecision.Approved)
         {
-            await _workflow.CreateAndIssueDaBillingAsync(entry, user.Id, cancellationToken);
+            await AgencyBillingNotificationHelper.NotifyEntryApprovedForBillingAsync(
+                _db,
+                _notifications,
+                entry,
+                cancellationToken);
         }
 
         await _notifications.NotifyAsync(
             entry.UserId,
             "entry_status",
             "Entry status updated",
-            $"Your entry {entry.ReferenceNo} is now {entry.Status}.",
+            decision == EvaluationDecision.Approved
+                ? $"Your entry {entry.ReferenceNo} was approved. Agency billing will be issued shortly."
+                : $"Your entry {entry.ReferenceNo} is now {entry.Status}.",
             "Entry",
             entry.Uuid.ToString(),
             cancellationToken);
+    }
+
+    public async Task<PagedResult<AgencyEntryListItemDto>> ListEntriesAwaitingBillingAsync(
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var (user, agency) = await AgencyContextHelper.RequireAgencyStaffAsync(_db, _currentUser, cancellationToken);
+        var query = _db.Entries
+            .Include(e => e.User).ThenInclude(u => u.Profile)
+            .Include(e => e.Detail)
+            .Include(e => e.EvaluatorAssignments)
+            .Where(e => e.AgencyId == agency.Id &&
+                        e.Status == EntryStatus.Approved &&
+                        !_db.AgencyBillings.Any(b =>
+                            b.EntryId == e.Id && b.Status != AgencyBillingStatus.Cancelled));
+
+        return await PageEntriesAsync(query, user.Id, page, pageSize, cancellationToken);
     }
 
     public async Task<StoredFileDownload> DownloadFileAsync(Guid entryUuid, Guid fileUuid, CancellationToken cancellationToken = default)
@@ -479,7 +567,7 @@ public class EvaluatorService : IEvaluatorService
             .Include(e => e.EvaluatorAssignments)
             .Include(e => e.Inspections)
             .Where(e => e.AgencyId == agency.Id &&
-                        EntryStatusRules.CanScheduleAgencyInspection(e.Status) &&
+                        EntryStatusRules.SchedulableInspectionStatuses.Contains(e.Status) &&
                         !e.Inspections.Any(i => i.Status == InspectionStatus.Scheduled ||
                                                 i.Status == InspectionStatus.InProgress ||
                                                 i.Status == InspectionStatus.Completed));
@@ -520,39 +608,11 @@ public class EvaluatorService : IEvaluatorService
             entry.EntryType.ToString(),
             entry.Status.ToString(),
             applicant,
-            ResolveEntryCompanyName(entry),
+            AgencyEntryPresentationHelper.ResolveCompanyName(entry),
             entry.Detail?.CommodityName,
             entry.PaymentStatus.ToString(),
             entry.SubmittedAt,
             entry.EvaluatorAssignments.Any(a => a.EvaluatorUserId == userId && a.Status == AssignmentStatus.Active));
-    }
-
-    private static string? ResolveEntryCompanyName(Entry entry)
-    {
-        if (!string.IsNullOrWhiteSpace(entry.FormDataJson))
-        {
-            try
-            {
-                var values = JsonSerializer.Deserialize<Dictionary<string, string>>(entry.FormDataJson);
-                if (values is not null)
-                {
-                    foreach (var key in new[] { "company_name", "companyName", "txt_company_name", "business_name" })
-                    {
-                        if (values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
-                        {
-                            return value.Trim();
-                        }
-                    }
-                }
-            }
-            catch (JsonException)
-            {
-                // Ignore malformed form payloads and fall back to profile data.
-            }
-        }
-
-        var profileCompany = entry.User.Profile?.CompanyName;
-        return string.IsNullOrWhiteSpace(profileCompany) ? null : profileCompany.Trim();
     }
 
     private async Task<EvaluatorAssignment> RequireActiveAssignmentAsync(long entryId, long userId, CancellationToken cancellationToken)
@@ -577,10 +637,11 @@ public class EvaluatorService : IEvaluatorService
 
         foreach (var item in checklist.Items.OrderBy(i => i.SortOrder))
         {
-            _db.EntryComplianceResults.Add(new EntryComplianceResult
+            entry.ComplianceResults.Add(new EntryComplianceResult
             {
                 EntryId = entry.Id,
                 ChecklistItemId = item.Id,
+                ChecklistItem = item,
                 Status = ComplianceResultStatus.Pending
             });
         }
@@ -620,7 +681,7 @@ public class EvaluatorService : IEvaluatorService
             entry.Status.ToString(),
             entry.Agency.Code,
             applicant,
-            ResolveEntryCompanyName(entry),
+            AgencyEntryPresentationHelper.ResolveCompanyName(entry),
             entry.PaymentStatus.ToString(),
             entry.SubmittedAt,
             entry.Notes,
@@ -873,26 +934,91 @@ public class AgencyBillingService : IAgencyBillingService
     private readonly AgriCheckDbContext _db;
     private readonly ICurrentUserService _currentUser;
     private readonly IEntryWorkflowService _workflow;
+    private readonly INotificationService _notifications;
 
-    public AgencyBillingService(AgriCheckDbContext db, ICurrentUserService currentUser, IEntryWorkflowService workflow)
+    public AgencyBillingService(
+        AgriCheckDbContext db,
+        ICurrentUserService currentUser,
+        IEntryWorkflowService workflow,
+        INotificationService notifications)
     {
         _db = db;
         _currentUser = currentUser;
         _workflow = workflow;
+        _notifications = notifications;
     }
 
     public async Task<PagedResult<AgencyBillingListItemDto>> ListAsync(int page, int pageSize, CancellationToken cancellationToken = default)
     {
         var (_, agency) = await AgencyContextHelper.RequireAgencyStaffAsync(_db, _currentUser, cancellationToken);
-        var query = _db.AgencyBillings.Include(b => b.Entry).Where(b => b.AgencyId == agency.Id);
+        var query = _db.AgencyBillings.Include(b => b.Entry).Include(b => b.Charges).Where(b => b.AgencyId == agency.Id);
         var total = await query.CountAsync(cancellationToken);
-        var items = await query.OrderByDescending(b => b.CreatedAt).Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(b => new AgencyBillingListItemDto(
-                b.Uuid, b.BillNumber, b.Description, b.Amount, b.Status.ToString(),
-                b.Entry != null ? b.Entry.ReferenceNo : null, b.IssuedAt, b.PaidAt))
+        var rows = await query.OrderByDescending(b => b.CreatedAt).Skip((page - 1) * pageSize).Take(pageSize)
             .ToListAsync(cancellationToken);
+        var items = rows.Select(MapBilling).ToList();
 
         return new PagedResult<AgencyBillingListItemDto>(items, page, pageSize, total);
+    }
+
+    public async Task<AgencyBillingDetailDto> GetAsync(Guid uuid, CancellationToken cancellationToken = default)
+    {
+        var (_, agency) = await AgencyContextHelper.RequireAgencyStaffAsync(_db, _currentUser, cancellationToken);
+        var billing = await _db.AgencyBillings
+            .Include(b => b.Entry!).ThenInclude(e => e.User).ThenInclude(u => u.Profile)
+            .Include(b => b.Entry!).ThenInclude(e => e.Detail!).ThenInclude(d => d.Commodity!).ThenInclude(c => c!.Category)
+            .Include(b => b.Entry!).ThenInclude(e => e.PrimaryMic)
+            .Include(b => b.Entry!).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
+            .Include(b => b.Charges)
+            .FirstOrDefaultAsync(b => b.Uuid == uuid && b.AgencyId == agency.Id, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Billing record not found.");
+
+        var entry = billing.Entry
+            ?? throw new ClientPortalException("NOT_FOUND", "Linked entry was not found for this billing.");
+
+        var entryContext = await BuildBillingEntryContextAsync(agency.Id, entry, cancellationToken);
+
+        return new AgencyBillingDetailDto(
+            billing.Uuid,
+            billing.BillNumber,
+            billing.Description,
+            billing.Amount,
+            billing.Status.ToString(),
+            entry.Uuid,
+            entry.ReferenceNo,
+            billing.IssuedAt,
+            billing.PaidAt,
+            entryContext,
+            billing.Charges
+                .OrderBy(c => c.SortOrder)
+                .Select(c => new AgencyBillingChargeDto(c.Uuid, c.Description, c.Amount, c.SortOrder))
+                .ToList());
+    }
+
+    public async Task<AgencyBillingEntryContextDto> GetAwaitingEntryContextAsync(
+        Guid entryUuid,
+        CancellationToken cancellationToken = default)
+    {
+        var (_, agency) = await AgencyContextHelper.RequireAgencyStaffAsync(_db, _currentUser, cancellationToken);
+        var entry = await LoadBillingEntryAsync(entryUuid, agency.Id, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Entry not found.");
+
+        if (entry.Status != EntryStatus.Approved)
+        {
+            throw new ClientPortalException(
+                "ENTRY_NOT_APPROVED",
+                "Only evaluator-approved entries can receive agency billing.");
+        }
+
+        if (await _db.AgencyBillings.AnyAsync(
+                b => b.EntryId == entry.Id && b.Status != AgencyBillingStatus.Cancelled,
+                cancellationToken))
+        {
+            throw new ClientPortalException(
+                "BILLING_EXISTS",
+                "This entry already has an active agency billing record.");
+        }
+
+        return await BuildBillingEntryContextAsync(agency.Id, entry, cancellationToken);
     }
 
     public async Task<AgencyBillingListItemDto> CreateAsync(CreateAgencyBillingRequest request, CancellationToken cancellationToken = default)
@@ -900,30 +1026,109 @@ public class AgencyBillingService : IAgencyBillingService
         var (user, agency) = await AgencyContextHelper.RequireAgencyStaffAsync(_db, _currentUser, cancellationToken);
         var entry = await AgencyContextHelper.RequireAgencyEntryAsync(_db, agency, request.EntryUuid, cancellationToken);
 
+        if (entry.Status != EntryStatus.Approved)
+        {
+            throw new ClientPortalException(
+                "ENTRY_NOT_APPROVED",
+                "Only evaluator-approved entries can receive agency billing.");
+        }
+
+        if (await _db.AgencyBillings.AnyAsync(
+                b => b.EntryId == entry.Id && b.Status != AgencyBillingStatus.Cancelled,
+                cancellationToken))
+        {
+            throw new ClientPortalException(
+                "BILLING_EXISTS",
+                "This entry already has an active agency billing record.");
+        }
+
+        var charges = NormalizeBillingCharges(request.Charges);
+        var totalAmount = charges.Sum(c => c.Amount);
+        var title = string.IsNullOrWhiteSpace(request.Title)
+            ? charges.Count == 1
+                ? charges[0].Description.Trim()
+                : $"Agency billing ({charges.Count} charges)"
+            : request.Title.Trim();
+
         var billing = new AgencyBilling
         {
             Uuid = Guid.NewGuid(),
             AgencyId = agency.Id,
             EntryId = entry.Id,
             BillNumber = await ReferenceNumberGenerator.AgencyBillAsync(_db, cancellationToken),
-            Description = request.Description.Trim(),
-            Amount = request.Amount,
+            Description = title,
+            Amount = totalAmount,
             Status = AgencyBillingStatus.Draft,
             IssuedByUserId = user.Id
         };
 
+        for (var index = 0; index < charges.Count; index++)
+        {
+            billing.Charges.Add(new AgencyBillingCharge
+            {
+                Uuid = Guid.NewGuid(),
+                Description = charges[index].Description.Trim(),
+                Amount = charges[index].Amount,
+                SortOrder = index + 1
+            });
+        }
+
         _db.AgencyBillings.Add(billing);
         await _db.SaveChangesAsync(cancellationToken);
+        billing.Entry = entry;
 
-        return new AgencyBillingListItemDto(
-            billing.Uuid, billing.BillNumber, billing.Description, billing.Amount, billing.Status.ToString(),
-            entry.ReferenceNo, billing.IssuedAt, billing.PaidAt);
+        return MapBilling(billing);
+    }
+
+    public async Task<AgencyBillingListItemDto> UpdateAsync(
+        Guid uuid,
+        UpdateAgencyBillingRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var (_, agency) = await AgencyContextHelper.RequireAgencyStaffAsync(_db, _currentUser, cancellationToken);
+        var billing = await _db.AgencyBillings
+            .Include(b => b.Entry)
+            .Include(b => b.Charges)
+            .FirstOrDefaultAsync(b => b.Uuid == uuid && b.AgencyId == agency.Id, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Billing record not found.");
+
+        if (billing.Status != AgencyBillingStatus.Draft)
+        {
+            throw new ClientPortalException("INVALID_STATUS", "Only draft billings can be edited.");
+        }
+
+        var charges = NormalizeBillingCharges(request.Charges);
+        var totalAmount = charges.Sum(c => c.Amount);
+        billing.Description = string.IsNullOrWhiteSpace(request.Title)
+            ? charges.Count == 1
+                ? charges[0].Description.Trim()
+                : $"Agency billing ({charges.Count} charges)"
+            : request.Title.Trim();
+        billing.Amount = totalAmount;
+
+        _db.AgencyBillingCharges.RemoveRange(billing.Charges);
+        billing.Charges.Clear();
+
+        for (var index = 0; index < charges.Count; index++)
+        {
+            billing.Charges.Add(new AgencyBillingCharge
+            {
+                Uuid = Guid.NewGuid(),
+                Description = charges[index].Description.Trim(),
+                Amount = charges[index].Amount,
+                SortOrder = index + 1
+            });
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return MapBilling(billing);
     }
 
     public async Task<AgencyBillingListItemDto> IssueAsync(Guid uuid, CancellationToken cancellationToken = default)
     {
-        var (_, agency) = await AgencyContextHelper.RequireAgencyStaffAsync(_db, _currentUser, cancellationToken);
-        var billing = await _db.AgencyBillings.Include(b => b.Entry).FirstOrDefaultAsync(b => b.Uuid == uuid && b.AgencyId == agency.Id, cancellationToken)
+        var (user, agency) = await AgencyContextHelper.RequireAgencyStaffAsync(_db, _currentUser, cancellationToken);
+        var billing = await _db.AgencyBillings.Include(b => b.Entry).Include(b => b.Charges).FirstOrDefaultAsync(b => b.Uuid == uuid && b.AgencyId == agency.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Billing record not found.");
 
         if (billing.Status != AgencyBillingStatus.Draft)
@@ -933,17 +1138,51 @@ public class AgencyBillingService : IAgencyBillingService
 
         billing.Status = AgencyBillingStatus.Issued;
         billing.IssuedAt = DateTime.UtcNow;
+
+        Entry? entry = billing.Entry;
+        if (entry is not null && entry.Status == EntryStatus.Approved)
+        {
+            var previous = entry.Status;
+            entry.Status = EntryStatus.DaIssueBilling;
+            entry.StatusHistory.Add(new EntryStatusHistory
+            {
+                FromStatus = previous,
+                ToStatus = entry.Status,
+                ChangedByUserId = user.Id,
+                Comment = $"Agency billing {billing.BillNumber} issued."
+            });
+            entry.TimelineEvents.Add(new TimelineEvent
+            {
+                EventType = "agency_billing_issued",
+                Title = "Agency billing issued",
+                Description = $"Billing {billing.BillNumber} issued by agency.",
+                ActorUserId = user.Id
+            });
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
 
-        return new AgencyBillingListItemDto(
-            billing.Uuid, billing.BillNumber, billing.Description, billing.Amount, billing.Status.ToString(),
-            billing.Entry?.ReferenceNo, billing.IssuedAt, billing.PaidAt);
+        ClientBill? clientBill = null;
+        if (entry is not null)
+        {
+            clientBill = await AgencyBillingClientBillHelper.EnsureClientBillAsync(_db, billing, cancellationToken);
+            await _notifications.NotifyAsync(
+                entry.UserId,
+                "agency_billing_issued",
+                "Agency billing issued",
+                $"Billing {billing.BillNumber} for entry {entry.ReferenceNo} is ready for payment.",
+                "Bill",
+                clientBill.Uuid.ToString(),
+                cancellationToken);
+        }
+
+        return MapBilling(billing);
     }
 
     public async Task<AgencyBillingListItemDto> MarkPaidAsync(Guid uuid, CancellationToken cancellationToken = default)
     {
         var (user, agency) = await AgencyContextHelper.RequireAgencyStaffAsync(_db, _currentUser, cancellationToken);
-        var billing = await _db.AgencyBillings.Include(b => b.Entry).FirstOrDefaultAsync(b => b.Uuid == uuid && b.AgencyId == agency.Id, cancellationToken)
+        var billing = await _db.AgencyBillings.Include(b => b.Entry).Include(b => b.Charges).FirstOrDefaultAsync(b => b.Uuid == uuid && b.AgencyId == agency.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Billing record not found.");
 
         if (billing.Status == AgencyBillingStatus.Paid)
@@ -956,9 +1195,7 @@ public class AgencyBillingService : IAgencyBillingService
         await _db.SaveChangesAsync(cancellationToken);
         await _workflow.OnDaBillingPaidAsync(billing, user.Id, cancellationToken);
 
-        return new AgencyBillingListItemDto(
-            billing.Uuid, billing.BillNumber, billing.Description, billing.Amount, billing.Status.ToString(),
-            billing.Entry?.ReferenceNo, billing.IssuedAt, billing.PaidAt);
+        return MapBilling(billing);
     }
 
     public async Task<AgencyBillingListItemDto> VerifyPaymentAsync(
@@ -967,7 +1204,7 @@ public class AgencyBillingService : IAgencyBillingService
         CancellationToken cancellationToken = default)
     {
         var (user, agency) = await AgencyContextHelper.RequireAgencyStaffAsync(_db, _currentUser, cancellationToken);
-        var billing = await _db.AgencyBillings.Include(b => b.Entry).FirstOrDefaultAsync(b => b.Uuid == uuid && b.AgencyId == agency.Id, cancellationToken)
+        var billing = await _db.AgencyBillings.Include(b => b.Entry).Include(b => b.Charges).FirstOrDefaultAsync(b => b.Uuid == uuid && b.AgencyId == agency.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Billing record not found.");
 
         if (billing.Status != AgencyBillingStatus.PaymentPending)
@@ -997,10 +1234,99 @@ public class AgencyBillingService : IAgencyBillingService
             await _db.SaveChangesAsync(cancellationToken);
         }
 
-        return new AgencyBillingListItemDto(
-            billing.Uuid, billing.BillNumber, billing.Description, billing.Amount, billing.Status.ToString(),
-            billing.Entry?.ReferenceNo, billing.IssuedAt, billing.PaidAt);
+        return MapBilling(billing);
     }
+
+    private async Task<Entry?> LoadBillingEntryAsync(Guid entryUuid, long agencyId, CancellationToken cancellationToken) =>
+        await _db.Entries
+            .Include(e => e.User).ThenInclude(u => u.Profile)
+            .Include(e => e.Detail).ThenInclude(d => d!.Commodity).ThenInclude(c => c!.Category)
+            .Include(e => e.PrimaryMic)
+            .Include(e => e.MicUtilizations).ThenInclude(u => u.Mic)
+            .FirstOrDefaultAsync(e => e.Uuid == entryUuid && e.AgencyId == agencyId, cancellationToken);
+
+    private async Task<AgencyBillingEntryContextDto> BuildBillingEntryContextAsync(
+        long agencyId,
+        Entry entry,
+        CancellationToken cancellationToken)
+    {
+        var applicant = entry.User.Profile is not null
+            ? $"{entry.User.Profile.FirstName} {entry.User.Profile.LastName}".Trim()
+            : entry.User.Email;
+
+        var feeConfig = await _db.ProcessingFeeConfigs.AsNoTracking()
+            .FirstOrDefaultAsync(
+                c => c.AgencyId == agencyId && c.EntryType == entry.EntryType && c.IsActive,
+                cancellationToken);
+        var suggestedFee = feeConfig?.Amount
+            ?? await PaymentSettingsReader.ResolveEntryProcessingFeeForAgencyAsync(
+                _db, agencyId, entry.EntryType, cancellationToken);
+
+        var commodity = await EntryMavCommodityResolver.ResolveBillingCommodityAsync(_db, entry, cancellationToken);
+
+        var micUtilizations = entry.MicUtilizations
+            .OrderByDescending(u => u.UtilizedAt)
+            .Select(u => new AgencyBillingMicUtilizationDto(
+                u.Mic.CertificateNumber,
+                u.Mic.HsCode,
+                u.Mic.CommodityName,
+                u.Volume,
+                u.UtilizedAt))
+            .ToList();
+
+        return new AgencyBillingEntryContextDto(
+            entry.Uuid,
+            entry.ReferenceNo,
+            entry.EntryType.ToString(),
+            entry.Status.ToString(),
+            applicant,
+            AgencyEntryPresentationHelper.ResolveCompanyName(entry),
+            entry.PaymentStatus.ToString(),
+            entry.SubmittedAt,
+            entry.MavNo,
+            entry.EntryType == EntryType.Import ? entry.ImportTrack.ToString() : null,
+            commodity,
+            micUtilizations,
+            suggestedFee,
+            feeConfig?.Currency ?? "PHP");
+    }
+
+    private static List<AgencyBillingChargeRequest> NormalizeBillingCharges(
+        IReadOnlyList<AgencyBillingChargeRequest> charges)
+    {
+        var normalized = charges
+            .Where(c => !string.IsNullOrWhiteSpace(c.Description))
+            .ToList();
+
+        if (normalized.Count == 0)
+        {
+            throw new ClientPortalException("INVALID_CHARGES", "At least one charge is required.");
+        }
+
+        foreach (var charge in normalized)
+        {
+            if (charge.Amount <= 0)
+            {
+                throw new ClientPortalException("INVALID_CHARGE_AMOUNT", "Each charge amount must be greater than zero.");
+            }
+        }
+
+        return normalized;
+    }
+
+    private static AgencyBillingListItemDto MapBilling(AgencyBilling billing) => new(
+        billing.Uuid,
+        billing.BillNumber,
+        billing.Description,
+        billing.Amount,
+        billing.Status.ToString(),
+        billing.Entry?.ReferenceNo,
+        billing.IssuedAt,
+        billing.PaidAt,
+        billing.Charges
+            .OrderBy(c => c.SortOrder)
+            .Select(c => new AgencyBillingChargeDto(c.Uuid, c.Description, c.Amount, c.SortOrder))
+            .ToList());
 }
 
 public class AccreditationReviewService : IAccreditationReviewService
@@ -1479,6 +1805,66 @@ public class AccreditationReviewService : IAccreditationReviewService
                     versions);
             }).ToList(),
             s.History.OrderByDescending(h => h.CreatedAt).Select(h => AccreditationHistoryMapper.ForOfficer(h)).ToList());
+}
+
+public class AgencyBillingReportService : IAgencyBillingReportService
+{
+    private readonly AgriCheckDbContext _db;
+    private readonly ICurrentUserService _currentUser;
+
+    public AgencyBillingReportService(AgriCheckDbContext db, ICurrentUserService currentUser)
+    {
+        _db = db;
+        _currentUser = currentUser;
+    }
+
+    public async Task<AgencyBillingRevenueReportDto> GetRevenueReportAsync(CancellationToken cancellationToken = default)
+    {
+        var (_, agency) = await AgencyContextHelper.RequireAgencyStaffAsync(_db, _currentUser, cancellationToken);
+
+        var agencyBillings = _db.AgencyBillings.AsNoTracking().Where(b => b.AgencyId == agency.Id);
+        var collected = await agencyBillings
+            .Where(b => b.Status == AgencyBillingStatus.Paid)
+            .SumAsync(b => b.Amount, cancellationToken);
+        var pending = await agencyBillings
+            .Where(b => b.Status != AgencyBillingStatus.Paid && b.Status != AgencyBillingStatus.Cancelled)
+            .SumAsync(b => b.Amount, cancellationToken);
+        var paidCount = await agencyBillings.CountAsync(b => b.Status == AgencyBillingStatus.Paid, cancellationToken);
+        var openBillings = await agencyBillings
+            .CountAsync(b => b.Status != AgencyBillingStatus.Paid && b.Status != AgencyBillingStatus.Cancelled, cancellationToken);
+        var pendingCashCount = await _db.ClientBillPayments.AsNoTracking()
+            .CountAsync(p =>
+                p.Status == "awaiting_verification" &&
+                p.PaymentMethod == "cash" &&
+                p.ClientBill.AgencyBillingId != null &&
+                p.ClientBill.Entry!.AgencyId == agency.Id,
+                cancellationToken);
+
+        var paidBillingRows = await agencyBillings
+            .Where(b => b.Status == AgencyBillingStatus.Paid && b.PaidAt != null)
+            .Select(b => new { b.Amount, CreatedAt = b.PaidAt!.Value })
+            .ToListAsync(cancellationToken);
+
+        var byMonth = paidBillingRows
+            .GroupBy(row => new { row.CreatedAt.Year, row.CreatedAt.Month })
+            .Select(g => new AgencyBillingRevenueMonthlyDto(
+                new DateTime(g.Key.Year, g.Key.Month, 1).ToString("MMM yyyy"),
+                g.Sum(x => x.Amount),
+                g.Count()))
+            .OrderByDescending(x => x.Month)
+            .Take(12)
+            .ToList();
+
+        return new AgencyBillingRevenueReportDto(
+            agency.Code,
+            agency.Name,
+            collected,
+            pending,
+            paidCount,
+            pendingCashCount,
+            openBillings,
+            byMonth);
+    }
 }
 
 public class SecretaryReportService : ISecretaryReportService

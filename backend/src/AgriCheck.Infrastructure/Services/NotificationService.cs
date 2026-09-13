@@ -11,15 +11,18 @@ public class NotificationService : INotificationService
     private readonly AgriCheckDbContext _db;
     private readonly ICurrentUserService _currentUser;
     private readonly Application.Common.IEmailService _emailService;
+    private readonly INotificationRealtimePublisher _realtime;
 
     public NotificationService(
         AgriCheckDbContext db,
         ICurrentUserService currentUser,
-        Application.Common.IEmailService emailService)
+        Application.Common.IEmailService emailService,
+        INotificationRealtimePublisher realtime)
     {
         _db = db;
         _currentUser = currentUser;
         _emailService = emailService;
+        _realtime = realtime;
     }
 
     public async Task<IReadOnlyList<NotificationDto>> ListAsync(int limit, bool unreadOnly, CancellationToken cancellationToken = default)
@@ -82,7 +85,7 @@ public class NotificationService : INotificationService
 
         if (prefs.InAppEnabled)
         {
-            _db.Notifications.Add(new Notification
+            var notification = new Notification
             {
                 Uuid = Guid.NewGuid(),
                 UserId = userId,
@@ -91,8 +94,12 @@ public class NotificationService : INotificationService
                 Message = message,
                 RelatedEntityType = relatedEntityType,
                 RelatedEntityUuid = relatedEntityUuid
-            });
+            };
+            _db.Notifications.Add(notification);
             await _db.SaveChangesAsync(cancellationToken);
+
+            var unreadCount = await _db.Notifications.CountAsync(n => n.UserId == userId && !n.IsRead, cancellationToken);
+            await _realtime.PublishAsync(userId, Map(notification), unreadCount, cancellationToken);
         }
 
         if (prefs.EmailEnabled && await _emailService.IsEnabledAsync(cancellationToken))

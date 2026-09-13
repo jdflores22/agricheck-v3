@@ -53,6 +53,22 @@ export function EntryMavEvaluationPanel({
     return null
   }
 
+  const isMavTrack = mav.importTrack === 'Mav'
+
+  if (!isMavTrack) {
+    return (
+      <PortalPanel title="Import track">
+        <Stack spacing={1.25} sx={{ p: 2.5 }}>
+          <Chip size="small" label="Regular import (out-quota)" sx={portalStatusChipSx('Approved')} />
+          <Typography sx={{ fontSize: '0.875rem', color: portalColors.textMuted }}>
+            This importer did not claim MAV in-quota coverage. No MAV certificate or MIC review is required, and
+            this shipment will not reduce remaining MAV quota.
+          </Typography>
+        </Stack>
+      </PortalPanel>
+    )
+  }
+
   const handleSave = async () => {
     if (!decision) {
       setError('Select a review decision.')

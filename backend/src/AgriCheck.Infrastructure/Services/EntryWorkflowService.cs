@@ -10,8 +10,8 @@ namespace AgriCheck.Infrastructure.Services;
 public interface IEntryWorkflowService
 {
     Task<AgencyBilling> CreateAndIssueDaBillingAsync(Entry entry, long actorUserId, CancellationToken cancellationToken = default);
-    Task TransitionEntryAsync(Entry entry, EntryStatus nextStatus, long actorUserId, string comment, CancellationToken cancellationToken = default);
-    Task SyncEntryTransportStatusAsync(long entryId, CancellationToken cancellationToken = default);
+    Task TransitionEntryAsync(Entry entry, EntryStatus nextStatus, long? actorUserId, string comment, CancellationToken cancellationToken = default);
+    Task SyncEntryTransportStatusAsync(long entryId, long? actorUserId = null, CancellationToken cancellationToken = default);
     Task TryMarkContainerReadyForTransportAsync(long containerId, CancellationToken cancellationToken = default);
     Task OnDaBillingPaidAsync(AgencyBilling billing, long actorUserId, CancellationToken cancellationToken = default);
 }
@@ -78,6 +78,14 @@ public class EntryWorkflowService : IEntryWorkflowService
             IssuedAt = DateTime.UtcNow
         };
 
+        billing.Charges.Add(new AgencyBillingCharge
+        {
+            Uuid = Guid.NewGuid(),
+            Description = billing.Description,
+            Amount = amount,
+            SortOrder = 1
+        });
+
         _db.AgencyBillings.Add(billing);
         await _db.SaveChangesAsync(cancellationToken);
         return billing;
@@ -86,7 +94,7 @@ public class EntryWorkflowService : IEntryWorkflowService
     public async Task TransitionEntryAsync(
         Entry entry,
         EntryStatus nextStatus,
-        long actorUserId,
+        long? actorUserId,
         string comment,
         CancellationToken cancellationToken = default)
     {
@@ -200,13 +208,13 @@ public class EntryWorkflowService : IEntryWorkflowService
             await TransitionEntryAsync(
                 entryForTransition,
                 EntryStatus.ReadyForTransport,
-                0,
+                null,
                 "All container inspection photos approved. Entry is ready for transport.",
                 cancellationToken);
         }
     }
 
-    public async Task SyncEntryTransportStatusAsync(long entryId, CancellationToken cancellationToken = default)
+    public async Task SyncEntryTransportStatusAsync(long entryId, long? actorUserId = null, CancellationToken cancellationToken = default)
     {
         var entry = await _db.Entries
             .Include(e => e.StatusHistory)
@@ -224,7 +232,7 @@ public class EntryWorkflowService : IEntryWorkflowService
         {
             if (entry.Status != EntryStatus.InTransit)
             {
-                await TransitionEntryAsync(entry, EntryStatus.InTransit, 0, "All containers are in transit or beyond.", cancellationToken);
+                await TransitionEntryAsync(entry, EntryStatus.InTransit, actorUserId, "All containers are in transit or beyond.", cancellationToken);
             }
 
             return;
@@ -245,7 +253,7 @@ public class EntryWorkflowService : IEntryWorkflowService
             await TransitionEntryAsync(
                 entry,
                 next,
-                0,
+                actorUserId,
                 tagged == containers.Count
                     ? "All containers tagged for transport."
                     : "Some containers tagged for transport.",

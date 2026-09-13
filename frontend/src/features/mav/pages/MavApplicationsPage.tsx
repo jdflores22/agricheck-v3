@@ -95,12 +95,25 @@ export function MavApplicationsPage() {
           <DialogTitle>New MAV Application</DialogTitle>
           <DialogContent>
             <Stack spacing={2} sx={{ mt: 1 }}>
-              <TextField select label="Application Period" value={form.periodUuid} onChange={(e) => setForm({ ...form, periodUuid: e.target.value })} required fullWidth>
-                {periods.map((p) => <MenuItem key={p.uuid} value={p.uuid}>{p.mavYear} {p.poolType} ({p.status})</MenuItem>)}
+              <TextField
+                select
+                label="Application Period"
+                value={form.periodUuid}
+                onChange={(e) => setForm({ periodUuid: e.target.value, requestedVolume: form.requestedVolume, hsSelection: emptyHsSelection })}
+                required
+                fullWidth
+              >
+                {periods.map((p) => (
+                  <MenuItem key={p.uuid} value={p.uuid}>
+                    {p.mavYear} {p.poolType} · {p.agencyCode ?? 'Shared'}
+                  </MenuItem>
+                ))}
               </TextField>
               <HsCodePicker
                 value={form.hsSelection}
                 onChange={(hsSelection) => setForm({ ...form, hsSelection })}
+                agencyId={periods.find((p) => p.uuid === form.periodUuid)?.agencyId ?? undefined}
+                disabled={!form.periodUuid}
               />
               <TextField label="Requested Volume (MT)" type="number" value={form.requestedVolume} onChange={(e) => setForm({ ...form, requestedVolume: Number(e.target.value) })} required fullWidth />
             </Stack>

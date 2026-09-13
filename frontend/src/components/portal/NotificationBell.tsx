@@ -11,9 +11,16 @@ import {
 import { portalColors } from './portalTheme'
 
 function resolveNotificationLink(type: string, relatedEntityType?: string, relatedEntityUuid?: string) {
-  if (relatedEntityType === 'Entry' && relatedEntityUuid) return `/client/entries/${relatedEntityUuid}`
+  if (relatedEntityType === 'Entry' && relatedEntityUuid) {
+    if (type === 'evaluation_queue' || type === 'compliance_resubmitted') {
+      return `/agency/evaluator/entries/${relatedEntityUuid}`
+    }
+    if (type === 'billing_queue') return '/agency/billing'
+    return `/client/entries/${relatedEntityUuid}`
+  }
   if (relatedEntityType === 'Bill' && relatedEntityUuid) return `/client/bills/${relatedEntityUuid}`
   if (type.includes('payment')) return '/client/bills'
+  if (type === 'evaluation_queue') return '/agency/evaluator/queue'
   if (type.includes('compliance') || type.includes('entry')) return '/client/entries'
   return '/notifications'
 }
@@ -21,7 +28,7 @@ function resolveNotificationLink(type: string, relatedEntityType?: string, relat
 export function NotificationBell() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const open = Boolean(anchorEl)
-  const { data: countData } = useGetUnreadCountQuery(undefined, { pollingInterval: 30000 })
+  const { data: countData } = useGetUnreadCountQuery()
   const { data: listData, refetch } = useGetNotificationsQuery({ limit: 10, unreadOnly: false }, { skip: !open })
   const [markRead] = useMarkNotificationReadMutation()
   const [markAllRead] = useMarkAllNotificationsReadMutation()

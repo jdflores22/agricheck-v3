@@ -10,7 +10,7 @@ namespace AgriCheck.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/agency/dashboard")]
-[Authorize(Roles = "ROLE_EVALUATOR,ROLE_BILLING_AGENT,ROLE_ACCREDITATION_OFFICER,ROLE_INSPECTOR,ROLE_ADMIN")]
+[Authorize(Roles = "ROLE_EVALUATOR,ROLE_BILLING_AGENT,ROLE_ACCREDITATION_OFFICER,ROLE_INSPECTOR,ROLE_AGENCY_ADMIN,ROLE_ADMIN")]
 public class AgencyDashboardController : AgencyPortalControllerBase
 {
     private readonly IAgencyDashboardService _service;
@@ -140,7 +140,7 @@ public class EvaluatorController : AgencyPortalControllerBase
 
 [ApiController]
 [Route("api/v1/agency/entries")]
-[Authorize(Roles = "ROLE_EVALUATOR,ROLE_INSPECTOR,ROLE_BILLING_AGENT,ROLE_ADMIN")]
+[Authorize(Roles = "ROLE_EVALUATOR,ROLE_INSPECTOR,ROLE_BILLING_AGENT,ROLE_ACCOUNTANT,ROLE_ADMIN")]
 public class AgencyEntriesController : AgencyPortalControllerBase
 {
     private readonly IEvaluatorService _service;
@@ -199,17 +199,46 @@ public class InspectionsController : AgencyPortalControllerBase
 
 [ApiController]
 [Route("api/v1/agency/billings")]
-[Authorize(Roles = "ROLE_BILLING_AGENT,ROLE_ADMIN")]
+[Authorize(Roles = "ROLE_BILLING_AGENT,ROLE_ACCOUNTANT,ROLE_ADMIN")]
 public class AgencyBillingsController : AgencyPortalControllerBase
 {
     private readonly IAgencyBillingService _service;
+    private readonly IEvaluatorService _evaluatorService;
 
-    public AgencyBillingsController(IAgencyBillingService service) => _service = service;
+    public AgencyBillingsController(IAgencyBillingService service, IEvaluatorService evaluatorService)
+    {
+        _service = service;
+        _evaluatorService = evaluatorService;
+    }
 
     [HttpGet]
     public async Task<ActionResult<ApiResponse<PagedResult<AgencyBillingListItemDto>>>> List(
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default) =>
         await ExecuteAsync(() => _service.ListAsync(page, pageSize, cancellationToken));
+
+    [HttpGet("{uuid:guid}")]
+    public async Task<ActionResult<ApiResponse<AgencyBillingDetailDto>>> Get(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.GetAsync(uuid, cancellationToken));
+
+    [HttpPut("{uuid:guid}")]
+    public async Task<ActionResult<ApiResponse<AgencyBillingListItemDto>>> Update(
+        Guid uuid,
+        [FromBody] UpdateAgencyBillingRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.UpdateAsync(uuid, request, cancellationToken));
+
+    [HttpGet("awaiting-entries")]
+    public async Task<ActionResult<ApiResponse<PagedResult<AgencyEntryListItemDto>>>> AwaitingEntries(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteAsync(() => _evaluatorService.ListEntriesAwaitingBillingAsync(page, pageSize, cancellationToken));
+
+    [HttpGet("awaiting-entries/{entryUuid:guid}")]
+    public async Task<ActionResult<ApiResponse<AgencyBillingEntryContextDto>>> AwaitingEntryContext(
+        Guid entryUuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.GetAwaitingEntryContextAsync(entryUuid, cancellationToken));
 
     [HttpPost]
     public async Task<ActionResult<ApiResponse<AgencyBillingListItemDto>>> Create([FromBody] CreateAgencyBillingRequest request, CancellationToken cancellationToken) =>
@@ -288,16 +317,67 @@ public class AgencyAccreditationController : AgencyPortalControllerBase
 
 [ApiController]
 [Route("api/v1/agency/reports")]
-[Authorize(Roles = "ROLE_EVALUATOR,ROLE_BILLING_AGENT,ROLE_SECRETARY,ROLE_UNDERSECRETARY,ROLE_ACCREDITATION_OFFICER,ROLE_ADMIN")]
-public class SecretaryReportsController : AgencyPortalControllerBase
+public class AgencyReportsController : AgencyPortalControllerBase
 {
-    private readonly ISecretaryReportService _service;
+    private readonly ISecretaryReportService _secretaryService;
+    private readonly IAgencyBillingReportService _billingReportService;
 
-    public SecretaryReportsController(ISecretaryReportService service) => _service = service;
+    public AgencyReportsController(
+        ISecretaryReportService secretaryService,
+        IAgencyBillingReportService billingReportService)
+    {
+        _secretaryService = secretaryService;
+        _billingReportService = billingReportService;
+    }
 
     [HttpGet("summary")]
+    [Authorize(Roles = "ROLE_EVALUATOR,ROLE_BILLING_AGENT,ROLE_SECRETARY,ROLE_UNDERSECRETARY,ROLE_ACCREDITATION_OFFICER,ROLE_ADMIN")]
     public async Task<ActionResult<ApiResponse<SecretaryReportDto>>> Summary(CancellationToken cancellationToken) =>
-        await ExecuteAsync(() => _service.GetReportAsync(cancellationToken));
+        await ExecuteAsync(() => _secretaryService.GetReportAsync(cancellationToken));
+
+    [HttpGet("billing-revenue")]
+    [Authorize(Roles = "ROLE_BILLING_AGENT,ROLE_ACCOUNTANT,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<AgencyBillingRevenueReportDto>>> BillingRevenue(CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _billingReportService.GetRevenueReportAsync(cancellationToken));
+}
+
+[ApiController]
+[Route("api/v1/agency/payment-config")]
+[Authorize(Roles = "ROLE_AGENCY_ADMIN,ROLE_BILLING_AGENT,ROLE_ACCOUNTANT,ROLE_ADMIN")]
+public class AgencyPaymentConfigController : AgencyPortalControllerBase
+{
+    private readonly IAgencyPaymentConfigService _service;
+
+    public AgencyPaymentConfigController(IAgencyPaymentConfigService service) => _service = service;
+
+    [HttpGet("settings")]
+    [Authorize(Roles = "ROLE_AGENCY_ADMIN,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<AgencyPaymentSettingsDto>>> GetSettings(CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.GetSettingsAsync(cancellationToken));
+
+    [HttpPut("settings")]
+    [Authorize(Roles = "ROLE_AGENCY_ADMIN,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<AgencyPaymentSettingsDto>>> UpdateSettings(
+        [FromBody] UpdateAgencyPaymentSettingsRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.UpdateSettingsAsync(request, cancellationToken));
+
+    [HttpGet("pending-cash")]
+    [Authorize(Roles = "ROLE_BILLING_AGENT,ROLE_ACCOUNTANT,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<AgencyPendingCashPaymentDto>>>> ListPendingCash(CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListPendingCashPaymentsAsync(cancellationToken));
+
+    [HttpPost("pending-cash/{billUuid:guid}/verify")]
+    [Authorize(Roles = "ROLE_BILLING_AGENT,ROLE_ACCOUNTANT,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<object>>> VerifyCash(
+        Guid billUuid,
+        [FromBody] VerifyAgencyCashPaymentRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(async () =>
+        {
+            await _service.VerifyCashPaymentAsync(billUuid, request, cancellationToken);
+            return (object)new { verified = true };
+        });
 }
 
 public abstract class AgencyPortalControllerBase : ControllerBase

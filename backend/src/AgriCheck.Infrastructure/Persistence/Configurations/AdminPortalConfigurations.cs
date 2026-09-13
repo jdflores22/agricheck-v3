@@ -102,3 +102,18 @@ public class ProcessingFeeConfigConfiguration : IEntityTypeConfiguration<Process
         builder.HasIndex(x => new { x.AgencyId, x.EntryType, x.IsActive });
     }
 }
+
+public class AgencyPaymentSettingsConfiguration : IEntityTypeConfiguration<AgencyPaymentSettings>
+{
+    public void Configure(EntityTypeBuilder<AgencyPaymentSettings> builder)
+    {
+        builder.ToTable("agency_payment_settings");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.PayMongoApiKey).HasMaxLength(255);
+        builder.Property(x => x.PayMongoWebhookSecret).HasMaxLength(255);
+        builder.Property(x => x.PayMongoPublicKey).HasMaxLength(255);
+        builder.Property(x => x.CashPaymentInstructions).HasMaxLength(2000);
+        builder.HasOne(x => x.Agency).WithMany().HasForeignKey(x => x.AgencyId);
+        builder.HasIndex(x => x.AgencyId).IsUnique();
+    }
+}

@@ -20,7 +20,6 @@ import {
   Chip,
   LinearProgress,
   Skeleton,
-  Stack,
   Table,
   TableBody,
   TableCell,
@@ -58,9 +57,10 @@ function statValue(isLoading: boolean, value?: number) {
 
 const sectionHeadSx = {
   display: 'flex',
-  alignItems: 'center',
+  flexWrap: 'wrap',
+  alignItems: { xs: 'flex-start', sm: 'center' },
   justifyContent: 'space-between',
-  gap: 1.5,
+  gap: 1,
   mb: 1.1,
 } as const
 
@@ -108,7 +108,14 @@ function DashboardSectionHead({
         <Typography
           component={RouterLink}
           to={action.to}
-          sx={{ fontSize: '0.875rem', fontWeight: 500, color: portalColors.primary, textDecoration: 'none' }}
+          sx={{
+            fontSize: '0.875rem',
+            fontWeight: 500,
+            color: portalColors.primary,
+            textDecoration: 'none',
+            width: { xs: '100%', sm: 'auto' },
+            textAlign: { xs: 'left', sm: 'right' },
+          }}
         >
           {action.label}
         </Typography>
@@ -307,12 +314,12 @@ function AccreditationPanel({ accreditation }: { accreditation: ClientDashboardA
           )}
         </Box>
         {actions && (
-          <Stack spacing={1} sx={{ minWidth: { lg: 176 }, width: { xs: '100%', lg: 'auto' } }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: { lg: 176 }, width: { xs: '100%', lg: 'auto' } }}>
             {actions}
             <Button component={RouterLink} to="/client/accreditation" variant="outlined" fullWidth sx={{ textTransform: 'none' }}>
               Application Details
             </Button>
-          </Stack>
+          </Box>
         )}
       </Box>
     </SectionCard>
@@ -759,7 +766,13 @@ function PaymentRequiredSection({
           </Typography>
           {overdue > 0 && <Chip size="small" label={`${overdue} Overdue`} sx={getStatusBadgeStyle('Rejected')} />}
         </Box>
-        <Button component={RouterLink} to="/client/bills" variant="outlined" sx={{ textTransform: 'none' }}>
+        <Button
+          component={RouterLink}
+          to="/client/bills"
+          variant="outlined"
+          fullWidth
+          sx={{ textTransform: 'none', width: { xs: '100%', sm: 'auto' } }}
+        >
           View All Bills
         </Button>
       </Box>
@@ -774,10 +787,10 @@ function PaymentRequiredSection({
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' },
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' },
             gap: 2,
             mb: 3,
-            textAlign: 'center',
+            textAlign: { xs: 'left', md: 'center' },
           }}
         >
           <Box>
@@ -792,13 +805,15 @@ function PaymentRequiredSection({
             </Typography>
             <Typography sx={{ fontSize: '0.875rem', color: portalColors.textMuted }}>Total Amount Due</Typography>
           </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: { xs: 'stretch', md: 'center' }, justifyContent: { xs: 'stretch', md: 'center' }, gridColumn: { xs: '1 / -1', md: 'auto' } }}>
             <Button
               component={RouterLink}
               to="/client/bills"
               variant="contained"
+              fullWidth
               sx={{
                 ...portalPrimaryButtonSx,
+                maxWidth: { md: 200 },
                 bgcolor: overdue > 0 ? '#dc2626' : '#eab308',
                 '&:hover': { bgcolor: overdue > 0 ? '#b91c1c' : '#ca8a04' },
               }}
@@ -808,8 +823,54 @@ function PaymentRequiredSection({
           </Box>
         </Box>
 
-        <Box sx={{ overflowX: 'auto' }}>
-          <Table size="small">
+        <Box sx={{ display: { xs: 'flex', md: 'none' }, flexDirection: 'column', gap: 1.5 }}>
+          {recentBills.map((bill) => (
+            <Box
+              key={bill.uuid}
+              sx={{
+                border: `1px solid ${bill.isOverdue ? '#fecaca' : portalColors.border}`,
+                borderRadius: '0.75rem',
+                bgcolor: bill.isOverdue ? '#fef2f2' : portalColors.bgWhite,
+                p: 2,
+              }}
+            >
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1.5, mb: 1 }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>{bill.entryReferenceNo ?? '—'}</Typography>
+                  <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted }}>{bill.agencyName ?? '—'}</Typography>
+                </Box>
+                <Chip size="small" label={formatStatusLabel(bill.status)} sx={getStatusBadgeStyle(bill.status)} />
+              </Box>
+              <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted, mb: 0.5 }}>{bill.billNumber}</Typography>
+              <Typography sx={{ fontWeight: 700, fontSize: '1.125rem', mb: 0.5 }}>{formatCurrency(bill.amount)}</Typography>
+              <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted, mb: 1.5 }}>
+                Due: {bill.dueDate ? new Date(bill.dueDate).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No due date'}
+                {bill.isOverdue && (
+                  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, ml: 1, color: '#dc2626' }}>
+                    <WarningAmberOutlinedIcon sx={{ fontSize: 14 }} />
+                    Overdue
+                  </Box>
+                )}
+              </Typography>
+              <Button
+                component={RouterLink}
+                to={`/client/bills/${bill.uuid}`}
+                variant="contained"
+                fullWidth
+                sx={{
+                  ...portalPrimaryButtonSx,
+                  bgcolor: bill.isOverdue ? '#dc2626' : '#2563eb',
+                  '&:hover': { bgcolor: bill.isOverdue ? '#b91c1c' : '#1d4ed8' },
+                }}
+              >
+                Pay bill
+              </Button>
+            </Box>
+          ))}
+        </Box>
+
+        <Box sx={{ display: { xs: 'none', md: 'block' }, overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 720 }}>
             <TableHead>
               <TableRow>
                 {['Entry Number', 'Bill Reference', 'Amount', 'Due Date', 'Status', 'Action'].map((column) => (
@@ -843,7 +904,7 @@ function PaymentRequiredSection({
                   <TableCell>
                     <Button
                       component={RouterLink}
-                      to={bill.entryUuid ? `/client/entries/${bill.entryUuid}` : '/client/entries'}
+                      to={`/client/bills/${bill.uuid}`}
                       size="small"
                       variant="contained"
                       sx={{
@@ -903,7 +964,7 @@ export function ClientDashboardPage() {
     : profile?.email ?? 'Importer'
 
   return (
-    <Box sx={{ width: '100%', maxWidth: '80rem', mx: 'auto' }}>
+    <Box sx={{ width: '100%', maxWidth: '80rem', mx: 'auto', minWidth: 0, overflowX: 'hidden' }}>
       <Box
         sx={{
           mb: 2.5,
@@ -965,10 +1026,10 @@ export function ClientDashboardPage() {
         <Box
           sx={{
             mb: 2.5,
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: '0.75rem 1.25rem',
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'auto 1fr 1fr' },
+            alignItems: 'start',
+            gap: { xs: 1.25, sm: '0.75rem 1.25rem' },
             px: 2,
             py: 1.75,
             border: `1px solid ${portalColors.border}`,

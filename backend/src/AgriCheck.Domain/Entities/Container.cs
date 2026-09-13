@@ -25,4 +25,5 @@ public class Container : BaseEntity
     public ICollection<ContainerInspectionPhoto> InspectionPhotos { get; set; } = new List<ContainerInspectionPhoto>();
     public ICollection<ContainerTransportTag> TransportTags { get; set; } = new List<ContainerTransportTag>();
     public ICollection<ContainerDoctorInspection> DoctorInspections { get; set; } = new List<ContainerDoctorInspection>();
+    public ICollection<InspectorAssignment> InspectorAssignments { get; set; } = new List<InspectorAssignment>();
 }

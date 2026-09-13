@@ -29,4 +29,5 @@ public class AgencyBilling : BaseEntity
     public Entry? Entry { get; set; }
     public User IssuedBy { get; set; } = null!;
     public User? VerifiedBy { get; set; }
+    public ICollection<AgencyBillingCharge> Charges { get; set; } = new List<AgencyBillingCharge>();
 }

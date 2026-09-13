@@ -13,8 +13,8 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Link as RouterLink, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { Link as RouterLink, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useBreadcrumbLabel } from '../../../components/portal/BreadcrumbContext'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalPanel } from '../../../components/portal/PortalPanel'
@@ -22,7 +22,7 @@ import { portalColors } from '../../../components/portal/portalTheme'
 import { getStatusBadgeStyle } from '../../../components/portal/portalUtils'
 import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
 import { resolveAgencyLogoUrl } from '../../admin/components/adminAgencyUtils'
-import { parseFormSchema, serializeFormDataJson } from '../../forms/formSchema'
+import { applyMavEntrySchema, getCommodityHsValueKeys, parseFormSchema, serializeFormDataJson } from '../../forms/formSchema'
 import {
   useCreateEntryMutation,
   useGetAgenciesQuery,
@@ -33,10 +33,14 @@ import {
   useGetEntryQuery,
   useUpdateEntryMutation,
   useUploadEntryFileMutation,
+  useUtilizeEntryMicMutation,
 } from '../api/clientApi'
+import { useGetMavAgencyContextQuery } from '../../mav/api/mavApi'
 import { DynamicFormRenderer, mapDynamicValuesToEntryDetail } from '../components/DynamicFormRenderer'
 import { ContainerInformationSection } from '../components/ContainerInformationSection'
 import { EntryMavPanel } from '../components/EntryMavPanel'
+import { EntryMavUtilizeDraft } from '../components/EntryMavUtilizeDraft'
+import { ImportTrackSelector, type ImportTrack } from '../components/ImportTrackSelector'
 import { buildEntryFormValues, getEntryFormCompletion } from '../utils/entryFormUtils'
 import {
   buildContainersPayload,
@@ -49,6 +53,7 @@ import {
   type ContainerDraftState,
   type ContainerValidationResult,
 } from '../utils/containerFormUtils'
+import { ENTRY_CONTAINER_EDIT_HASH } from '../utils/entrySubmitValidation'
 import { downloadAuthenticatedFile } from '../utils/downloadFile'
 
 function parseFormSchemaSafe(schemaJson: string) {
@@ -58,7 +63,9 @@ function parseFormSchemaSafe(schemaJson: string) {
 export function EntryFormPage() {
   const { uuid: editUuid } = useParams()
   const [searchParams] = useSearchParams()
+  const location = useLocation()
   const navigate = useNavigate()
+  const micLinkFailed = Boolean((location.state as { micLinkFailed?: boolean } | null)?.micLinkFailed)
   const isEdit = Boolean(editUuid)
   const agencyIdParam = searchParams.get('agencyId')
   const { data: agenciesData } = useGetAgenciesQuery()
@@ -68,6 +75,7 @@ export function EntryFormPage() {
   const [createEntry, { isLoading: creating, error: createError }] = useCreateEntryMutation()
   const [updateEntry, { isLoading: updating, error: updateError }] = useUpdateEntryMutation()
   const [uploadEntryFile] = useUploadEntryFileMutation()
+  const [utilizeMic] = useUtilizeEntryMicMutation()
   const [form, setForm] = useState({
     agencyId: agencyIdParam ?? '',
     entryType: 'Import',
@@ -85,6 +93,8 @@ export function EntryFormPage() {
   const [containerDraft, setContainerDraft] = useState<ContainerDraftState>([])
   const [containerValidation, setContainerValidation] = useState<ContainerValidationResult | undefined>()
   const [uploadingField, setUploadingField] = useState<string | null>(null)
+  const [utilizeDraft, setUtilizeDraft] = useState({ micUuid: '', volume: '' })
+  const [importTrack, setImportTrack] = useState<ImportTrack>('Regular')
   const agencyIdNum = form.agencyId ? Number(form.agencyId) : 0
   const { data: formsData, isFetching: isLoadingForms } = useGetClientFormsQuery(
     { agencyId: agencyIdNum, formType: 'ENTRY' },
@@ -116,6 +126,32 @@ export function EntryFormPage() {
   const noFormConfigured = !isEdit && agencyIdNum > 0 && !isLoadingForms && (formsData?.data?.length ?? 0) === 0
   const selectedAgency = (agenciesData?.data ?? []).find((a) => String(a.id) === form.agencyId)
   const agencyLogo = resolveAgencyLogoUrl(dashboardData?.data?.agencies.find((a) => a.id === agencyIdNum)?.logoUrl)
+  const { data: mavContextData } = useGetMavAgencyContextQuery(agencyIdNum, {
+    skip: !agencyIdNum || form.entryType !== 'Import',
+  })
+  const mavProgramAvailable = form.entryType === 'Import' && Boolean(mavContextData?.data?.isProgramAvailable ?? mavContextData?.data?.isActive)
+  const importerHasMavAccess = Boolean(
+    mavContextData?.data?.importerHasMavAccess
+    ?? ((mavContextData?.data?.activeLicenseCount ?? 0) > 0 || (mavContextData?.data?.availableMicCount ?? 0) > 0),
+  )
+  const mavTrackSelected = importTrack === 'Mav'
+  const trackInitialized = useRef(isEdit)
+  const effectiveSchemaFields = useMemo(
+    () => applyMavEntrySchema(schemaFields, {
+      showMavFields: mavTrackSelected,
+      requireCommodityHs: mavProgramAvailable,
+    }),
+    [schemaFields, mavTrackSelected, mavProgramAvailable],
+  )
+  const commodityField = effectiveSchemaFields.find((field) => field.type === 'commodity')
+  const commodityHsKeys = commodityField ? getCommodityHsValueKeys(commodityField.name) : null
+  const selectedHsCode = commodityHsKeys ? dynamicValues[commodityHsKeys.hsCode] : ''
+  const selectedCommodityName = commodityHsKeys ? dynamicValues[commodityHsKeys.commodityName] : ''
+  const entryQuantity = Number(dynamicValues.quantity || dynamicValues.txt_volume_weight || form.quantity || 0)
+  const hasExistingMav = Boolean(
+    entryData?.data?.mav?.mavNo
+    || (entryData?.data?.mav?.micUtilizations?.length ?? 0) > 0,
+  )
 
   useBreadcrumbLabel(isEdit ? entryData?.data?.referenceNo : selectedAgency?.code ?? 'New')
 
@@ -140,7 +176,30 @@ export function EntryFormPage() {
     setNumContainers(resolvedCount)
     setContainerDraft(resizeContainerDraft(existingContainers, resolvedCount, containerSchemaFields))
     setContainerValidation(undefined)
+    const savedTrack = entry.mav?.importTrack === 'Mav'
+      || Boolean(entry.mav?.mavNo || (entry.mav?.micUtilizations?.length ?? 0) > 0)
+      ? 'Mav'
+      : 'Regular'
+    setImportTrack(savedTrack)
+    trackInitialized.current = true
   }, [entryData, schemaFields, containerSchemaFields])
+
+  useEffect(() => {
+    if (isEdit || trackInitialized.current || !mavContextData?.data) return
+    trackInitialized.current = true
+    const access = Boolean(
+      mavContextData.data.importerHasMavAccess
+      ?? ((mavContextData.data.activeLicenseCount ?? 0) > 0 || (mavContextData.data.availableMicCount ?? 0) > 0),
+    )
+    setImportTrack(access ? 'Mav' : 'Regular')
+  }, [isEdit, mavContextData])
+
+  useEffect(() => {
+    if (location.hash !== `#${ENTRY_CONTAINER_EDIT_HASH}`) return
+    if (!hasContainerForm) return
+    const node = document.getElementById(ENTRY_CONTAINER_EDIT_HASH)
+    node?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [hasContainerForm, location.hash])
 
   useEffect(() => {
     if (agencyIdParam && !isEdit) {
@@ -148,20 +207,20 @@ export function EntryFormPage() {
     }
   }, [agencyIdParam, isEdit])
 
-  if (!isEdit && !agencyIdParam) {
-    return <Navigate to="/client/entries/agencies" replace />
-  }
-
   const containerCompletion = useMemo(
     () => getContainerCompletion(containerSchemaFields, containerDraft),
     [containerSchemaFields, containerDraft],
   )
   const formCompletion = useMemo(
-    () => getEntryFormCompletion(schemaFields, dynamicValues, entryData?.data?.files),
-    [schemaFields, dynamicValues, entryData?.data?.files],
+    () => getEntryFormCompletion(effectiveSchemaFields, dynamicValues, entryData?.data?.files),
+    [effectiveSchemaFields, dynamicValues, entryData?.data?.files],
   )
   const requiredFileCount = formCompletion.requiredFileCount
   const uploadedFileCount = formCompletion.uploadedFileCount
+
+  if (!isEdit && !agencyIdParam) {
+    return <Navigate to="/client/entries/agencies" replace />
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -187,8 +246,12 @@ export function EntryFormPage() {
         destinationCountry: form.destinationCountry,
         portOfEntry: form.portOfEntry,
       }
+    const valuesForSave = {
+      ...dynamicValues,
+      import_track: importTrack,
+    }
     const containerPayload = hasContainerForm
-      ? buildContainersPayload(dynamicValues, numContainers, containerDraft)
+      ? buildContainersPayload(valuesForSave, numContainers, containerDraft)
       : null
     const payload = {
       agencyId: Number(form.agencyId),
@@ -197,12 +260,13 @@ export function EntryFormPage() {
       formDataJson: containerPayload
         ? serializeFormDataJson(containerPayload.formDataJsonValues)
         : useDynamicForm
-          ? serializeFormDataJson(dynamicValues)
-          : undefined,
+          ? serializeFormDataJson(valuesForSave)
+          : serializeFormDataJson({ import_track: importTrack }),
       numContainers: containerPayload?.numContainers ?? 0,
       containersJson: containerPayload?.containersJson ?? '[]',
       detail,
-      mavNo: dynamicValues.mav_no?.trim() || undefined,
+      importTrack,
+      mavNo: mavTrackSelected ? (dynamicValues.mav_no?.trim() || undefined) : undefined,
     }
 
     try {
@@ -215,7 +279,10 @@ export function EntryFormPage() {
             numContainers: payload.numContainers,
             containersJson: payload.containersJson,
             detail: payload.detail,
-            mavNo: dynamicValues.mav_no?.trim() || entryData?.data?.mav?.mavNo || undefined,
+            importTrack,
+            mavNo: mavTrackSelected
+              ? (dynamicValues.mav_no?.trim() || entryData?.data?.mav?.mavNo || undefined)
+              : undefined,
           },
         }).unwrap()
         if (result.success) navigate(`/client/entries/${editUuid}`)
@@ -223,7 +290,22 @@ export function EntryFormPage() {
       }
 
       const result = await createEntry(payload).unwrap()
-      if (result.success) navigate(`/client/entries/${result.data.uuid}/edit`)
+      if (result.success) {
+        const volume = Number(utilizeDraft.volume)
+        if (mavTrackSelected && utilizeDraft.micUuid && volume > 0) {
+          try {
+            await utilizeMic({
+              uuid: result.data.uuid,
+              micUuid: utilizeDraft.micUuid,
+              volume,
+            }).unwrap()
+          } catch {
+            navigate(`/client/entries/${result.data.uuid}/edit`, { state: { micLinkFailed: true } })
+            return
+          }
+        }
+        navigate(`/client/entries/${result.data.uuid}/edit`)
+      }
     } catch {
       // RTK mutation error is surfaced via createError / updateError.
     }
@@ -243,12 +325,24 @@ export function EntryFormPage() {
       setDynamicValues(nextValues)
 
       if (useDynamicForm) {
+        const valuesForSave = { ...nextValues, import_track: importTrack }
+        const containerPayload = hasContainerForm
+          ? buildContainersPayload(valuesForSave, numContainers, containerDraft)
+          : null
         await updateEntry({
           uuid: editUuid,
           body: {
             notes: form.notes,
-            formDataJson: serializeFormDataJson(nextValues),
+            formDataJson: containerPayload
+              ? serializeFormDataJson(containerPayload.formDataJsonValues)
+              : serializeFormDataJson(valuesForSave),
+            importTrack,
+            numContainers: containerPayload?.numContainers ?? numContainers,
+            containersJson: containerPayload?.containersJson,
             detail: mapDynamicValuesToEntryDetail(nextValues, form.commodityId, form.unit),
+            mavNo: mavTrackSelected
+              ? (nextValues.mav_no?.trim() || entryData?.data?.mav?.mavNo || undefined)
+              : undefined,
           },
         }).unwrap()
       }
@@ -295,6 +389,12 @@ export function EntryFormPage() {
           </Button>
         }
       />
+
+      {micLinkFailed && (
+        <Alert severity="warning" sx={{ mb: 2, borderRadius: '0.75rem' }}>
+          Draft saved, but MIC volume was not linked. Use MAV & MIC below to add utilization.
+        </Alert>
+      )}
 
       {error && (
         <Alert severity="error" sx={{ mb: 3, borderRadius: '0.75rem' }}>
@@ -374,22 +474,48 @@ export function EntryFormPage() {
 
           <PortalPanel title="Entry setup">
             <Box sx={{ px: 2.5, py: 2.5 }}>
-              <TextField
-                select
-                fullWidth
-                size="small"
-                label="Entry type"
-                value={form.entryType}
-                onChange={(e) => setForm({ ...form, entryType: e.target.value })}
-                disabled={isEdit}
-                sx={{
-                  maxWidth: 360,
-                  '& .MuiOutlinedInput-root': { borderRadius: '0.5rem' },
-                }}
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={2.5}
+                sx={{ alignItems: { sm: 'flex-start' } }}
               >
-                <MenuItem value="Import">Import</MenuItem>
-                <MenuItem value="Export">Export</MenuItem>
-              </TextField>
+                <TextField
+                  select
+                  size="small"
+                  label="Entry type"
+                  value={form.entryType}
+                  onChange={(e) => setForm({ ...form, entryType: e.target.value })}
+                  disabled={isEdit}
+                  sx={{
+                    minWidth: 180,
+                    maxWidth: { sm: 220 },
+                    width: { xs: '100%', sm: 'auto' },
+                    '& .MuiOutlinedInput-root': { borderRadius: '0.5rem' },
+                  }}
+                >
+                  <MenuItem value="Import">Import</MenuItem>
+                  <MenuItem value="Export">Export</MenuItem>
+                </TextField>
+                {mavProgramAvailable && (
+                  <ImportTrackSelector
+                    value={importTrack}
+                    importerHasMavAccess={importerHasMavAccess || hasExistingMav}
+                    disabled={hasExistingMav}
+                    onChange={(track) => {
+                      setImportTrack(track)
+                      setDynamicValues((prev) => {
+                        const next: Record<string, string> = { ...prev, import_track: track }
+                        if (track === 'Regular') {
+                          delete next.mav_no
+                          delete next.mav_certificate
+                          delete next.mav_certificate_file_uuid
+                        }
+                        return next
+                      })
+                    }}
+                  />
+                )}
+              </Stack>
             </Box>
           </PortalPanel>
 
@@ -404,6 +530,10 @@ export function EntryFormPage() {
                   schemaJson={formSchemaData.data.schemaJson}
                   values={dynamicValues}
                   onChange={(name, value) => setDynamicValues((prev) => ({ ...prev, [name]: value }))}
+                  onBatchChange={(updates) => setDynamicValues((prev) => ({ ...prev, ...updates }))}
+                  agencyId={agencyIdNum || undefined}
+                  showMavFields={mavTrackSelected}
+                  showCommodityHs={mavProgramAvailable}
                   onFileUpload={isEdit ? handleFormFileUpload : undefined}
                   onFileDownload={isEdit ? handleDownloadFile : undefined}
                   uploadingField={uploadingField}
@@ -476,7 +606,17 @@ export function EntryFormPage() {
             </Alert>
           )}
 
-          {isEdit && form.entryType === 'Import' && entryData?.data && (
+          {!isEdit && mavTrackSelected && (
+            <EntryMavUtilizeDraft
+              hsCode={selectedHsCode}
+              commodityName={selectedCommodityName}
+              quantity={entryQuantity}
+              value={utilizeDraft}
+              onChange={setUtilizeDraft}
+            />
+          )}
+
+          {isEdit && form.entryType === 'Import' && entryData?.data && mavTrackSelected && (
             <EntryMavPanel entry={entryData.data} editable onUpdated={() => refetchEntry()} />
           )}
         </Stack>
@@ -496,6 +636,16 @@ export function EntryFormPage() {
                     <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted }}>Entry type</Typography>
                     <Chip size="small" label={form.entryType} sx={getStatusBadgeStyle('Approved')} />
                   </Stack>
+                  {form.entryType === 'Import' && mavProgramAvailable && (
+                    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted }}>Import track</Typography>
+                      <Chip
+                        size="small"
+                        label={mavTrackSelected ? 'MAV (in-quota)' : 'Regular (out-quota)'}
+                        sx={getStatusBadgeStyle(mavTrackSelected ? 'Pending' : 'Approved')}
+                      />
+                    </Stack>
+                  )}
                   {useDynamicForm && requiredFileCount > 0 && (
                     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
                       <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted }}>Documents</Typography>

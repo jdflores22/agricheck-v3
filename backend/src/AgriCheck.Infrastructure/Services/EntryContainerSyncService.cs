@@ -31,6 +31,11 @@ public static class EntryContainerSyncService
         string? containersJson,
         CancellationToken cancellationToken = default)
     {
+        if (numContainers is null && string.IsNullOrWhiteSpace(containersJson))
+        {
+            return;
+        }
+
         var count = Math.Clamp(numContainers ?? 0, 0, 50);
         var payload = ParseContainersJson(containersJson);
 
@@ -105,27 +110,35 @@ public static class EntryContainerSyncService
     {
         var formValues = ParseFormDataObject(entry.FormDataJson);
         var numContainers = ResolveNumContainers(formValues);
-        if (numContainers <= 0)
-        {
-            return;
-        }
-
         var templateSchema = await LoadContainerTemplateSchemaAsync(db, entry.AgencyId, cancellationToken);
-        if (templateSchema is null)
-        {
-            return;
-        }
-
         var containers = await db.Containers
             .Where(c => c.EntryId == entry.Id)
             .OrderBy(c => c.SequenceNumber)
             .ToListAsync(cancellationToken);
+
+        var requiresContainers = templateSchema is not null || numContainers > 0;
+        if (!requiresContainers)
+        {
+            return;
+        }
+
+        if (numContainers <= 0 || containers.Count == 0)
+        {
+            throw new ClientPortalException(
+                "CONTAINERS_REQUIRED",
+                "Add container details before submitting this entry.");
+        }
 
         if (containers.Count != numContainers)
         {
             throw new ClientPortalException(
                 "CONTAINERS_INCOMPLETE",
                 $"Provide details for all {numContainers} container(s) before submitting.");
+        }
+
+        if (templateSchema is null)
+        {
+            return;
         }
 
         var missingLabels = new List<string>();

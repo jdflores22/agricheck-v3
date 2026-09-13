@@ -14,6 +14,7 @@ import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalPanel } from '../../../components/portal/PortalPanel'
 import { portalColors } from '../../../components/portal/portalTheme'
 import { portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
+import { getApiV1Base } from '../../../app/apiBase'
 import {
   useGetAdminPaymentSettingsQuery,
   useUpdateAdminPaymentSettingsMutation,
@@ -122,6 +123,12 @@ export function AdminPaymentConfigPage() {
                 type="password"
                 helperText="Leave blank to keep the current key."
               />
+              <Alert severity="info" sx={{ borderRadius: '0.75rem' }}>
+                In the PayMongo dashboard, add a webhook to{' '}
+                <strong>{getApiV1Base()}/webhooks/paymongo</strong> and subscribe to{' '}
+                <strong>checkout_session.payment.paid</strong>. After checkout, clients return to AgriCheck so the
+                bill can be marked paid even if the webhook is delayed.
+              </Alert>
               <TextField
                 label="Webhook secret"
                 value={form.payMongoWebhookSecret}
@@ -130,7 +137,7 @@ export function AdminPaymentConfigPage() {
                 fullWidth
                 size="small"
                 type="password"
-                helperText="Used to verify PayMongo webhook callbacks."
+                helperText="Copy the signing secret from the PayMongo webhook endpoint."
               />
               <TextField
                 label="Public key (optional)"
