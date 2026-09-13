@@ -6,7 +6,9 @@ using AgriCheck.Api.Hubs;
 using AgriCheck.Api.Services;
 using AgriCheck.Infrastructure;
 using AgriCheck.Infrastructure.Persistence;
+using AgriCheck.Infrastructure.Persistence.Seeding;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
@@ -133,6 +135,8 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+app.UseCors("Frontend");
+
 app.UseExceptionHandler(errorApp =>
 {
     errorApp.Run(async context =>
@@ -179,8 +183,6 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-app.UseCors("Frontend");
-
 var uploadsRoot = AgriCheck.Infrastructure.Services.UploadStorage.ResolveRoot(app.Configuration, app.Environment);
 Directory.CreateDirectory(Path.Combine(uploadsRoot, "system"));
 Directory.CreateDirectory(Path.Combine(uploadsRoot, "agency-logos"));
@@ -201,7 +203,34 @@ app.MapHealthChecks("/health");
 
 app.MapGet("/", () => Results.Redirect("/swagger"));
 
+await EnsureDatabaseReadyAsync(app);
+
 app.Run();
+
+static async Task EnsureDatabaseReadyAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AgriCheckDbContext>();
+    var logger = app.Logger;
+
+    try
+    {
+        var pending = await db.Database.GetPendingMigrationsAsync();
+        if (pending.Any())
+        {
+            logger.LogWarning("Applying pending migrations: {Migrations}", string.Join(", ", pending));
+        }
+
+        await db.Database.MigrateAsync();
+        await WarehouseProfilingSchemaSeeder.EnsureAsync(db);
+        await DriverRegistrationSchemaSeeder.EnsureAsync(db);
+        logger.LogInformation("Database schema ready.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Startup database preparation failed.");
+    }
+}
 
 void MapPublicUploads(string physicalPath, string requestPath)
 {
