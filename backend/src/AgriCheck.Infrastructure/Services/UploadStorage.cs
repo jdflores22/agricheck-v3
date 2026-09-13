@@ -18,4 +18,22 @@ public static class UploadStorage
         Directory.CreateDirectory(root);
         return root;
     }
+
+    public static void SeedBundledCertificateTemplateAssets(string uploadsRoot)
+    {
+        var seedRoot = Path.Combine(AppContext.BaseDirectory, "seed-certificate-templates", "assets");
+        if (!Directory.Exists(seedRoot))
+        {
+            return;
+        }
+
+        var targetRoot = Path.Combine(uploadsRoot, "certificate-templates", "assets");
+        Directory.CreateDirectory(targetRoot);
+
+        foreach (var sourcePath in Directory.GetFiles(seedRoot))
+        {
+            var targetPath = Path.Combine(targetRoot, Path.GetFileName(sourcePath));
+            File.Copy(sourcePath, targetPath, overwrite: true);
+        }
+    }
 }

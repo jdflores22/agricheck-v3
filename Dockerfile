@@ -14,7 +14,7 @@ RUN apt-get -o Acquire::Check-Valid-Until=false update \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/publish .
-COPY backend/deploy/certificate-templates /app/uploads/certificate-templates
+COPY backend/deploy/certificate-templates /app/seed-certificate-templates
 ENV UPLOADS_ROOT=/app/uploads
 EXPOSE 8080
 CMD ["sh", "-c", "dotnet AgriCheck.Api.dll --urls http://0.0.0.0:${PORT:-8080}"]

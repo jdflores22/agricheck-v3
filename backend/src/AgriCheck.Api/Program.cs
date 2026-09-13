@@ -185,6 +185,7 @@ var uploadsRoot = AgriCheck.Infrastructure.Services.UploadStorage.ResolveRoot(ap
 Directory.CreateDirectory(Path.Combine(uploadsRoot, "system"));
 Directory.CreateDirectory(Path.Combine(uploadsRoot, "agency-logos"));
 Directory.CreateDirectory(Path.Combine(uploadsRoot, "certificate-templates"));
+AgriCheck.Infrastructure.Services.UploadStorage.SeedBundledCertificateTemplateAssets(uploadsRoot);
 
 app.Logger.LogInformation("Serving uploads from {UploadsRoot}", uploadsRoot);
 
