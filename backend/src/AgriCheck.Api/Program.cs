@@ -220,6 +220,9 @@ static async Task EnsureDatabaseReadyAsync(WebApplication app)
 
         await EntrySchemaSeeder.EnsureAsync(db);
         logger.LogInformation("Entry schema ensured.");
+
+        await BillingSchemaSeeder.EnsureAsync(db);
+        logger.LogInformation("Billing schema ensured.");
     }
     catch (Exception ex)
     {

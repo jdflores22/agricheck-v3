@@ -10,3 +10,7 @@ ALTER TABLE `entries` ADD `ImportTrack` varchar(16) NOT NULL DEFAULT 'Regular';
 ALTER TABLE `containers` ADD `FormDataJson` json NULL;
 ALTER TABLE `containers` ADD `SequenceNumber` int NOT NULL DEFAULT 1;
 ALTER TABLE `containers` ADD `ContainerType` varchar(50) NULL;
+
+-- Billing schema (fixes "Unknown column 'c.AgencyBillingId'")
+ALTER TABLE `client_bills` ADD `AgencyBillingId` bigint NULL;
+CREATE UNIQUE INDEX `IX_client_bills_AgencyBillingId` ON `client_bills` (`AgencyBillingId`);
