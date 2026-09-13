@@ -11,6 +11,7 @@ import { AuthInlineLink } from '../components/AuthInlineLink'
 import { AuthSubmitButton } from '../components/AuthSubmitButton'
 import { AuthTextField } from '../components/AuthTextField'
 import { authColors } from '../components/authTheme'
+import { resolveDashboardPath } from '../../../components/portal/portalUtils'
 
 const REMEMBER_EMAIL_KEY = 'agricheck.rememberEmail'
 
@@ -48,14 +49,15 @@ export function LoginPage() {
         return
       }
 
+      const destination = resolveDashboardPath(result.data.redirectPath, result.data.user.roles)
       dispatch(
         setCredentials({
           tokens: result.data.tokens,
           user: result.data.user,
-          redirectPath: result.data.redirectPath,
+          redirectPath: destination,
         }),
       )
-      navigate(result.data.redirectPath)
+      navigate(destination)
     } catch {
       setFormError('Unable to sign in. Check your credentials and try again.')
     }

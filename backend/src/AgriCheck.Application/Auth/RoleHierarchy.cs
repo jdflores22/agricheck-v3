@@ -62,7 +62,7 @@ public static class RoleHierarchy
 
         if (set.Contains("ROLE_ADMIN")) return "/admin";
         if (set.Contains("ROLE_MAV_ADMIN") || set.Contains("ROLE_MAV_SECRETARY") || set.Contains("ROLE_MAV_EVALUATOR") || set.Contains("ROLE_MAV_IMPORTER")) return "/mav";
-        if (set.Contains("ROLE_INSPECTOR") || set.Contains("ROLE_DOCTOR")) return "/inspector";
+        if (set.Contains("ROLE_INSPECTOR")) return "/inspector";
         if (set.Contains("ROLE_DA_SECRETARY") || set.Contains("ROLE_DA_UNDERSECRETARY")) return "/da";
         if (set.Contains("ROLE_ACCREDITATION_OFFICER") &&
             !set.Contains("ROLE_EVALUATOR") &&
@@ -80,7 +80,9 @@ public static class RoleHierarchy
             || set.Contains("ROLE_UNDERSECRETARY") || set.Contains("ROLE_BILLING_AGENT") || set.Contains("ROLE_ACCREDITATION_OFFICER")
             || set.Contains("ROLE_AGENCY_ADMIN") || set.Contains("ROLE_AGENCY") || set.Contains("ROLE_AGENCY_USER")) return "/agency";
         if (set.Contains("ROLE_WAREHOUSE_STAFF")) return "/warehouse";
-        if (set.Contains("ROLE_DRIVER") || set.Contains("ROLE_OPERATOR")) return "/driver";
+        if (set.Contains("ROLE_OPERATOR") && !set.Contains("ROLE_DRIVER")) return "/operator/containers";
+        if (set.Contains("ROLE_DRIVER")) return "/driver";
+        if (set.Contains("ROLE_DOCTOR")) return "/doctor/containers";
         return "/client";
     }
 

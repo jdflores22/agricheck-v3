@@ -34,7 +34,6 @@ export function formatRoleLabel(role: string): string {
 }
 
 export function resolveDashboardPath(redirectPath: string | null | undefined, roles: string[]): string {
-  if (redirectPath) return redirectPath
   if (roles.includes('ROLE_ADMIN')) return '/admin'
   if (roles.some((r) => r.startsWith('ROLE_MAV_'))) return '/mav'
   if (roles.includes('ROLE_WAREHOUSE_STAFF')) return '/warehouse'
@@ -43,6 +42,7 @@ export function resolveDashboardPath(redirectPath: string | null | undefined, ro
     ['ROLE_EVALUATOR', 'ROLE_ACCOUNTANT', 'ROLE_SECRETARY', 'ROLE_UNDERSECRETARY', 'ROLE_BILLING_AGENT', 'ROLE_AGENCY_ADMIN', 'ROLE_AGENCY', 'ROLE_AGENCY_USER'].includes(r),
   )) return '/doctor/containers'
   if (roles.includes('ROLE_DRIVER')) return '/driver'
+  if (redirectPath) return redirectPath
   if (roles.includes('ROLE_DA_SECRETARY') || roles.includes('ROLE_DA_UNDERSECRETARY')) return '/da'
   if (
     roles.includes('ROLE_ACCREDITATION_OFFICER') &&
