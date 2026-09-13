@@ -2,6 +2,7 @@ package com.agricheck.agritrack.data.repository
 
 import com.agricheck.agritrack.AppContainer
 import com.agricheck.agritrack.data.api.AuthInterceptor
+import com.agricheck.agritrack.data.api.apiErrorMessage
 import com.agricheck.agritrack.data.api.requireData
 import com.agricheck.agritrack.data.api.userMessage
 import com.agricheck.agritrack.data.local.TokenStore
@@ -63,7 +64,7 @@ class AuthRepository(
         } catch (error: Throwable) {
             tokenStore.clear()
             authInterceptor().resetSession()
-            Result.failure(IllegalStateException(error.userMessage("Registration failed.")))
+            Result.failure(IllegalStateException(error.apiErrorMessage("Registration failed. Check your email, password, and invite code.")))
         }
     }
 }

@@ -76,14 +76,15 @@ export function OperatorInvitesPage() {
 
       <PortalTablePanel
         title="Active invite codes"
-        loading={isLoading}
+        isLoading={isLoading}
+        isEmpty={!isLoading && invites.length === 0}
         emptyMessage="No invite codes yet. Generate one for your drivers."
         columns={['Code', 'Label', 'Uses', 'Status', '']}
       >
         {invites.map((invite) => (
           <TableRow key={invite.code}>
             <TableCell>
-              <Typography fontFamily="monospace" fontWeight={700}>{invite.code}</Typography>
+              <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{invite.code}</Typography>
             </TableCell>
             <TableCell>{invite.label ?? '—'}</TableCell>
             <TableCell>

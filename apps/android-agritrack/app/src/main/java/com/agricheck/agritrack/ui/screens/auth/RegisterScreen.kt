@@ -50,7 +50,6 @@ fun RegisterScreen(
     var licenseFront by remember { mutableStateOf<ByteArray?>(null) }
     var licenseBack by remember { mutableStateOf<ByteArray?>(null) }
     var selfie by remember { mutableStateOf<ByteArray?>(null) }
-    var faceConfidence by remember { mutableStateOf<Float?>(null) }
     var loading by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -65,16 +64,14 @@ fun RegisterScreen(
     when (step) {
         RegisterStep.LicenseFront -> CameraCaptureScreen(
             title = "Capture driver's license (front)",
-            requireFace = false,
             useFrontCamera = false,
-            onCaptured = { bytes, _ -> licenseFront = bytes; step = RegisterStep.LicenseBack },
+            onCaptured = { bytes -> licenseFront = bytes; step = RegisterStep.LicenseBack },
             onCancel = { step = RegisterStep.License },
         )
         RegisterStep.LicenseBack -> CameraCaptureScreen(
             title = "Capture driver's license (back)",
-            requireFace = false,
             useFrontCamera = false,
-            onCaptured = { bytes, _ -> licenseBack = bytes; step = RegisterStep.Selfie },
+            onCaptured = { bytes -> licenseBack = bytes; error = null; step = RegisterStep.Selfie },
             onCancel = { step = RegisterStep.LicenseFront },
         )
         RegisterStep.Selfie -> if (submitting) {
@@ -88,16 +85,16 @@ fun RegisterScreen(
             }
         } else CameraCaptureScreen(
             title = "Take a selfie for accountability",
-            requireFace = true,
             useFrontCamera = true,
-            onCaptured = { bytes, confidence ->
+            hint = "Center your face in the frame, then tap Capture.",
+            errorMessage = error,
+            onCaptured = { bytes ->
                 selfie = bytes
-                faceConfidence = confidence
                 submitting = true
+                error = null
                 scope.launch {
-                    error = null
                     val request = RegisterDriverRequest(
-                        email = email.trim(),
+                        email = email.trim().lowercase(),
                         password = password,
                         fullName = fullName.trim(),
                         birthDate = birthDate.trim(),
@@ -118,11 +115,14 @@ fun RegisterScreen(
                                 licenseFront?.let { driverRepository.uploadDocument("LicenseFront", it, "license-front.jpg") }
                                 licenseBack?.let { driverRepository.uploadDocument("LicenseBack", it, "license-back.jpg") }
                                 selfie?.let { driverRepository.uploadDocument("Selfie", it, "selfie.jpg") }
-                                driverRepository.submitFaceVerification(faceConfidence)
+                                driverRepository.submitFaceVerification(null)
                             }
                             onRegistered()
                         }
-                        .onFailure { error = it.message; submitting = false }
+                        .onFailure {
+                            error = it.message ?: "Registration failed. Try again."
+                            submitting = false
+                        }
                 }
             },
             onCancel = { step = RegisterStep.LicenseBack },
@@ -177,7 +177,19 @@ fun RegisterScreen(
                             AgriOutlinedField(phone, { phone = it }, "Mobile number")
                             AgriOutlinedField(email, { email = it }, "Email")
                             AgriOutlinedField(password, { password = it }, "Password", password = true)
-                            AgriPrimaryButton("Next", onClick = { step = RegisterStep.Address }, enabled = listOf(fullName, birthDate, phone, email, password).all { it.isNotBlank() })
+                            Text(passwordHint(), style = MaterialTheme.typography.bodySmall, color = AgriColors.TextSecondary)
+                            AgriPrimaryButton(
+                                "Next",
+                                onClick = {
+                                    error = when {
+                                        !isIsoDate(birthDate.trim()) -> "Birth date must be YYYY-MM-DD."
+                                        !isStrongPassword(password) -> passwordHint()
+                                        else -> null
+                                    }
+                                    if (error == null) step = RegisterStep.Address
+                                },
+                                enabled = listOf(fullName, birthDate, phone, email, password).all { it.isNotBlank() },
+                            )
                         }
                         RegisterStep.Address -> {
                             AddressDropdown("Region", regions, selectedRegion?.name) { option ->
@@ -222,7 +234,14 @@ fun RegisterScreen(
                             Text("Next: capture license photos and selfie.", style = MaterialTheme.typography.bodySmall, color = AgriColors.TextSecondary)
                             AgriPrimaryButton(
                                 "Capture documents",
-                                onClick = { step = RegisterStep.LicenseFront },
+                                onClick = {
+                                    error = if (!isIsoDate(licenseExpiry.trim())) {
+                                        "License expiry must be YYYY-MM-DD."
+                                    } else {
+                                        null
+                                    }
+                                    if (error == null) step = RegisterStep.LicenseFront
+                                },
                                 enabled = licenseNumber.isNotBlank() && licenseExpiry.isNotBlank(),
                             )
                         }
@@ -264,7 +283,7 @@ private fun AddressDropdown(
             onValueChange = {},
             readOnly = true,
             label = { Text(label) },
-            modifier = Modifier.menuAnchor().fillMaxWidth(),
+            modifier = Modifier.menuAnchor(type = MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
@@ -291,7 +310,7 @@ private fun AddressBarangayDropdown(
             onValueChange = {},
             readOnly = true,
             label = { Text("Barangay") },
-            modifier = Modifier.menuAnchor().fillMaxWidth(),
+            modifier = Modifier.menuAnchor(type = MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->

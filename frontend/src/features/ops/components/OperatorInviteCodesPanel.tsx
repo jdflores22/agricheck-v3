@@ -38,8 +38,8 @@ export function OperatorInviteCodesPanel() {
         </Typography>
         {message && <Alert severity="success" onClose={() => setMessage('')}>{message}</Alert>}
         {primary ? (
-          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-            <Typography fontFamily="monospace" fontWeight={700} fontSize={20}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
+            <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 20 }}>
               {primary.code}
             </Typography>
             <Chip size="small" label={primary.isActive ? 'Active' : 'Inactive'} color="success" />

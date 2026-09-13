@@ -90,7 +90,7 @@ public class MobileDriverAuthService : IMobileDriverAuthService
 
         var profile = new DriverProfile
         {
-            UserId = user.Id,
+            User = user,
             OperatorUserId = invite.OperatorUserId,
             BirthDate = request.BirthDate.Date,
             RegionId = request.RegionId,

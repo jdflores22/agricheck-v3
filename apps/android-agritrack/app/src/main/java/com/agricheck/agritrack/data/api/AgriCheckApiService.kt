@@ -111,8 +111,7 @@ interface AgriCheckApiService {
     suspend fun unregisterPush(@Query("expoPushToken") token: String): ApiEnvelope<Map<String, Boolean>>
 }
 
-fun Throwable.userMessage(fallback: String): String =
-    message?.takeIf { it.isNotBlank() } ?: fallback
+fun Throwable.userMessage(fallback: String): String = apiErrorMessage(fallback)
 
 fun <T> ApiEnvelope<T>.requireData(): T {
     if (!success || data == null) {
