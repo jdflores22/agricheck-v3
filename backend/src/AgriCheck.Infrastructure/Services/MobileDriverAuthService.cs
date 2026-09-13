@@ -7,6 +7,7 @@ using AgriCheck.Domain.Entities;
 using AgriCheck.Domain.Enums;
 using AgriCheck.Infrastructure.Auth;
 using AgriCheck.Infrastructure.Persistence;
+using AgriCheck.Infrastructure.Persistence.Seeding;
 using Microsoft.EntityFrameworkCore;
 
 namespace AgriCheck.Infrastructure.Services;
@@ -28,6 +29,7 @@ public class MobileDriverAuthService : IMobileDriverAuthService
         ValidateInviteCodeRequest request,
         CancellationToken cancellationToken = default)
     {
+        await OperatorInviteCodeSeeder.EnsureSeedDataAsync(_db, cancellationToken: cancellationToken);
         var invite = await ResolveInviteCodeAsync(request.InviteCode, cancellationToken);
         if (invite is null)
         {
@@ -59,6 +61,7 @@ public class MobileDriverAuthService : IMobileDriverAuthService
             throw new ClientPortalException("WEAK_PASSWORD", passwordError!);
         }
 
+        await OperatorInviteCodeSeeder.EnsureSeedDataAsync(_db, cancellationToken: cancellationToken);
         var invite = await ResolveInviteCodeAsync(request.InviteCode, cancellationToken)
             ?? throw new ClientPortalException("INVALID_INVITE", "Invite code is invalid or expired.");
 

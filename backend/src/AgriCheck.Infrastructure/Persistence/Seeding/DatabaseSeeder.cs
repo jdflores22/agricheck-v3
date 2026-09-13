@@ -82,7 +82,7 @@ public class DatabaseSeeder : IHostedService
             await SeedMavStaffAsync(db, passwordService, cancellationToken);
             await SeedMavDemoDataAsync(db, cancellationToken);
             await SeedOpsStaffAsync(db, passwordService, cancellationToken);
-            await SeedOperatorInviteCodesAsync(db, cancellationToken);
+            await OperatorInviteCodeSeeder.EnsureSeedDataAsync(db, _logger, cancellationToken);
             await WorkflowDemoSeeder.SeedAsync(db, _logger, cancellationToken);
         }
         catch (Exception ex)
@@ -783,62 +783,6 @@ public class DatabaseSeeder : IHostedService
     private async Task SeedMavHsLibraryAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
     {
         await MavHsLibrarySeeder.SeedAsync(db, _logger, cancellationToken);
-    }
-
-    private async Task SeedOperatorInviteCodesAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
-    {
-        if (!await db.Database.CanConnectAsync(cancellationToken))
-        {
-            return;
-        }
-
-        try
-        {
-            if (!await db.OperatorInviteCodes.AnyAsync(cancellationToken))
-            {
-                // Touch the table early so missing-migration failures are explicit in logs.
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "operator_invite_codes table is not available yet; invite seed skipped.");
-            return;
-        }
-
-        var operatorRole = await db.Roles.FirstOrDefaultAsync(r => r.Code == "ROLE_OPERATOR", cancellationToken);
-        if (operatorRole is null)
-        {
-            return;
-        }
-
-        var operatorUserIds = await db.UserRoles
-            .Where(ur => ur.RoleId == operatorRole.Id)
-            .Select(ur => ur.UserId)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-
-        foreach (var operatorUserId in operatorUserIds)
-        {
-            if (await db.OperatorInviteCodes.AnyAsync(i => i.OperatorUserId == operatorUserId, cancellationToken))
-            {
-                continue;
-            }
-
-            var isDemoOperator = await db.Users.AnyAsync(
-                u => u.Id == operatorUserId && u.Email == "operator@agricheck.local",
-                cancellationToken);
-
-            db.OperatorInviteCodes.Add(new OperatorInviteCode
-            {
-                Code = isDemoOperator ? "AGRITRACK-DEMO" : $"AT-{operatorUserId:D4}",
-                OperatorUserId = operatorUserId,
-                Label = isDemoOperator ? "AgriTrack demo fleet" : "Driver registration invite",
-                MaxUses = 0,
-                IsActive = true,
-            });
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
     }
 
     private async Task SeedOpsStaffAsync(AgriCheckDbContext db, IPasswordService passwordService, CancellationToken cancellationToken)

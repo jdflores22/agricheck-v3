@@ -215,6 +215,25 @@ static async Task EnsureDatabaseReadyAsync(WebApplication app)
 
     try
     {
+        await DriverRegistrationSchemaSeeder.EnsureAsync(db);
+        logger.LogInformation("Driver registration schema ensured.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Driver registration schema ensure failed.");
+    }
+
+    try
+    {
+        await WarehouseProfilingSchemaSeeder.EnsureAsync(db);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Warehouse profiling schema ensure failed.");
+    }
+
+    try
+    {
         var pending = await db.Database.GetPendingMigrationsAsync();
         if (pending.Any())
         {
@@ -222,13 +241,21 @@ static async Task EnsureDatabaseReadyAsync(WebApplication app)
         }
 
         await db.Database.MigrateAsync();
-        await WarehouseProfilingSchemaSeeder.EnsureAsync(db);
-        await DriverRegistrationSchemaSeeder.EnsureAsync(db);
-        logger.LogInformation("Database schema ready.");
+        logger.LogInformation("EF migrations applied.");
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Startup database preparation failed.");
+        logger.LogError(ex, "EF migration apply failed.");
+    }
+
+    try
+    {
+        await OperatorInviteCodeSeeder.EnsureSeedDataAsync(db, logger);
+        logger.LogInformation("Operator invite seed data ensured.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Operator invite seed failed.");
     }
 }
 

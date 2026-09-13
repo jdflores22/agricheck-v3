@@ -1290,6 +1290,7 @@ public class OperatorOpsService : IOperatorOpsService
     public async Task<IReadOnlyList<OperatorInviteCodeListItemDto>> ListInviteCodesAsync(CancellationToken cancellationToken = default)
     {
         var user = await RequireOperatorAsync(cancellationToken);
+        await AgriCheck.Infrastructure.Persistence.Seeding.OperatorInviteCodeSeeder.EnsureSeedDataAsync(_db, cancellationToken: cancellationToken);
 
         var codes = await _db.OperatorInviteCodes
             .Where(i => i.OperatorUserId == user.Id)
@@ -1309,6 +1310,7 @@ public class OperatorOpsService : IOperatorOpsService
         CancellationToken cancellationToken = default)
     {
         var user = await RequireOperatorAsync(cancellationToken);
+        await AgriCheck.Infrastructure.Persistence.Seeding.OperatorInviteCodeSeeder.EnsureSeedDataAsync(_db, cancellationToken: cancellationToken);
         var entity = await CreateInviteCodeEntityAsync(user.Id, request.Label, cancellationToken);
         return MapInviteCode(entity);
     }
