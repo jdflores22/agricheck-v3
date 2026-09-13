@@ -107,7 +107,8 @@ public static class DependencyInjection
         services.AddScoped<IAgriTrackPushService, AgriTrackPushService>();
         services.AddHttpClient("ExpoPush");
 
-        services.AddHostedService<DatabaseSeeder>();
+        services.AddSingleton<DatabaseSeeder>();
+        services.AddHostedService(sp => sp.GetRequiredService<DatabaseSeeder>());
         services.AddHostedService<MavComplianceNotificationBackgroundService>();
 
         return services;

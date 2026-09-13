@@ -257,6 +257,18 @@ static async Task EnsureDatabaseReadyAsync(WebApplication app)
     {
         logger.LogError(ex, "Operator invite seed failed.");
     }
+
+    try
+    {
+        var passwordService = scope.ServiceProvider.GetRequiredService<AgriCheck.Infrastructure.Auth.IPasswordService>();
+        var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+        await seeder.SeedDemoAccountsAsync(db, passwordService);
+        logger.LogInformation("Demo accounts ensured.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Demo account seed failed.");
+    }
 }
 
 void MapPublicUploads(string physicalPath, string requestPath)

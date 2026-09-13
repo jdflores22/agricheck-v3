@@ -93,6 +93,57 @@ public class DatabaseSeeder : IHostedService
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
+    public async Task SeedDemoAccountsAsync(CancellationToken cancellationToken = default)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AgriCheckDbContext>();
+        var passwordService = scope.ServiceProvider.GetRequiredService<IPasswordService>();
+        await SeedDemoAccountsAsync(db, passwordService, cancellationToken);
+    }
+
+    public async Task SeedDemoAccountsAsync(
+        AgriCheckDbContext db,
+        IPasswordService passwordService,
+        CancellationToken cancellationToken = default)
+    {
+        await SeedRolesAsync(db, cancellationToken);
+        await SeedAgenciesAsync(db, cancellationToken);
+        await SeedAdminUserAsync(db, passwordService, cancellationToken);
+        await SeedDemoClientUserAsync(db, passwordService, cancellationToken);
+        await SeedAgencyStaffAsync(db, passwordService, cancellationToken);
+        await SyncDaAccreditationOfficersAsync(db, passwordService, cancellationToken);
+        await SyncDaLeadershipAsync(db, passwordService, cancellationToken);
+        await SeedMavStaffAsync(db, passwordService, cancellationToken);
+        await SeedOpsStaffAsync(db, passwordService, cancellationToken);
+        await SeedDemoDriverProfileAsync(db, cancellationToken);
+        await OperatorInviteCodeSeeder.EnsureSeedDataAsync(db, _logger, cancellationToken);
+        _logger.LogInformation("Demo account seed completed.");
+    }
+
+    private async Task SeedDemoDriverProfileAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
+    {
+        var driver = await db.Users.FirstOrDefaultAsync(u => u.Email == "driver@agricheck.local", cancellationToken);
+        if (driver is null || await db.DriverProfiles.AnyAsync(p => p.UserId == driver.Id, cancellationToken))
+        {
+            return;
+        }
+
+        var operatorUser = await db.Users.FirstOrDefaultAsync(u => u.Email == "operator@agricheck.local", cancellationToken);
+        db.DriverProfiles.Add(new DriverProfile
+        {
+            User = driver,
+            OperatorUserId = operatorUser?.Id,
+            LicenseNumber = "DEMO-DL-001",
+            LicenseExpiryDate = DateTime.UtcNow.Date.AddYears(5),
+            PhoneNumber = "09170000001",
+            SubmittedAt = DateTime.UtcNow,
+            ApprovedAt = DateTime.UtcNow,
+            CompletionPercentage = 80,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Seeded demo driver profile for driver@agricheck.local");
+    }
+
     private static bool ShouldImportFromV2(IConfiguration configuration, IHostEnvironment environment)
     {
         var v2 = configuration.GetConnectionString("V2Connection");
