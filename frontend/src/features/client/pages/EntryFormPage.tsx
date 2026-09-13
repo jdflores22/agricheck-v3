@@ -13,8 +13,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import type { FetchBaseQueryError } from '@reduxjs/toolkit/query'
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Link as RouterLink, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import type { ApiEnvelope } from '../../auth/types'
 import { useBreadcrumbLabel } from '../../../components/portal/BreadcrumbContext'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalPanel } from '../../../components/portal/PortalPanel'
@@ -23,6 +25,15 @@ import { getStatusBadgeStyle } from '../../../components/portal/portalUtils'
 import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
 import { resolveAgencyLogoUrl } from '../../admin/components/adminAgencyUtils'
 import { applyMavEntrySchema, getCommodityHsValueKeys, parseFormSchema, serializeFormDataJson } from '../../forms/formSchema'
+
+function getApiErrorMessage(error: unknown): string | null {
+  if (!error || typeof error !== 'object' || !('data' in error)) {
+    return null
+  }
+
+  const data = (error as FetchBaseQueryError).data as ApiEnvelope<unknown> | undefined
+  return data?.errors?.[0]?.message ?? null
+}
 import {
   useCreateEntryMutation,
   useGetAgenciesQuery,
@@ -358,7 +369,11 @@ export function EntryFormPage() {
     await downloadAuthenticatedFile(`/entries/${editUuid}/files/${fileUuid}/download`, fileName)
   }
 
-  const error = createError || updateError
+  const mutationError = createError || updateError
+  const errorMessage = getApiErrorMessage(mutationError)
+    ?? (mutationError && typeof mutationError === 'object' && 'status' in mutationError
+      ? `Unable to save entry (HTTP ${String((mutationError as FetchBaseQueryError).status)}).`
+      : null)
   const isLoading = creating || updating
   const isFormLoading = !isEdit && agencyIdNum > 0 && (isLoadingForms || (Boolean(selectedFormUuid) && isLoadingFormSchema))
   const isContainerFormLoading = hasContainerForm && (isLoadingContainerForms || (Boolean(selectedContainerFormUuid) && isLoadingContainerFormSchema))
@@ -396,9 +411,14 @@ export function EntryFormPage() {
         </Alert>
       )}
 
-      {error && (
+      {errorMessage && (
         <Alert severity="error" sx={{ mb: 3, borderRadius: '0.75rem' }}>
-          Unable to save entry. Ensure you are accredited for new entries.
+          {errorMessage}
+          {errorMessage.includes('Accreditation') ? null : (
+            <Typography component="span" display="block" sx={{ mt: 0.5, fontSize: '0.8125rem' }}>
+              If you are accredited, this may be a server/database issue — try again after a minute or contact support.
+            </Typography>
+          )}
         </Alert>
       )}
       {noFormConfigured && (

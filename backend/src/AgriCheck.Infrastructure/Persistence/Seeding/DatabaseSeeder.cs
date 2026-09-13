@@ -54,6 +54,7 @@ public class DatabaseSeeder : IHostedService
             await db.Database.MigrateAsync(cancellationToken);
             await WarehouseProfilingSchemaSeeder.EnsureAsync(db, cancellationToken);
             await DriverRegistrationSchemaSeeder.EnsureAsync(db, cancellationToken);
+            await EntrySchemaSeeder.EnsureAsync(db, cancellationToken);
             await SeedRolesAsync(db, cancellationToken);
             await SeedSystemSettingsAsync(db, cancellationToken);
             await SeedAgenciesAsync(db, cancellationToken);

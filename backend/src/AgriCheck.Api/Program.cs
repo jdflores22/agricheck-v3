@@ -217,6 +217,9 @@ static async Task EnsureDatabaseReadyAsync(WebApplication app)
     {
         await DriverRegistrationSchemaSeeder.EnsureAsync(db);
         logger.LogInformation("Driver registration schema ensured.");
+
+        await EntrySchemaSeeder.EnsureAsync(db);
+        logger.LogInformation("Entry schema ensured.");
     }
     catch (Exception ex)
     {
