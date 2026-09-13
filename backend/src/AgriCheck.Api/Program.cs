@@ -217,16 +217,30 @@ static async Task EnsureDatabaseReadyAsync(WebApplication app)
     {
         await DriverRegistrationSchemaSeeder.EnsureAsync(db);
         logger.LogInformation("Driver registration schema ensured.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Driver registration schema ensure failed.");
+    }
 
+    try
+    {
         await EntrySchemaSeeder.EnsureAsync(db);
         logger.LogInformation("Entry schema ensured.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Entry schema ensure failed.");
+    }
 
+    try
+    {
         await BillingSchemaSeeder.EnsureAsync(db);
         logger.LogInformation("Billing schema ensured.");
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Driver registration schema ensure failed.");
+        logger.LogError(ex, "Billing schema ensure failed.");
     }
 
     try
@@ -248,6 +262,9 @@ static async Task EnsureDatabaseReadyAsync(WebApplication app)
 
         await db.Database.MigrateAsync();
         logger.LogInformation("EF migrations applied.");
+
+        await BillingSchemaSeeder.EnsureAsync(db);
+        logger.LogInformation("Billing schema re-checked after migrations.");
     }
     catch (Exception ex)
     {
