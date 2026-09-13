@@ -236,6 +236,7 @@ const driverNavItems: PortalNavItem[] = [
 
 const operatorNavItems: PortalNavItem[] = [
   { label: 'Containers', path: '/operator/containers', icon: <Inventory2OutlinedIcon /> },
+  { label: 'Driver Invites', path: '/operator/invites', icon: <LocalShippingOutlinedIcon /> },
   { label: 'My Profile', path: '/profile', icon: <PersonOutlineOutlinedIcon />, section: 'Account' },
 ]
 

@@ -122,6 +122,17 @@ public record InviteCodeValidationDto(
     string? OperatorName,
     string? Label);
 
+public record OperatorInviteCodeListItemDto(
+    string Code,
+    string? Label,
+    int MaxUses,
+    int UsedCount,
+    DateTime? ExpiresAt,
+    bool IsActive,
+    DateTime CreatedAt);
+
+public record CreateOperatorInviteCodeRequest(string? Label);
+
 public record DriverTransportQrPreviewDto(
     Guid ContainerUuid,
     string ContainerNumber,

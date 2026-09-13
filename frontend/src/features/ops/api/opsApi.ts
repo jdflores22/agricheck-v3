@@ -50,6 +50,16 @@ export interface DriverDashboard {
   faceVerified: boolean
 }
 
+export interface OperatorInviteCode {
+  code: string
+  label?: string
+  maxUses: number
+  usedCount: number
+  expiresAt?: string
+  isActive: boolean
+  createdAt: string
+}
+
 export interface DriverProfile {
   licenseNumber?: string
   licenseExpiryDate?: string
@@ -83,7 +93,7 @@ export interface WarehouseFacility {
 export const opsApi = createApi({
   reducerPath: 'opsApi',
   baseQuery: baseQueryWithReauth,
-  tagTypes: ['WarehouseDashboard', 'WarehouseInventory', 'ReleaseAuth', 'DriverDashboard', 'DriverProfile', 'DriverContainers', 'OperatorContainers', 'DoctorContainers'],
+  tagTypes: ['WarehouseDashboard', 'WarehouseInventory', 'ReleaseAuth', 'DriverDashboard', 'DriverProfile', 'DriverContainers', 'OperatorContainers', 'OperatorInviteCodes', 'DoctorContainers'],
   endpoints: (builder) => ({
     getWarehouseDashboard: builder.query<ApiEnvelope<WarehouseDashboard>, void>({
       query: () => '/ops/warehouse/dashboard',
@@ -151,6 +161,14 @@ export const opsApi = createApi({
       query: (uuid) => ({ url: `/ops/operator/containers/${uuid}/claim`, method: 'POST' }),
       invalidatesTags: ['OperatorContainers'],
     }),
+    getOperatorInviteCodes: builder.query<ApiEnvelope<OperatorInviteCode[]>, void>({
+      query: () => '/ops/operator/invite-codes',
+      providesTags: ['OperatorInviteCodes'],
+    }),
+    createOperatorInviteCode: builder.mutation<ApiEnvelope<OperatorInviteCode>, { label?: string }>({
+      query: (body) => ({ url: '/ops/operator/invite-codes', method: 'POST', body }),
+      invalidatesTags: ['OperatorInviteCodes'],
+    }),
     assignDriverToContainer: builder.mutation<ApiEnvelope<OpsContainerListItem>, { uuid: string; driverUserUuid: string }>({
       query: ({ uuid, driverUserUuid }) => ({
         url: `/ops/operator/containers/${uuid}/assign-driver`,
@@ -197,6 +215,8 @@ export const {
   useUpdateContainerStatusMutation,
   useRecordContainerLocationMutation,
   useGetClaimableContainersQuery,
+  useGetOperatorInviteCodesQuery,
+  useCreateOperatorInviteCodeMutation,
   useClaimOperatorContainerMutation,
   useAssignDriverToContainerMutation,
   useGetDoctorContainersQuery,

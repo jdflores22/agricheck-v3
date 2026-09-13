@@ -125,6 +125,7 @@ import { DriverDashboardPage } from '../features/ops/pages/DriverDashboardPage'
 import { DriverContainersPage } from '../features/ops/pages/DriverContainersPage'
 import { DriverProfilePage } from '../features/ops/pages/DriverProfilePage'
 import { OperatorContainersPage } from '../features/ops/pages/OperatorContainersPage'
+import { OperatorInvitesPage } from '../features/ops/pages/OperatorInvitesPage'
 import { DoctorContainersPage } from '../features/ops/pages/DoctorContainersPage'
 import { TransportTagPage } from '../features/agency/pages/TransportTagPage'
 import { TransportTagDetailPage } from '../features/agency/pages/TransportTagDetailPage'
@@ -552,6 +553,7 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <Navigate to="/operator/containers" replace /> },
               { path: 'containers', element: <OperatorContainersPage /> },
+              { path: 'invites', element: <OperatorInvitesPage /> },
             ],
 
               },

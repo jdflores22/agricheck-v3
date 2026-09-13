@@ -10,8 +10,13 @@ import { useGetDriverProfileQuery, useUpdateDriverProfileMutation } from '../api
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalPanel } from '../../../components/portal/PortalPanel'
 import { portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
+import { useAppSelector } from '../../../app/hooks'
+import { selectCurrentUser } from '../../auth/authSlice'
+import { OperatorInviteCodesPanel } from '../components/OperatorInviteCodesPanel'
 
 export function DriverProfilePage() {
+  const user = useAppSelector(selectCurrentUser)
+  const isOperator = user?.roles?.includes('ROLE_OPERATOR') || user?.roles?.includes('ROLE_ADMIN')
   const { data } = useGetDriverProfileQuery()
   const [updateProfile, { isSuccess, isError }] = useUpdateDriverProfileMutation()
   const profile = data?.data
@@ -47,6 +52,12 @@ export function DriverProfilePage() {
       />
       {isSuccess && <Alert severity="success" sx={{ mb: 2 }}>Profile updated.</Alert>}
       {isError && <Alert severity="error" sx={{ mb: 2 }}>Failed to update profile.</Alert>}
+
+      {isOperator && (
+        <Box sx={{ mb: 2 }}>
+          <OperatorInviteCodesPanel />
+        </Box>
+      )}
 
       <PortalPanel title="Profile details">
         <Stack spacing={2} sx={{ maxWidth: 560, p: 2.5 }}>

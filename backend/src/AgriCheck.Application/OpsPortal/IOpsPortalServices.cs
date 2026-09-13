@@ -48,6 +48,8 @@ public interface IOperatorOpsService
     Task<ContainerListItemDto> ClaimContainerAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> ClaimContainerByQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> AssignDriverAsync(Guid containerUuid, AssignDriverRequest request, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<OperatorInviteCodeListItemDto>> ListInviteCodesAsync(CancellationToken cancellationToken = default);
+    Task<OperatorInviteCodeListItemDto> CreateInviteCodeAsync(CreateOperatorInviteCodeRequest request, CancellationToken cancellationToken = default);
 }
 
 public interface IDoctorInspectionService

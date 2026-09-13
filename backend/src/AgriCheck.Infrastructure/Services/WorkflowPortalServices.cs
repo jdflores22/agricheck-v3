@@ -1287,6 +1287,69 @@ public class OperatorOpsService : IOperatorOpsService
         return OpsDtoMapper.MapContainer(container);
     }
 
+    public async Task<IReadOnlyList<OperatorInviteCodeListItemDto>> ListInviteCodesAsync(CancellationToken cancellationToken = default)
+    {
+        var user = await RequireOperatorAsync(cancellationToken);
+
+        var codes = await _db.OperatorInviteCodes
+            .Where(i => i.OperatorUserId == user.Id)
+            .OrderByDescending(i => i.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        if (codes.Count == 0)
+        {
+            codes.Add(await CreateInviteCodeEntityAsync(user.Id, "Default fleet invite", cancellationToken));
+        }
+
+        return codes.Select(MapInviteCode).ToList();
+    }
+
+    public async Task<OperatorInviteCodeListItemDto> CreateInviteCodeAsync(
+        CreateOperatorInviteCodeRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await RequireOperatorAsync(cancellationToken);
+        var entity = await CreateInviteCodeEntityAsync(user.Id, request.Label, cancellationToken);
+        return MapInviteCode(entity);
+    }
+
+    private async Task<OperatorInviteCode> CreateInviteCodeEntityAsync(
+        long operatorUserId,
+        string? label,
+        CancellationToken cancellationToken)
+    {
+        var code = await GenerateUniqueInviteCodeAsync(cancellationToken);
+        var entity = new OperatorInviteCode
+        {
+            Code = code,
+            OperatorUserId = operatorUserId,
+            Label = string.IsNullOrWhiteSpace(label) ? "Driver registration invite" : label.Trim(),
+            MaxUses = 0,
+            IsActive = true,
+        };
+        _db.OperatorInviteCodes.Add(entity);
+        await _db.SaveChangesAsync(cancellationToken);
+        return entity;
+    }
+
+    private async Task<string> GenerateUniqueInviteCodeAsync(CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var suffix = Convert.ToHexString(Guid.NewGuid().ToByteArray())[..6];
+            var candidate = $"AT-{suffix}".ToUpperInvariant();
+            if (!await _db.OperatorInviteCodes.AnyAsync(i => i.Code == candidate, cancellationToken))
+            {
+                return candidate;
+            }
+        }
+
+        throw new ClientPortalException("INVITE_CODE_FAILED", "Unable to generate a unique invite code.");
+    }
+
+    private static OperatorInviteCodeListItemDto MapInviteCode(OperatorInviteCode invite) =>
+        new(invite.Code, invite.Label, invite.MaxUses, invite.UsedCount, invite.ExpiresAt, invite.IsActive, invite.CreatedAt);
+
     private async Task<User> RequireOperatorAsync(CancellationToken cancellationToken)
     {
         var user = await UserContextHelper.RequireUserAsync(_db, _currentUser, cancellationToken);

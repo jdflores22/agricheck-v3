@@ -1,5 +1,6 @@
 using AgriCheck.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -16,7 +17,8 @@ public partial class DriverRegistrationAndInvites : Migration
             name: "operator_invite_codes",
             columns: table => new
             {
-                Id = table.Column<long>(type: "bigint", nullable: false),
+                Id = table.Column<long>(type: "bigint", nullable: false)
+                    .Annotation("MySql:ValueGenerationStrategy", MySqlValueGenerationStrategy.IdentityColumn),
                 Code = table.Column<string>(type: "varchar(32)", maxLength: 32, nullable: false),
                 OperatorUserId = table.Column<long>(type: "bigint", nullable: false),
                 Label = table.Column<string>(type: "varchar(128)", maxLength: 128, nullable: true),

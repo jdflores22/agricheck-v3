@@ -712,6 +712,26 @@ public class OperatorContainersController : OpsPortalControllerBase
 }
 
 [ApiController]
+[Route("api/v1/ops/operator/invite-codes")]
+[Authorize(Roles = "ROLE_OPERATOR,ROLE_ADMIN")]
+public class OperatorInviteCodesController : OpsPortalControllerBase
+{
+    private readonly IOperatorOpsService _service;
+
+    public OperatorInviteCodesController(IOperatorOpsService service) => _service = service;
+
+    [HttpGet]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<OperatorInviteCodeListItemDto>>>> List(CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListInviteCodesAsync(cancellationToken));
+
+    [HttpPost]
+    public async Task<ActionResult<ApiResponse<OperatorInviteCodeListItemDto>>> Create(
+        [FromBody] CreateOperatorInviteCodeRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.CreateInviteCodeAsync(request, cancellationToken));
+}
+
+[ApiController]
 [Route("api/v1/ops/doctor/containers")]
 [Authorize(Roles = "ROLE_DOCTOR,ROLE_INSPECTOR,ROLE_ADMIN")]
 public class DoctorContainersController : OpsPortalControllerBase
