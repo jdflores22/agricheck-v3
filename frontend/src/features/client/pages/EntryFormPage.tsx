@@ -415,7 +415,7 @@ export function EntryFormPage() {
         <Alert severity="error" sx={{ mb: 3, borderRadius: '0.75rem' }}>
           {errorMessage}
           {errorMessage.includes('Accreditation') ? null : (
-            <Typography component="span" display="block" sx={{ mt: 0.5, fontSize: '0.8125rem' }}>
+            <Typography component="span" sx={{ display: 'block', mt: 0.5, fontSize: '0.8125rem' }}>
               If you are accredited, this may be a server/database issue — try again after a minute or contact support.
             </Typography>
           )}
