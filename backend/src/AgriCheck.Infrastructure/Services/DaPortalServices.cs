@@ -2003,6 +2003,8 @@ public class DaImporterProfileService : IDaImporterProfileService
 
         var pipelineEntries = await _db.Entries
             .AsNoTracking()
+            .Include(e => e.Detail)
+            .Include(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .Include(e => e.Containers)
             .Where(e =>
                 e.UserId == userId
@@ -2141,9 +2143,20 @@ internal static class DaStockVolumeHelper
     public static decimal ToKilograms(Entry entry)
     {
         var quantity = entry.Detail?.Quantity ?? 0m;
-        var micVolume = entry.MicUtilizations.Sum(u => u.Volume);
+        var unit = entry.Detail?.Unit;
+
+        if (quantity <= 0 && !string.IsNullOrWhiteSpace(entry.FormDataJson))
+        {
+            if (TryReadVolumeFromForm(entry.FormDataJson, out var formQuantity, out var formUnit))
+            {
+                quantity = formQuantity;
+                unit = formUnit ?? unit;
+            }
+        }
+
+        var micVolume = entry.MicUtilizations?.Sum(u => u.Volume) ?? 0m;
         var source = quantity > 0 ? quantity : micVolume;
-        var normalized = (entry.Detail?.Unit ?? "kg").Trim().ToLowerInvariant();
+        var normalized = (unit ?? "kg").Trim().ToLowerInvariant();
         return normalized switch
         {
             "mt" or "m.t." or "metric ton" or "metric tons" or "ton" or "tons" or "tonne" or "tonnes" => source * 1000m,
@@ -2151,4 +2164,63 @@ internal static class DaStockVolumeHelper
             _ => source
         };
     }
+
+    private static bool TryReadVolumeFromForm(string formDataJson, out decimal quantity, out string? unit)
+    {
+        quantity = 0m;
+        unit = null;
+
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(formDataJson);
+            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != System.Text.Json.JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var name = property.Name;
+                var value = property.Value.GetString()?.Trim();
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    continue;
+                }
+
+                if (quantity <= 0 && IsQuantityField(name) && decimal.TryParse(value, out var parsedQuantity))
+                {
+                    quantity = parsedQuantity;
+                }
+
+                if (unit is null && IsUnitField(name))
+                {
+                    unit = value;
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
+
+        return quantity > 0;
+    }
+
+    private static bool IsQuantityField(string name) =>
+        name.Equals("quantity", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("volume", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("weight", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("txt_volume_weight", StringComparison.OrdinalIgnoreCase)
+        || name.EndsWith("_quantity", StringComparison.OrdinalIgnoreCase)
+        || name.EndsWith("_volume", StringComparison.OrdinalIgnoreCase)
+        || name.EndsWith("_weight", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsUnitField(string name) =>
+        name.Equals("unit", StringComparison.OrdinalIgnoreCase)
+        || name.EndsWith("_unit", StringComparison.OrdinalIgnoreCase);
 }
