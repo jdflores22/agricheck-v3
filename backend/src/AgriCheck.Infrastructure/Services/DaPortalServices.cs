@@ -635,6 +635,121 @@ public class DaOversightReportService : IDaOversightReportService
             byAgency);
     }
 
+    public async Task<DaImportPipelineReportDto> GetImportPipelineReportAsync(
+        DaImportPipelineQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
+
+        var categories = await _db.MavHsCategories.AsNoTracking().Where(c => c.IsActive).ToListAsync(cancellationToken);
+        var actualLines = await LoadStoredStockLinesAsync(categories, cancellationToken);
+        var expectedLines = await LoadExpectedPipelineLinesAsync(categories, cancellationToken);
+
+        var hsFilter = query.HsCode?.Trim();
+        var commodityFilter = query.CommodityName?.Trim();
+        var agencyFilter = query.AgencyCode?.Trim();
+
+        var filteredExpected = expectedLines
+            .Where(l => MatchesCommodityFilter(l.HsCode, l.CommodityName, hsFilter, commodityFilter))
+            .Where(l => string.IsNullOrWhiteSpace(agencyFilter)
+                || string.Equals(l.AgencyCode, agencyFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var filteredActual = actualLines
+            .Where(l => MatchesCommodityFilter(l.HsCode, l.CommodityName, hsFilter, commodityFilter))
+            .Where(l => string.IsNullOrWhiteSpace(agencyFilter)
+                || string.Equals(l.AgencyCode, agencyFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var byStage = new[] { "Processing", "InTransit", "AwaitingStorage" }
+            .Select(stage =>
+            {
+                var stageLines = filteredExpected.Where(l => l.Stage == stage).ToList();
+                return new DaImportPipelineStageRowDto(
+                    stage,
+                    PipelineStageLabel(stage),
+                    stageLines.Sum(l => l.VolumeKg),
+                    stageLines.Count(l => l.ContainerCount > 0),
+                    stageLines.Select(l => l.EntryId).Distinct().Count());
+            })
+            .ToList();
+
+        var commodityKeys = filteredExpected
+            .Select(l => (Norm(l.HsCode), Norm(l.CommodityName)))
+            .Concat(filteredActual.Select(l => (Norm(l.HsCode), Norm(l.CommodityName))))
+            .Distinct()
+            .ToList();
+
+        var byCommodity = commodityKeys
+            .Select(key =>
+            {
+                var expectedForKey = filteredExpected.Where(l => Norm(l.HsCode) == key.Item1 && Norm(l.CommodityName) == key.Item2).ToList();
+                var actualForKey = filteredActual.Where(l => Norm(l.HsCode) == key.Item1 && Norm(l.CommodityName) == key.Item2).ToList();
+                var hsCode = expectedForKey.FirstOrDefault()?.HsCode ?? actualForKey.First().HsCode;
+                var commodityName = expectedForKey.FirstOrDefault()?.CommodityName ?? actualForKey.First().CommodityName;
+                return new DaImportPipelineCommodityRowDto(
+                    string.IsNullOrWhiteSpace(hsCode) ? "—" : hsCode,
+                    commodityName,
+                    expectedForKey.Sum(l => l.VolumeKg),
+                    actualForKey.Sum(l => l.VolumeKg),
+                    expectedForKey.Where(l => l.Stage == "Processing").Sum(l => l.VolumeKg),
+                    expectedForKey.Where(l => l.Stage == "InTransit").Sum(l => l.VolumeKg),
+                    expectedForKey.Where(l => l.Stage == "AwaitingStorage").Sum(l => l.VolumeKg),
+                    expectedForKey.Count(l => l.ContainerCount > 0),
+                    actualForKey.Count);
+            })
+            .OrderByDescending(r => r.ExpectedKg + r.ActualKg)
+            .ThenBy(r => r.CommodityName)
+            .ToList();
+
+        var storedByEntry = filteredActual
+            .GroupBy(l => l.EntryId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var entries = filteredExpected
+            .GroupBy(l => l.EntryId)
+            .Select(g =>
+            {
+                var sample = g.First();
+                var totalContainers = sample.TotalContainers;
+                var storedContainers = storedByEntry.GetValueOrDefault(sample.EntryId);
+                var pendingContainers = g.Count(l => l.ContainerCount > 0);
+                var dominantStage = g
+                    .GroupBy(l => l.Stage)
+                    .OrderByDescending(x => x.Sum(v => v.VolumeKg))
+                    .Select(x => x.Key)
+                    .First();
+                return new DaImportPipelineEntryRowDto(
+                    sample.EntryUuid,
+                    sample.EntryReference,
+                    sample.AgencyCode,
+                    sample.EntryStatus,
+                    dominantStage,
+                    PipelineStageLabel(dominantStage),
+                    sample.CommodityName,
+                    string.IsNullOrWhiteSpace(sample.HsCode) ? "—" : sample.HsCode,
+                    g.Sum(l => l.VolumeKg),
+                    totalContainers,
+                    storedContainers,
+                    pendingContainers,
+                    sample.SubmittedAt);
+            })
+            .OrderByDescending(e => e.ExpectedKg)
+            .ThenByDescending(e => e.SubmittedAt ?? DateTime.MinValue)
+            .Take(200)
+            .ToList();
+
+        return new DaImportPipelineReportDto(
+            filteredExpected.Sum(l => l.VolumeKg),
+            filteredActual.Sum(l => l.VolumeKg),
+            filteredExpected.Count(l => l.ContainerCount > 0),
+            filteredActual.Count,
+            entries.Count,
+            byStage,
+            byCommodity,
+            entries);
+    }
+
     public async Task<DaGeoStockReportDto> GetGeoStockReportAsync(DaGeoStockQuery query, CancellationToken cancellationToken = default)
     {
         await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
@@ -921,6 +1036,126 @@ public class DaOversightReportService : IDaOversightReportService
 
     private static string Norm(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant();
 
+    private static string ClassifyPipelineStage(Entry entry, Container? container)
+    {
+        if (container is null)
+        {
+            return entry.Status switch
+            {
+                EntryStatus.InTransit or EntryStatus.AwaitingTransport or EntryStatus.ReadyForTransport or EntryStatus.PartiallyConfirmed
+                    => "InTransit",
+                _ => "Processing",
+            };
+        }
+
+        return container.Status switch
+        {
+            ContainerStatus.Pending or ContainerStatus.ReadyForTransport => "Processing",
+            ContainerStatus.AwaitingConfirmation or ContainerStatus.Assigned or ContainerStatus.InTransit or ContainerStatus.UnderInspection => "InTransit",
+            ContainerStatus.Inspected or ContainerStatus.AtWarehouse => "AwaitingStorage",
+            _ => "Processing",
+        };
+    }
+
+    private static string PipelineStageLabel(string stage) => stage switch
+    {
+        "Processing" => "Agency processing",
+        "InTransit" => "In transit / at port",
+        "AwaitingStorage" => "Awaiting warehouse intake",
+        _ => stage,
+    };
+
+    private async Task<List<PipelineLine>> LoadExpectedPipelineLinesAsync(
+        IReadOnlyCollection<MavHsCategory> categories,
+        CancellationToken cancellationToken)
+    {
+        var storedContainerIds = (await _db.WarehouseInventories
+            .AsNoTracking()
+            .Where(i => i.Status == WarehouseInventoryStatus.Stored)
+            .Select(i => i.ContainerId)
+            .ToListAsync(cancellationToken)).ToHashSet();
+
+        var activeStatuses = new[]
+        {
+            EntryStatus.Submitted,
+            EntryStatus.UnderReview,
+            EntryStatus.ForCompliance,
+            EntryStatus.Approved,
+            EntryStatus.DaIssueBilling,
+            EntryStatus.ForInspection,
+            EntryStatus.ReadyForTransport,
+            EntryStatus.AwaitingTransport,
+            EntryStatus.PartiallyConfirmed,
+            EntryStatus.InTransit,
+        };
+
+        var entries = await _db.Entries
+            .AsNoTracking()
+            .Include(e => e.Agency)
+            .Include(e => e.Detail)
+            .Include(e => e.MicUtilizations).ThenInclude(u => u.Mic)
+            .Include(e => e.Containers)
+            .Where(e => e.EntryType == EntryType.Import && activeStatuses.Contains(e.Status))
+            .ToListAsync(cancellationToken);
+
+        var lines = new List<PipelineLine>();
+        foreach (var entry in entries)
+        {
+            var mic = entry.MicUtilizations.OrderByDescending(u => u.UtilizedAt).Select(u => u.Mic).FirstOrDefault();
+            var hsCode = FirstNonEmpty(mic?.HsCode?.Trim(), ResolveEntryHsCode(entry, categories)) ?? string.Empty;
+            var commodityName = FirstNonEmpty(mic?.CommodityName, entry.Detail?.CommodityName) ?? "Unclassified";
+            var entryVolumeKg = DaStockVolumeHelper.ToKilograms(entry);
+            var agencyCode = entry.Agency?.Code ?? "Shared";
+            var totalContainers = entry.Containers.Count;
+
+            var pendingContainers = entry.Containers
+                .Where(c => c.Status != ContainerStatus.Released && !storedContainerIds.Contains(c.Id))
+                .ToList();
+
+            if (pendingContainers.Count == 0)
+            {
+                if (totalContainers == 0)
+                {
+                    lines.Add(new PipelineLine(
+                        entry.Id,
+                        entry.Uuid,
+                        entry.ReferenceNo,
+                        agencyCode,
+                        entry.Status.ToString(),
+                        entry.SubmittedAt,
+                        hsCode,
+                        commodityName,
+                        entryVolumeKg,
+                        ClassifyPipelineStage(entry, null),
+                        0,
+                        totalContainers));
+                }
+
+                continue;
+            }
+
+            var perContainerKg = entryVolumeKg / pendingContainers.Count;
+            foreach (var container in pendingContainers)
+            {
+                lines.Add(new PipelineLine(
+                    entry.Id,
+                    entry.Uuid,
+                    entry.ReferenceNo,
+                    agencyCode,
+                    entry.Status.ToString(),
+                    entry.SubmittedAt,
+                    hsCode,
+                    commodityName,
+                    perContainerKg,
+                    ClassifyPipelineStage(entry, container),
+                    1,
+                    totalContainers));
+            }
+        }
+
+        return lines;
+    }
+
     private async Task<List<StockInventoryLine>> LoadStoredStockLinesAsync(
         IReadOnlyCollection<MavHsCategory> categories,
         CancellationToken cancellationToken)
@@ -971,6 +1206,20 @@ public class DaOversightReportService : IDaOversightReportService
 
         return lines;
     }
+
+    private sealed record PipelineLine(
+        long EntryId,
+        Guid EntryUuid,
+        string EntryReference,
+        string AgencyCode,
+        string EntryStatus,
+        DateTime? SubmittedAt,
+        string HsCode,
+        string CommodityName,
+        decimal VolumeKg,
+        string Stage,
+        int ContainerCount,
+        int TotalContainers);
 
     private sealed record StockInventoryLine(
         long FacilityId,

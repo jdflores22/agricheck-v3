@@ -232,6 +232,59 @@ export interface DaCommodityStockAgencyRow {
   warehouseCount: number
 }
 
+export interface DaImportPipelineStageRow {
+  stage: string
+  label: string
+  expectedKg: number
+  containerCount: number
+  entryCount: number
+}
+
+export interface DaImportPipelineCommodityRow {
+  hsCode: string
+  commodityName: string
+  expectedKg: number
+  actualKg: number
+  processingKg: number
+  inTransitKg: number
+  awaitingStorageKg: number
+  expectedContainers: number
+  actualContainers: number
+}
+
+export interface DaImportPipelineEntryRow {
+  entryUuid: string
+  referenceNo: string
+  agencyCode: string
+  entryStatus: string
+  pipelineStage: string
+  pipelineLabel: string
+  commodityName: string
+  hsCode: string
+  expectedKg: number
+  totalContainers: number
+  storedContainers: number
+  pendingContainers: number
+  submittedAt?: string | null
+}
+
+export interface DaImportPipelineReport {
+  totalExpectedKg: number
+  totalActualKg: number
+  expectedContainers: number
+  actualContainers: number
+  pipelineEntryCount: number
+  byStage: DaImportPipelineStageRow[]
+  byCommodity: DaImportPipelineCommodityRow[]
+  entries: DaImportPipelineEntryRow[]
+}
+
+export interface DaImportPipelineQuery {
+  hsCode?: string
+  commodityName?: string
+  agencyCode?: string
+}
+
 export interface DaCommodityStockReport {
   totalStockKg: number
   totalMavStockKg: number
@@ -305,6 +358,17 @@ export const daApi = createApi({
       },
       providesTags: ['DaReports'],
     }),
+    getDaImportPipelineReport: builder.query<ApiEnvelope<DaImportPipelineReport>, DaImportPipelineQuery | void>({
+      query: (params) => {
+        const search = new URLSearchParams()
+        if (params?.hsCode) search.set('hsCode', params.hsCode)
+        if (params?.commodityName) search.set('commodityName', params.commodityName)
+        if (params?.agencyCode) search.set('agencyCode', params.agencyCode)
+        const qs = search.toString()
+        return `/da/reports/import-pipeline${qs ? `?${qs}` : ''}`
+      },
+      providesTags: ['DaReports'],
+    }),
     getDaGeoStockReport: builder.query<ApiEnvelope<DaGeoStockReport>, DaGeoStockQuery>({
       query: (params) => {
         const search = new URLSearchParams()
@@ -345,6 +409,7 @@ export const {
   useGetDaReportQuery,
   useGetDaMavNationalReportQuery,
   useGetDaCommodityStockReportQuery,
+  useGetDaImportPipelineReportQuery,
   useGetDaGeoStockReportQuery,
   useGetDaWarehousesQuery,
   useGetDaWarehouseDetailQuery,

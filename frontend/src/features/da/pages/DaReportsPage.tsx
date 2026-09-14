@@ -99,6 +99,14 @@ export function DaReportsPage() {
             size="small"
             clickable
             component={RouterLink}
+            to="/da/reports/import-pipeline"
+            label="Expected vs actual imports"
+            sx={{ fontWeight: 700, bgcolor: portalAnalyticsColors.soft, color: portalAnalyticsColors.darkest }}
+          />
+          <Chip
+            size="small"
+            clickable
+            component={RouterLink}
             to="/da/reports/commodities"
             label="Commodity stock"
             sx={{ fontWeight: 700, bgcolor: portalAnalyticsColors.soft, color: portalAnalyticsColors.darkest }}

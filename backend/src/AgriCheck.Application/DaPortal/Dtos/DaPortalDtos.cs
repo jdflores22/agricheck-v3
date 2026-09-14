@@ -240,3 +240,48 @@ public record DaCommodityStockReportDto(
     int WarehouseCount,
     IReadOnlyList<DaCommodityStockRowDto> Commodities,
     IReadOnlyList<DaCommodityStockAgencyRowDto> ByAgency);
+
+public record DaImportPipelineQuery(string? HsCode = null, string? CommodityName = null, string? AgencyCode = null);
+
+public record DaImportPipelineStageRowDto(
+    string Stage,
+    string Label,
+    decimal ExpectedKg,
+    int ContainerCount,
+    int EntryCount);
+
+public record DaImportPipelineCommodityRowDto(
+    string HsCode,
+    string CommodityName,
+    decimal ExpectedKg,
+    decimal ActualKg,
+    decimal ProcessingKg,
+    decimal InTransitKg,
+    decimal AwaitingStorageKg,
+    int ExpectedContainers,
+    int ActualContainers);
+
+public record DaImportPipelineEntryRowDto(
+    Guid EntryUuid,
+    string ReferenceNo,
+    string AgencyCode,
+    string EntryStatus,
+    string PipelineStage,
+    string PipelineLabel,
+    string CommodityName,
+    string HsCode,
+    decimal ExpectedKg,
+    int TotalContainers,
+    int StoredContainers,
+    int PendingContainers,
+    DateTime? SubmittedAt);
+
+public record DaImportPipelineReportDto(
+    decimal TotalExpectedKg,
+    decimal TotalActualKg,
+    int ExpectedContainers,
+    int ActualContainers,
+    int PipelineEntryCount,
+    IReadOnlyList<DaImportPipelineStageRowDto> ByStage,
+    IReadOnlyList<DaImportPipelineCommodityRowDto> ByCommodity,
+    IReadOnlyList<DaImportPipelineEntryRowDto> Entries);

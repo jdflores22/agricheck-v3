@@ -1,6 +1,7 @@
 import AssessmentOutlinedIcon from '@mui/icons-material/AssessmentOutlined'
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined'
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
+import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined'
 import ReportOutlinedIcon from '@mui/icons-material/ReportOutlined'
 import WarehouseOutlinedIcon from '@mui/icons-material/WarehouseOutlined'
 import { Box, CircularProgress, Grid, Stack, Typography } from '@mui/material'
@@ -70,6 +71,14 @@ export function DaDashboardPage() {
               icon={Inventory2OutlinedIcon}
               label="MAV utilization"
               description="Nationwide remaining MAV volume for the Secretary's report to the President."
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+            <QuickLinkCard
+              to="/da/reports/import-pipeline"
+              icon={LocalShippingOutlinedIcon}
+              label="Expected vs actual"
+              description="Imports in pipeline vs goods already in warehouse inventory."
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}>

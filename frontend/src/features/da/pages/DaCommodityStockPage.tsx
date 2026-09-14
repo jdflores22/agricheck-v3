@@ -123,6 +123,14 @@ export function DaCommodityStockPage() {
             size="small"
             clickable
             component={RouterLink}
+            to="/da/reports/import-pipeline"
+            label="Expected vs actual"
+            sx={{ fontWeight: 700 }}
+          />
+          <Chip
+            size="small"
+            clickable
+            component={RouterLink}
             to="/da/reports/stock"
             icon={<MapOutlinedIcon />}
             label="Open stock map"

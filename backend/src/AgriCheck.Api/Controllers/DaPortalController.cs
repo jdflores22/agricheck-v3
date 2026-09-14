@@ -71,6 +71,16 @@ public class DaPortalController : AgencyPortalControllerBase
             new DaGeoStockQuery(regionId, provinceId, cityId, barangayId, hsCode, commodityName),
             cancellationToken));
 
+    [HttpGet("reports/import-pipeline")]
+    public async Task<ActionResult<ApiResponse<DaImportPipelineReportDto>>> ImportPipelineReport(
+        [FromQuery] string? hsCode,
+        [FromQuery] string? commodityName,
+        [FromQuery] string? agencyCode,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _reportService.GetImportPipelineReportAsync(
+            new DaImportPipelineQuery(hsCode, commodityName, agencyCode),
+            cancellationToken));
+
     [HttpGet("warehouses")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<DaWarehouseListItemDto>>>> Warehouses(CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _warehouseService.ListAsync(cancellationToken));

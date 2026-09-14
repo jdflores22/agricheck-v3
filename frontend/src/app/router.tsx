@@ -137,6 +137,7 @@ import { DaAgencyOversightPage } from '../features/da/pages/DaAgencyOversightPag
 import { DaReportsPage } from '../features/da/pages/DaReportsPage'
 import { DaMavNationalReportPage } from '../features/da/pages/DaMavNationalReportPage'
 import { DaCommodityStockPage } from '../features/da/pages/DaCommodityStockPage'
+import { DaImportPipelinePage } from '../features/da/pages/DaImportPipelinePage'
 import { DaGeoStockPage } from '../features/da/pages/DaGeoStockPage'
 import { DaWarehousesPage } from '../features/da/pages/DaWarehousesPage'
 import { DaWarehouseDetailPage } from '../features/da/pages/DaWarehouseDetailPage'
@@ -334,6 +335,7 @@ export const router = createBrowserRouter([
 
                   { path: 'reports', element: <DaReportsPage /> },
                   { path: 'reports/mav', element: <DaMavNationalReportPage /> },
+                  { path: 'reports/import-pipeline', element: <DaImportPipelinePage /> },
                   { path: 'reports/commodities', element: <DaCommodityStockPage /> },
                   { path: 'reports/stock', element: <DaGeoStockPage /> },
 
