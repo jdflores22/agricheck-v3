@@ -32,16 +32,10 @@ export function AgencyPaymentConfigPage() {
     payMongoWebhookSecret: '',
     payMongoPublicKey: '',
     cashPaymentInstructions: '',
-    importFeeAmount: 2500,
-    exportFeeAmount: 2500,
-    currency: 'PHP',
   })
 
   useEffect(() => {
     if (!settings) return
-    const importFee = settings.processingFees.find((fee) => fee.entryType === 'Import')?.amount ?? 2500
-    const exportFee = settings.processingFees.find((fee) => fee.entryType === 'Export')?.amount ?? 2500
-    const currency = settings.processingFees[0]?.currency ?? 'PHP'
     setForm({
       payMongoEnabled: settings.gateway.enabled,
       cashPaymentEnabled: settings.cashPaymentEnabled,
@@ -49,9 +43,6 @@ export function AgencyPaymentConfigPage() {
       payMongoWebhookSecret: '',
       payMongoPublicKey: settings.gateway.publicKey ?? '',
       cashPaymentInstructions: settings.cashPaymentInstructions ?? '',
-      importFeeAmount: importFee,
-      exportFeeAmount: exportFee,
-      currency,
     })
   }, [settings])
 
@@ -64,9 +55,6 @@ export function AgencyPaymentConfigPage() {
       payMongoWebhookSecret: form.payMongoWebhookSecret || undefined,
       payMongoPublicKey: form.payMongoPublicKey || undefined,
       cashPaymentInstructions: form.cashPaymentInstructions || undefined,
-      importFeeAmount: form.importFeeAmount,
-      exportFeeAmount: form.exportFeeAmount,
-      currency: form.currency,
     }).unwrap()
     setForm((prev) => ({ ...prev, payMongoApiKey: '', payMongoWebhookSecret: '' }))
   }
@@ -78,7 +66,7 @@ export function AgencyPaymentConfigPage() {
       <PortalPageHeader
         eyebrow={settings?.agencyCode ?? 'Agency'}
         title="Payment Configuration"
-        subtitle={`PayMongo and cash payment settings for ${settings?.agencyName ?? 'your agency'}.`}
+        subtitle={`PayMongo and cash payment settings for ${settings?.agencyName ?? 'your agency'}. Entry processing fees are managed by the system administrator.`}
       />
 
       {isSuccess && (
@@ -102,11 +90,9 @@ export function AgencyPaymentConfigPage() {
                   label={gatewayMode === 'paymongo' ? 'Live PayMongo' : 'Cash / office payment'}
                   color={gatewayMode === 'paymongo' ? 'success' : 'default'}
                 />
-                {settings?.usesGlobalPayMongoFallback && (
-                  <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted }}>
-                    No agency keys yet — falls back to system PayMongo when enabled globally.
-                  </Typography>
-                )}
+                <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted }}>
+                  Each agency uses its own PayMongo credentials. There is no shared platform fallback.
+                </Typography>
               </Stack>
 
               <FormControlLabel
@@ -128,7 +114,8 @@ export function AgencyPaymentConfigPage() {
                 size="small"
                 type="password"
                 autoComplete="new-password"
-                helperText="Leave blank to keep the current key."
+                required={form.payMongoEnabled && !settings?.gateway.hasApiKey}
+                helperText="Required when PayMongo is enabled. Leave blank to keep the current key."
               />
               <Alert severity="info" sx={{ borderRadius: '0.75rem' }}>
                 Webhook URL: <strong>{getApiV1Base()}/webhooks/paymongo</strong> — event:{' '}
@@ -176,39 +163,6 @@ export function AgencyPaymentConfigPage() {
                 minRows={3}
                 helperText="Shown to clients when they choose office cash payment."
               />
-            </Stack>
-          </PortalPanel>
-
-          <PortalPanel title="Entry Processing Fees">
-            <Stack spacing={2.5} sx={{ px: 2.5, py: 2.5 }}>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <TextField
-                  label="Import entry fee"
-                  type="number"
-                  value={form.importFeeAmount}
-                  onChange={(e) => setForm({ ...form, importFeeAmount: Number(e.target.value) })}
-                  required
-                  fullWidth
-                  size="small"
-                />
-                <TextField
-                  label="Export entry fee"
-                  type="number"
-                  value={form.exportFeeAmount}
-                  onChange={(e) => setForm({ ...form, exportFeeAmount: Number(e.target.value) })}
-                  required
-                  fullWidth
-                  size="small"
-                />
-                <TextField
-                  label="Currency"
-                  value={form.currency}
-                  onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })}
-                  required
-                  sx={{ maxWidth: 120 }}
-                  size="small"
-                />
-              </Stack>
             </Stack>
           </PortalPanel>
 

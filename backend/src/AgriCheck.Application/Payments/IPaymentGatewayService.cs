@@ -18,9 +18,9 @@ public interface IPaymentGatewayService
         long? agencyId = null,
         CancellationToken cancellationToken = default);
 
-    Task<bool> IsCheckoutSessionPaidAsync(string checkoutSessionId, CancellationToken cancellationToken = default);
+    Task<bool> IsCheckoutSessionPaidAsync(string checkoutSessionId, long? agencyId = null, CancellationToken cancellationToken = default);
 
-    Task<bool> IsGatewayPaymentPaidAsync(string gatewayTransactionId, CancellationToken cancellationToken = default);
+    Task<bool> IsGatewayPaymentPaidAsync(string gatewayTransactionId, long? agencyId = null, CancellationToken cancellationToken = default);
 
     Task<bool> VerifyWebhookSignatureAsync(string payload, string signature, CancellationToken cancellationToken = default);
 

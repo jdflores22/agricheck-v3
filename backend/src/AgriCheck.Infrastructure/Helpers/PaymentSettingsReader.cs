@@ -63,70 +63,22 @@ public static class PaymentSettingsReader
         CancellationToken cancellationToken = default)
     {
         var agencySettings = await TryGetAgencySettingsAsync(db, agencyId, cancellationToken);
-
-        var global = await GetAllAsync(db, cancellationToken);
-        var globalApiKey = global.GetValueOrDefault(PaymentSettingsDefaults.PayMongoApiKey);
-        if (string.IsNullOrWhiteSpace(globalApiKey))
-        {
-            globalApiKey = configuration["PayMongo:ApiKey"];
-        }
-
-        var globalWebhook = global.GetValueOrDefault(PaymentSettingsDefaults.PayMongoWebhookSecret);
-        if (string.IsNullOrWhiteSpace(globalWebhook))
-        {
-            globalWebhook = configuration["PayMongo:WebhookSecret"];
-        }
-
-        var globalPublicKey = global.GetValueOrDefault(PaymentSettingsDefaults.PayMongoPublicKey);
-        var globalEnabled = global.GetValueOrDefault(PaymentSettingsDefaults.PayMongoEnabled) == "1";
-
         var cashEnabled = agencySettings?.CashPaymentEnabled ?? true;
-        var usesAgencyCredentials = false;
-        var payMongoEnabled = false;
-        string? apiKey = null;
-        string? webhookSecret = null;
-        string? publicKey = null;
 
-        if (agencySettings is not null)
+        if (agencySettings?.PayMongoEnabled == true && !string.IsNullOrWhiteSpace(agencySettings.PayMongoApiKey))
         {
-            if (agencySettings.PayMongoEnabled && !string.IsNullOrWhiteSpace(agencySettings.PayMongoApiKey))
-            {
-                usesAgencyCredentials = true;
-                payMongoEnabled = true;
-                apiKey = agencySettings.PayMongoApiKey;
-                webhookSecret = agencySettings.PayMongoWebhookSecret;
-                publicKey = agencySettings.PayMongoPublicKey;
-            }
-            else if (!agencySettings.PayMongoEnabled)
-            {
-                payMongoEnabled = false;
-            }
-            else
-            {
-                payMongoEnabled = globalEnabled && !string.IsNullOrWhiteSpace(globalApiKey);
-                apiKey = globalApiKey;
-                webhookSecret = globalWebhook;
-                publicKey = globalPublicKey;
-            }
-        }
-        else
-        {
-            payMongoEnabled = globalEnabled && !string.IsNullOrWhiteSpace(globalApiKey);
-            apiKey = globalApiKey;
-            webhookSecret = globalWebhook;
-            publicKey = globalPublicKey;
+            return new ResolvedAgencyPaymentGateway(
+                true,
+                cashEnabled,
+                "paymongo",
+                agencySettings.PayMongoApiKey.Trim(),
+                agencySettings.PayMongoWebhookSecret?.Trim(),
+                agencySettings.PayMongoPublicKey?.Trim(),
+                true);
         }
 
-        var mode = payMongoEnabled ? "paymongo" : cashEnabled ? "cash_only" : "simulated";
-
-        return new ResolvedAgencyPaymentGateway(
-            payMongoEnabled,
-            cashEnabled,
-            mode,
-            apiKey?.Trim(),
-            webhookSecret?.Trim(),
-            publicKey?.Trim(),
-            usesAgencyCredentials);
+        var mode = cashEnabled ? "cash_only" : "simulated";
+        return new ResolvedAgencyPaymentGateway(false, cashEnabled, mode, null, null, null, false);
     }
 
     public static async Task<decimal> ResolveEntryProcessingFeeAsync(

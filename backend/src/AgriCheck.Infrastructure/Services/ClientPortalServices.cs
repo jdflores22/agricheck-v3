@@ -791,8 +791,7 @@ public class ClientBillService : IClientBillService
         var agencyId = bill.Entry?.AgencyId;
         if (agencyId is null)
         {
-            var globalEnabled = await PaymentSettingsReader.IsPayMongoEnabledAsync(_db, cancellationToken);
-            return new BillPaymentOptionsDto(globalEnabled, true, globalEnabled ? "paymongo" : "simulated", null);
+            return new BillPaymentOptionsDto(false, true, "simulated", null);
         }
 
         var agencySettings = await PaymentSettingsReader.TryGetAgencySettingsAsync(_db, agencyId.Value, cancellationToken);
@@ -1050,7 +1049,7 @@ public class ClientBillService : IClientBillService
                 continue;
             }
 
-            if (await _paymentGateway.IsGatewayPaymentPaidAsync(pending.GatewayTransactionId, cancellationToken))
+            if (await _paymentGateway.IsGatewayPaymentPaidAsync(pending.GatewayTransactionId, bill.Entry?.AgencyId, cancellationToken))
             {
                 paidPending = pending;
                 break;

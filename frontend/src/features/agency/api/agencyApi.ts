@@ -645,8 +645,6 @@ export interface AgencyPaymentSettings {
   }
   cashPaymentEnabled: boolean
   cashPaymentInstructions?: string | null
-  usesGlobalPayMongoFallback: boolean
-  processingFees: Array<{ entryType: string; amount: number; currency: string }>
 }
 
 export interface UpdateAgencyPaymentSettingsRequest {
@@ -656,9 +654,6 @@ export interface UpdateAgencyPaymentSettingsRequest {
   payMongoWebhookSecret?: string
   payMongoPublicKey?: string
   cashPaymentInstructions?: string
-  importFeeAmount: number
-  exportFeeAmount: number
-  currency: string
 }
 
 export interface AgencyBillingRevenueReport {

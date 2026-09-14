@@ -132,16 +132,15 @@ public class PayMongoGatewayService : IPaymentGatewayService
         }
     }
 
-    public async Task<bool> IsCheckoutSessionPaidAsync(string checkoutSessionId, CancellationToken cancellationToken = default)
+    public async Task<bool> IsCheckoutSessionPaidAsync(string checkoutSessionId, long? agencyId = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(checkoutSessionId))
         {
             return false;
         }
 
-        var payMongoEnabled = await PaymentSettingsReader.IsPayMongoEnabledAsync(_db, cancellationToken);
-        var apiKey = await PaymentSettingsReader.GetPayMongoApiKeyAsync(_db, _configuration, cancellationToken);
-        if (!payMongoEnabled || string.IsNullOrWhiteSpace(apiKey))
+        var apiKey = await ResolveVerificationApiKeyAsync(agencyId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(apiKey))
         {
             return false;
         }
@@ -173,7 +172,7 @@ public class PayMongoGatewayService : IPaymentGatewayService
         }
     }
 
-    public async Task<bool> IsGatewayPaymentPaidAsync(string gatewayTransactionId, CancellationToken cancellationToken = default)
+    public async Task<bool> IsGatewayPaymentPaidAsync(string gatewayTransactionId, long? agencyId = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(gatewayTransactionId))
         {
@@ -182,22 +181,21 @@ public class PayMongoGatewayService : IPaymentGatewayService
 
         if (gatewayTransactionId.StartsWith("cs_", StringComparison.OrdinalIgnoreCase))
         {
-            return await IsCheckoutSessionPaidAsync(gatewayTransactionId, cancellationToken);
+            return await IsCheckoutSessionPaidAsync(gatewayTransactionId, agencyId, cancellationToken);
         }
 
         if (gatewayTransactionId.StartsWith("link_", StringComparison.OrdinalIgnoreCase))
         {
-            return await IsLegacyLinkPaidAsync(gatewayTransactionId, cancellationToken);
+            return await IsLegacyLinkPaidAsync(gatewayTransactionId, agencyId, cancellationToken);
         }
 
         return false;
     }
 
-    private async Task<bool> IsLegacyLinkPaidAsync(string linkId, CancellationToken cancellationToken)
+    private async Task<bool> IsLegacyLinkPaidAsync(string linkId, long? agencyId, CancellationToken cancellationToken)
     {
-        var payMongoEnabled = await PaymentSettingsReader.IsPayMongoEnabledAsync(_db, cancellationToken);
-        var apiKey = await PaymentSettingsReader.GetPayMongoApiKeyAsync(_db, _configuration, cancellationToken);
-        if (!payMongoEnabled || string.IsNullOrWhiteSpace(apiKey))
+        var apiKey = await ResolveVerificationApiKeyAsync(agencyId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(apiKey))
         {
             return false;
         }
@@ -612,21 +610,19 @@ public class PayMongoGatewayService : IPaymentGatewayService
         return "unknown";
     }
 
+    private async Task<string?> ResolveVerificationApiKeyAsync(long? agencyId, CancellationToken cancellationToken)
+    {
+        if (agencyId is long resolvedAgencyId)
+        {
+            var gateway = await PaymentSettingsReader.ResolveForAgencyAsync(_db, resolvedAgencyId, _configuration, cancellationToken);
+            return gateway.PayMongoApiKey;
+        }
+
+        return null;
+    }
+
     private async Task<ResolvedAgencyPaymentGateway> ResolveGlobalGatewayAsync(CancellationToken cancellationToken)
     {
-        var enabled = await PaymentSettingsReader.IsPayMongoEnabledAsync(_db, cancellationToken);
-        var apiKey = await PaymentSettingsReader.GetPayMongoApiKeyAsync(_db, _configuration, cancellationToken);
-        var webhook = await PaymentSettingsReader.GetPayMongoWebhookSecretAsync(_db, _configuration, cancellationToken);
-        var settings = await PaymentSettingsReader.GetAllAsync(_db, cancellationToken);
-        var publicKey = settings.GetValueOrDefault(PaymentSettingsDefaults.PayMongoPublicKey);
-
-        return new ResolvedAgencyPaymentGateway(
-            enabled,
-            true,
-            enabled ? "paymongo" : "simulated",
-            apiKey,
-            webhook,
-            string.IsNullOrWhiteSpace(publicKey) ? null : publicKey,
-            false);
+        return new ResolvedAgencyPaymentGateway(false, true, "simulated", null, null, null, false);
     }
 }

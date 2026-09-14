@@ -49,6 +49,18 @@ public class AgencyPaymentConfigService : IAgencyPaymentConfigService
             _db.AgencyPaymentSettings.Add(settings);
         }
 
+        if (request.PayMongoEnabled)
+        {
+            var hasExistingKey = !string.IsNullOrWhiteSpace(settings.PayMongoApiKey);
+            var hasIncomingKey = !string.IsNullOrWhiteSpace(request.PayMongoApiKey) && request.PayMongoApiKey != "********";
+            if (!hasExistingKey && !hasIncomingKey)
+            {
+                throw new ClientPortalException(
+                    "PAYMONGO_KEY_REQUIRED",
+                    "A PayMongo API key is required when PayMongo is enabled for this agency.");
+            }
+        }
+
         settings.PayMongoEnabled = request.PayMongoEnabled;
         settings.CashPaymentEnabled = request.CashPaymentEnabled;
         settings.CashPaymentInstructions = request.CashPaymentInstructions?.Trim();
@@ -67,9 +79,6 @@ public class AgencyPaymentConfigService : IAgencyPaymentConfigService
         {
             settings.PayMongoPublicKey = request.PayMongoPublicKey.Trim();
         }
-
-        await UpsertProcessingFeeAsync(agency.Id, EntryType.Import, request.ImportFeeAmount, request.Currency, cancellationToken);
-        await UpsertProcessingFeeAsync(agency.Id, EntryType.Export, request.ExportFeeAmount, request.Currency, cancellationToken);
 
         await _db.SaveChangesAsync(cancellationToken);
         return await MapSettingsAsync(agency, cancellationToken);
@@ -179,41 +188,9 @@ public class AgencyPaymentConfigService : IAgencyPaymentConfigService
         }
     }
 
-    private async Task UpsertProcessingFeeAsync(
-        long agencyId,
-        EntryType entryType,
-        decimal amount,
-        string currency,
-        CancellationToken cancellationToken)
-    {
-        var config = await _db.ProcessingFeeConfigs
-            .FirstOrDefaultAsync(c => c.AgencyId == agencyId && c.EntryType == entryType, cancellationToken);
-
-        if (config is null)
-        {
-            config = new ProcessingFeeConfig { AgencyId = agencyId, EntryType = entryType };
-            _db.ProcessingFeeConfigs.Add(config);
-        }
-
-        config.Amount = amount;
-        config.Currency = currency.Trim().ToUpperInvariant();
-        config.IsActive = true;
-    }
-
     private async Task<AgencyPaymentSettingsDto> MapSettingsAsync(Agency agency, CancellationToken cancellationToken)
     {
-        var settings = await _db.AgencyPaymentSettings.AsNoTracking()
-            .FirstOrDefaultAsync(s => s.AgencyId == agency.Id, cancellationToken);
-
-        var fees = await _db.ProcessingFeeConfigs.AsNoTracking()
-            .Where(c => c.AgencyId == agency.Id && c.IsActive)
-            .ToListAsync(cancellationToken);
-
-        decimal importFee = fees.FirstOrDefault(c => c.EntryType == EntryType.Import)?.Amount
-            ?? await PaymentSettingsReader.ResolveEntryProcessingFeeAsync(_db, EntryType.Import, cancellationToken);
-        decimal exportFee = fees.FirstOrDefault(c => c.EntryType == EntryType.Export)?.Amount
-            ?? await PaymentSettingsReader.ResolveEntryProcessingFeeAsync(_db, EntryType.Export, cancellationToken);
-        var currency = fees.FirstOrDefault()?.Currency ?? "PHP";
+        var settings = await PaymentSettingsReader.TryGetAgencySettingsAsync(_db, agency.Id, cancellationToken);
 
         var apiKey = settings?.PayMongoApiKey;
         var webhookSecret = settings?.PayMongoWebhookSecret;
@@ -233,13 +210,7 @@ public class AgencyPaymentConfigService : IAgencyPaymentConfigService
                 !string.IsNullOrWhiteSpace(webhookSecret),
                 settings?.PayMongoPublicKey),
             settings?.CashPaymentEnabled ?? true,
-            settings?.CashPaymentInstructions,
-            settings is null || string.IsNullOrWhiteSpace(apiKey),
-            new[]
-            {
-                new GlobalEntryProcessingFeeDto("Import", importFee, currency),
-                new GlobalEntryProcessingFeeDto("Export", exportFee, currency),
-            });
+            settings?.CashPaymentInstructions);
     }
 
     private static string MaskSecret(string? value)

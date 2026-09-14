@@ -143,15 +143,9 @@ public record PaymentGatewaySettingsDto(
 
 public record GlobalEntryProcessingFeeDto(string EntryType, decimal Amount, string Currency);
 
-public record AdminPaymentSettingsDto(
-    PaymentGatewaySettingsDto Gateway,
-    IReadOnlyList<GlobalEntryProcessingFeeDto> ProcessingFees);
+public record AdminPaymentSettingsDto(IReadOnlyList<GlobalEntryProcessingFeeDto> ProcessingFees);
 
 public record UpdateAdminPaymentSettingsRequest(
-    bool PayMongoEnabled,
-    string? PayMongoApiKey,
-    string? PayMongoWebhookSecret,
-    string? PayMongoPublicKey,
     decimal ImportFeeAmount,
     decimal ExportFeeAmount,
     string Currency);

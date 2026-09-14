@@ -8,9 +8,7 @@ public record AgencyPaymentSettingsDto(
     string AgencyName,
     PaymentGatewaySettingsDto Gateway,
     bool CashPaymentEnabled,
-    string? CashPaymentInstructions,
-    bool UsesGlobalPayMongoFallback,
-    IReadOnlyList<GlobalEntryProcessingFeeDto> ProcessingFees);
+    string? CashPaymentInstructions);
 
 public record UpdateAgencyPaymentSettingsRequest(
     bool PayMongoEnabled,
@@ -18,10 +16,7 @@ public record UpdateAgencyPaymentSettingsRequest(
     string? PayMongoApiKey,
     string? PayMongoWebhookSecret,
     string? PayMongoPublicKey,
-    string? CashPaymentInstructions,
-    decimal ImportFeeAmount,
-    decimal ExportFeeAmount,
-    string Currency);
+    string? CashPaymentInstructions);
 
 public record AgencyPendingCashPaymentDto(
     Guid BillUuid,
