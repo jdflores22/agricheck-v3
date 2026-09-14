@@ -83,6 +83,7 @@ public class AgriCheckDbContext : DbContext
     public DbSet<ReleaseRecord> ReleaseRecords => Set<ReleaseRecord>();
     public DbSet<DriverProfile> DriverProfiles => Set<DriverProfile>();
     public DbSet<OperatorInviteCode> OperatorInviteCodes => Set<OperatorInviteCode>();
+    public DbSet<OperatorVehicle> OperatorVehicles => Set<OperatorVehicle>();
     public DbSet<DriverDocument> DriverDocuments => Set<DriverDocument>();
     public DbSet<DriverProfileHistory> DriverProfileHistories => Set<DriverProfileHistory>();
     public DbSet<MobilePushDevice> MobilePushDevices => Set<MobilePushDevice>();

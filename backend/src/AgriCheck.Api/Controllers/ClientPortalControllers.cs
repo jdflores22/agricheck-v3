@@ -688,8 +688,14 @@ public class OperatorContainersController : OpsPortalControllerBase
 
     [HttpGet("claimable")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<ContainerListItemDto>>>> ListClaimable(
+        [FromQuery] string? search,
         CancellationToken cancellationToken) =>
-        await ExecuteAsync(() => _service.ListClaimableContainersAsync(cancellationToken));
+        await ExecuteAsync(() => _service.ListClaimableContainersAsync(search, cancellationToken));
+
+    [HttpGet("claimed")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<ContainerListItemDto>>>> ListClaimed(
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListClaimedContainersAsync(cancellationToken));
 
     [HttpPost("{uuid:guid}/claim")]
     public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> Claim(
@@ -709,6 +715,42 @@ public class OperatorContainersController : OpsPortalControllerBase
         [FromBody] AssignDriverRequest request,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.AssignDriverAsync(uuid, request, cancellationToken));
+}
+
+[ApiController]
+[Route("api/v1/ops/operator/drivers")]
+[Authorize(Roles = "ROLE_OPERATOR,ROLE_ADMIN")]
+public class OperatorDriversController : OpsPortalControllerBase
+{
+    private readonly IOperatorOpsService _service;
+
+    public OperatorDriversController(IOperatorOpsService service) => _service = service;
+
+    [HttpGet]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<OperatorDriverListItemDto>>>> List(
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListDriversAsync(cancellationToken));
+}
+
+[ApiController]
+[Route("api/v1/ops/operator/vehicles")]
+[Authorize(Roles = "ROLE_OPERATOR,ROLE_ADMIN")]
+public class OperatorVehiclesController : OpsPortalControllerBase
+{
+    private readonly IOperatorOpsService _service;
+
+    public OperatorVehiclesController(IOperatorOpsService service) => _service = service;
+
+    [HttpGet]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<OperatorVehicleListItemDto>>>> List(
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListVehiclesAsync(cancellationToken));
+
+    [HttpPost]
+    public async Task<ActionResult<ApiResponse<OperatorVehicleListItemDto>>> Create(
+        [FromBody] CreateOperatorVehicleRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.CreateVehicleAsync(request, cancellationToken));
 }
 
 [ApiController]

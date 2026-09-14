@@ -22,6 +22,24 @@ public class ContainerConfiguration : IEntityTypeConfiguration<Container>
         builder.HasOne(x => x.Entry).WithMany(x => x.Containers).HasForeignKey(x => x.EntryId);
         builder.HasOne(x => x.ClaimedBy).WithMany().HasForeignKey(x => x.ClaimedByUserId);
         builder.HasOne(x => x.AssignedDriver).WithMany().HasForeignKey(x => x.AssignedDriverUserId);
+        builder.HasOne(x => x.AssignedOperatorVehicle).WithMany().HasForeignKey(x => x.AssignedOperatorVehicleId);
+    }
+}
+
+public class OperatorVehicleConfiguration : IEntityTypeConfiguration<OperatorVehicle>
+{
+    public void Configure(EntityTypeBuilder<OperatorVehicle> builder)
+    {
+        builder.ToTable("operator_vehicles");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Uuid).IsRequired();
+        builder.HasIndex(x => x.Uuid).IsUnique();
+        builder.Property(x => x.PlateNumber).HasMaxLength(32).IsRequired();
+        builder.HasIndex(x => new { x.OperatorUserId, x.PlateNumber }).IsUnique();
+        builder.Property(x => x.VehicleType).HasMaxLength(100).IsRequired();
+        builder.Property(x => x.Description).HasMaxLength(255);
+        builder.HasOne(x => x.OperatorUser).WithMany().HasForeignKey(x => x.OperatorUserId);
+        builder.HasOne(x => x.DefaultDriver).WithMany().HasForeignKey(x => x.DefaultDriverUserId);
     }
 }
 

@@ -1188,16 +1188,38 @@ public class OperatorOpsService : IOperatorOpsService
         _configuration = configuration;
     }
 
-    public async Task<IReadOnlyList<ContainerListItemDto>> ListClaimableContainersAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ContainerListItemDto>> ListClaimableContainersAsync(
+        string? search = null,
+        CancellationToken cancellationToken = default)
     {
         await RequireOperatorAsync(cancellationToken);
-        var containers = await _db.Containers
+        var query = _db.Containers
             .Include(c => c.Entry)
             .Include(c => c.Locations)
-            .Where(c => c.Status == ContainerStatus.AwaitingConfirmation && c.ClaimedByUserId == null)
+            .Where(c => c.Status == ContainerStatus.AwaitingConfirmation && c.ClaimedByUserId == null);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(c =>
+                c.ContainerNumber.Contains(term) ||
+                c.Entry.ReferenceNo.Contains(term));
+        }
+
+        var containers = await query
             .OrderByDescending(c => c.UpdatedAt)
             .ToListAsync(cancellationToken);
         return containers.Select(OpsDtoMapper.MapContainer).ToList();
+    }
+
+    public async Task<IReadOnlyList<ContainerListItemDto>> ListClaimedContainersAsync(CancellationToken cancellationToken = default)
+    {
+        var user = await RequireOperatorAsync(cancellationToken);
+        var containers = await OperatorContainerQuery(_db.Containers)
+            .Where(c => c.ClaimedByUserId == user.Id)
+            .OrderByDescending(c => c.UpdatedAt)
+            .ToListAsync(cancellationToken);
+        return containers.Select(c => OpsDtoMapper.MapContainer(c, includeAssignment: true)).ToList();
     }
 
     public async Task<ContainerListItemDto> ClaimContainerAsync(Guid containerUuid, CancellationToken cancellationToken = default)
@@ -1254,10 +1276,14 @@ public class OperatorOpsService : IOperatorOpsService
             throw new ClientPortalException("INVALID_STATUS", "Container is not awaiting confirmation.");
         }
 
+        if (container.ClaimedByUserId is not null && container.ClaimedByUserId != user.Id)
+        {
+            throw new ClientPortalException("ALREADY_CLAIMED", "Container was already claimed by another operator.");
+        }
+
         container.ClaimedByUserId = user.Id;
-        container.Status = ContainerStatus.Assigned;
         await _db.SaveChangesAsync(cancellationToken);
-        return OpsDtoMapper.MapContainer(container);
+        return OpsDtoMapper.MapContainer(container, includeAssignment: true);
     }
 
     public async Task<ContainerListItemDto> AssignDriverAsync(
@@ -1266,12 +1292,17 @@ public class OperatorOpsService : IOperatorOpsService
         CancellationToken cancellationToken = default)
     {
         var user = await RequireOperatorAsync(cancellationToken);
-        var driver = await _db.Users.FirstOrDefaultAsync(u => u.Uuid == request.DriverUserUuid, cancellationToken)
+        var driverProfile = await _db.DriverProfiles
+            .Include(p => p.User).ThenInclude(u => u.Profile)
+            .FirstOrDefaultAsync(p => p.User.Uuid == request.DriverUserUuid, cancellationToken)
             ?? throw new ClientPortalException("DRIVER_NOT_FOUND", "Driver not found.");
 
-        var container = await _db.Containers
-            .Include(c => c.Entry)
-            .Include(c => c.Locations)
+        if (driverProfile.OperatorUserId != user.Id && !_currentUser.IsInRole("ROLE_ADMIN"))
+        {
+            throw new ClientPortalException("DRIVER_NOT_IN_FLEET", "Driver is not registered under your fleet.");
+        }
+
+        var container = await OperatorContainerQuery(_db.Containers)
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Container not found.");
 
@@ -1280,11 +1311,106 @@ public class OperatorOpsService : IOperatorOpsService
             throw new ClientPortalException("FORBIDDEN", "Only the claiming operator can assign a driver.");
         }
 
-        container.AssignedDriverUserId = driver.Id;
+        OperatorVehicle? vehicle = null;
+        if (request.VehicleUuid.HasValue)
+        {
+            vehicle = await _db.OperatorVehicles
+                .FirstOrDefaultAsync(
+                    v => v.Uuid == request.VehicleUuid.Value &&
+                         v.OperatorUserId == user.Id &&
+                         v.IsActive,
+                    cancellationToken)
+                ?? throw new ClientPortalException("VEHICLE_NOT_FOUND", "Vehicle not found in your fleet.");
+        }
+
+        container.AssignedDriverUserId = driverProfile.UserId;
+        container.AssignedOperatorVehicleId = vehicle?.Id;
         container.Status = ContainerStatus.Assigned;
         await _db.SaveChangesAsync(cancellationToken);
-        await _push.NotifyDriverAssignmentAsync(driver.Id, container.ContainerNumber, container.Uuid, cancellationToken);
-        return OpsDtoMapper.MapContainer(container);
+        await _push.NotifyDriverAssignmentAsync(driverProfile.UserId, container.ContainerNumber, container.Uuid, cancellationToken);
+
+        container = await OperatorContainerQuery(_db.Containers)
+            .FirstAsync(c => c.Id == container.Id, cancellationToken);
+        return OpsDtoMapper.MapContainer(container, includeAssignment: true);
+    }
+
+    public async Task<IReadOnlyList<OperatorDriverListItemDto>> ListDriversAsync(CancellationToken cancellationToken = default)
+    {
+        var user = await RequireOperatorAsync(cancellationToken);
+        var profiles = await _db.DriverProfiles
+            .Where(p => p.OperatorUserId == user.Id)
+            .Include(p => p.User).ThenInclude(u => u.Profile)
+            .OrderBy(p => p.User.Email)
+            .ToListAsync(cancellationToken);
+
+        return profiles.Select(MapOperatorDriver).ToList();
+    }
+
+    public async Task<IReadOnlyList<OperatorVehicleListItemDto>> ListVehiclesAsync(CancellationToken cancellationToken = default)
+    {
+        var user = await RequireOperatorAsync(cancellationToken);
+        var vehicles = await _db.OperatorVehicles
+            .Where(v => v.OperatorUserId == user.Id)
+            .Include(v => v.DefaultDriver).ThenInclude(d => d!.Profile)
+            .OrderBy(v => v.PlateNumber)
+            .ToListAsync(cancellationToken);
+
+        return vehicles.Select(MapOperatorVehicle).ToList();
+    }
+
+    public async Task<OperatorVehicleListItemDto> CreateVehicleAsync(
+        CreateOperatorVehicleRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await RequireOperatorAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(request.PlateNumber) || string.IsNullOrWhiteSpace(request.VehicleType))
+        {
+            throw new ClientPortalException("VALIDATION", "Plate number and vehicle type are required.");
+        }
+
+        long? defaultDriverUserId = null;
+        if (request.DefaultDriverUuid.HasValue)
+        {
+            var driverProfile = await _db.DriverProfiles
+                .Include(p => p.User)
+                .FirstOrDefaultAsync(p => p.User.Uuid == request.DefaultDriverUuid.Value, cancellationToken)
+                ?? throw new ClientPortalException("DRIVER_NOT_FOUND", "Default driver not found.");
+
+            if (driverProfile.OperatorUserId != user.Id)
+            {
+                throw new ClientPortalException("DRIVER_NOT_IN_FLEET", "Default driver is not registered under your fleet.");
+            }
+
+            defaultDriverUserId = driverProfile.UserId;
+        }
+
+        var plate = request.PlateNumber.Trim().ToUpperInvariant();
+        if (await _db.OperatorVehicles.AnyAsync(
+                v => v.OperatorUserId == user.Id && v.PlateNumber == plate,
+                cancellationToken))
+        {
+            throw new ClientPortalException("DUPLICATE_PLATE", "A vehicle with this plate number already exists.");
+        }
+
+        var vehicle = new OperatorVehicle
+        {
+            OperatorUserId = user.Id,
+            PlateNumber = plate,
+            VehicleType = request.VehicleType.Trim(),
+            Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
+            DefaultDriverUserId = defaultDriverUserId,
+            IsActive = true,
+        };
+        _db.OperatorVehicles.Add(vehicle);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        await _db.Entry(vehicle).Reference(v => v.DefaultDriver).LoadAsync(cancellationToken);
+        if (vehicle.DefaultDriver is not null)
+        {
+            await _db.Entry(vehicle.DefaultDriver).Reference(u => u.Profile).LoadAsync(cancellationToken);
+        }
+
+        return MapOperatorVehicle(vehicle);
     }
 
     public async Task<IReadOnlyList<OperatorInviteCodeListItemDto>> ListInviteCodesAsync(CancellationToken cancellationToken = default)
@@ -1351,6 +1477,47 @@ public class OperatorOpsService : IOperatorOpsService
 
     private static OperatorInviteCodeListItemDto MapInviteCode(OperatorInviteCode invite) =>
         new(invite.Code, invite.Label, invite.MaxUses, invite.UsedCount, invite.ExpiresAt, invite.IsActive, invite.CreatedAt);
+
+    private static IQueryable<Container> OperatorContainerQuery(IQueryable<Container> query) =>
+        query
+            .Include(c => c.Entry)
+            .Include(c => c.Locations)
+            .Include(c => c.AssignedDriver).ThenInclude(d => d!.Profile)
+            .Include(c => c.AssignedOperatorVehicle);
+
+    private static OperatorDriverListItemDto MapOperatorDriver(DriverProfile profile)
+    {
+        var user = profile.User;
+        var name = OpsDtoMapper.FormatUserName(user.Profile, user.Email);
+        return new OperatorDriverListItemDto(
+            user.Uuid,
+            name,
+            user.Email,
+            profile.PhoneNumber,
+            profile.VehicleType,
+            profile.VehicleRegistration,
+            profile.CompletionPercentage >= 80);
+    }
+
+    private static OperatorVehicleListItemDto MapOperatorVehicle(OperatorVehicle vehicle)
+    {
+        Guid? defaultDriverUuid = null;
+        string? defaultDriverName = null;
+        if (vehicle.DefaultDriver is not null)
+        {
+            defaultDriverUuid = vehicle.DefaultDriver.Uuid;
+            defaultDriverName = OpsDtoMapper.FormatUserName(vehicle.DefaultDriver.Profile, vehicle.DefaultDriver.Email);
+        }
+
+        return new OperatorVehicleListItemDto(
+            vehicle.Uuid,
+            vehicle.PlateNumber,
+            vehicle.VehicleType,
+            vehicle.Description,
+            defaultDriverUuid,
+            defaultDriverName,
+            vehicle.IsActive);
+    }
 
     private async Task<User> RequireOperatorAsync(CancellationToken cancellationToken)
     {

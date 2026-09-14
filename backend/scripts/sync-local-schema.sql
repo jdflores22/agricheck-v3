@@ -136,5 +136,40 @@ WHERE NOT EXISTS (
   WHERE `MigrationId` = '20260913120000_DriverRegistrationAndInvites'
 );
 
--- === Verify: expect 84 rows (83 app tables + __EFMigrationsHistory) ===
+-- === 9. operator_vehicles + container vehicle assignment ===
+CREATE TABLE IF NOT EXISTS `operator_vehicles` (
+  `Id` bigint NOT NULL AUTO_INCREMENT,
+  `Uuid` char(36) COLLATE ascii_general_ci NOT NULL,
+  `OperatorUserId` bigint NOT NULL,
+  `PlateNumber` varchar(32) NOT NULL,
+  `VehicleType` varchar(100) NOT NULL,
+  `Description` varchar(255) NULL,
+  `DefaultDriverUserId` bigint NULL,
+  `IsActive` tinyint(1) NOT NULL,
+  `CreatedAt` datetime(6) NOT NULL,
+  `UpdatedAt` datetime(6) NOT NULL,
+  PRIMARY KEY (`Id`),
+  UNIQUE KEY `IX_operator_vehicles_Uuid` (`Uuid`),
+  UNIQUE KEY `IX_operator_vehicles_OperatorUserId_PlateNumber` (`OperatorUserId`, `PlateNumber`),
+  KEY `IX_operator_vehicles_DefaultDriverUserId` (`DefaultDriverUserId`),
+  CONSTRAINT `FK_operator_vehicles_users_DefaultDriverUserId`
+    FOREIGN KEY (`DefaultDriverUserId`) REFERENCES `users` (`Id`) ON DELETE SET NULL,
+  CONSTRAINT `FK_operator_vehicles_users_OperatorUserId`
+    FOREIGN KEY (`OperatorUserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE `containers` ADD `AssignedOperatorVehicleId` bigint NULL;
+CREATE INDEX `IX_containers_AssignedOperatorVehicleId` ON `containers` (`AssignedOperatorVehicleId`);
+ALTER TABLE `containers`
+  ADD CONSTRAINT `FK_containers_operator_vehicles_AssignedOperatorVehicleId`
+  FOREIGN KEY (`AssignedOperatorVehicleId`) REFERENCES `operator_vehicles` (`Id`) ON DELETE SET NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+SELECT '20260914130000_OperatorFleet', '8.0.0'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `__EFMigrationsHistory`
+  WHERE `MigrationId` = '20260914130000_OperatorFleet'
+);
+
+-- === Verify: expect 85 rows (84 app tables + __EFMigrationsHistory) ===
 SHOW TABLES;

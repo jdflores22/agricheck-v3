@@ -39,6 +39,29 @@ export interface ContainerItem {
   lastLatitude?: number
   lastLongitude?: number
   lastLocationAt?: string
+  assignedDriverUuid?: string
+  assignedDriverName?: string
+  assignedVehiclePlate?: string
+}
+
+export interface OperatorDriver {
+  userUuid: string
+  fullName: string
+  email: string
+  phoneNumber?: string
+  vehicleType?: string
+  vehicleRegistration?: string
+  profileComplete: boolean
+}
+
+export interface OperatorVehicle {
+  uuid: string
+  plateNumber: string
+  vehicleType: string
+  description?: string
+  defaultDriverUuid?: string
+  defaultDriverName?: string
+  isActive: boolean
 }
 
 export type OpsContainerListItem = ContainerItem
@@ -93,7 +116,7 @@ export interface WarehouseFacility {
 export const opsApi = createApi({
   reducerPath: 'opsApi',
   baseQuery: baseQueryWithReauth,
-  tagTypes: ['WarehouseDashboard', 'WarehouseInventory', 'ReleaseAuth', 'DriverDashboard', 'DriverProfile', 'DriverContainers', 'OperatorContainers', 'OperatorInviteCodes', 'DoctorContainers'],
+  tagTypes: ['WarehouseDashboard', 'WarehouseInventory', 'ReleaseAuth', 'DriverDashboard', 'DriverProfile', 'DriverContainers', 'OperatorContainers', 'OperatorDrivers', 'OperatorVehicles', 'OperatorInviteCodes', 'DoctorContainers'],
   endpoints: (builder) => ({
     getWarehouseDashboard: builder.query<ApiEnvelope<WarehouseDashboard>, void>({
       query: () => '/ops/warehouse/dashboard',
@@ -153,13 +176,39 @@ export const opsApi = createApi({
       }),
       invalidatesTags: ['DriverContainers'],
     }),
-    getClaimableContainers: builder.query<ApiEnvelope<OpsContainerListItem[]>, void>({
-      query: () => '/ops/operator/containers/claimable',
+    getClaimableContainers: builder.query<ApiEnvelope<OpsContainerListItem[]>, string | void>({
+      query: (search) => ({
+        url: '/ops/operator/containers/claimable',
+        params: search ? { search } : undefined,
+      }),
+      providesTags: ['OperatorContainers'],
+    }),
+    getClaimedContainers: builder.query<ApiEnvelope<OpsContainerListItem[]>, void>({
+      query: () => '/ops/operator/containers/claimed',
       providesTags: ['OperatorContainers'],
     }),
     claimOperatorContainer: builder.mutation<ApiEnvelope<OpsContainerListItem>, string>({
       query: (uuid) => ({ url: `/ops/operator/containers/${uuid}/claim`, method: 'POST' }),
       invalidatesTags: ['OperatorContainers'],
+    }),
+    scanAndClaimOperatorContainer: builder.mutation<ApiEnvelope<OpsContainerListItem>, { qrData: string }>({
+      query: (body) => ({ url: '/ops/operator/containers/scan', method: 'POST', body }),
+      invalidatesTags: ['OperatorContainers'],
+    }),
+    getOperatorDrivers: builder.query<ApiEnvelope<OperatorDriver[]>, void>({
+      query: () => '/ops/operator/drivers',
+      providesTags: ['OperatorDrivers'],
+    }),
+    getOperatorVehicles: builder.query<ApiEnvelope<OperatorVehicle[]>, void>({
+      query: () => '/ops/operator/vehicles',
+      providesTags: ['OperatorVehicles'],
+    }),
+    createOperatorVehicle: builder.mutation<
+      ApiEnvelope<OperatorVehicle>,
+      { plateNumber: string; vehicleType: string; description?: string; defaultDriverUuid?: string }
+    >({
+      query: (body) => ({ url: '/ops/operator/vehicles', method: 'POST', body }),
+      invalidatesTags: ['OperatorVehicles'],
     }),
     getOperatorInviteCodes: builder.query<ApiEnvelope<OperatorInviteCode[]>, void>({
       query: () => '/ops/operator/invite-codes',
@@ -169,11 +218,14 @@ export const opsApi = createApi({
       query: (body) => ({ url: '/ops/operator/invite-codes', method: 'POST', body }),
       invalidatesTags: ['OperatorInviteCodes'],
     }),
-    assignDriverToContainer: builder.mutation<ApiEnvelope<OpsContainerListItem>, { uuid: string; driverUserUuid: string }>({
-      query: ({ uuid, driverUserUuid }) => ({
+    assignDriverToContainer: builder.mutation<
+      ApiEnvelope<OpsContainerListItem>,
+      { uuid: string; driverUserUuid: string; vehicleUuid?: string }
+    >({
+      query: ({ uuid, driverUserUuid, vehicleUuid }) => ({
         url: `/ops/operator/containers/${uuid}/assign-driver`,
         method: 'POST',
-        body: { driverUserUuid },
+        body: { driverUserUuid, vehicleUuid },
       }),
       invalidatesTags: ['OperatorContainers', 'DriverContainers'],
     }),
@@ -215,9 +267,14 @@ export const {
   useUpdateContainerStatusMutation,
   useRecordContainerLocationMutation,
   useGetClaimableContainersQuery,
+  useGetClaimedContainersQuery,
+  useGetOperatorDriversQuery,
+  useGetOperatorVehiclesQuery,
+  useCreateOperatorVehicleMutation,
   useGetOperatorInviteCodesQuery,
   useCreateOperatorInviteCodeMutation,
   useClaimOperatorContainerMutation,
+  useScanAndClaimOperatorContainerMutation,
   useAssignDriverToContainerMutation,
   useGetDoctorContainersQuery,
   useClaimDoctorContainerMutation,

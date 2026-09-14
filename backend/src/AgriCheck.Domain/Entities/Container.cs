@@ -14,12 +14,14 @@ public class Container : BaseEntity
     public ContainerStatus Status { get; set; } = ContainerStatus.Pending;
     public long? ClaimedByUserId { get; set; }
     public long? AssignedDriverUserId { get; set; }
+    public long? AssignedOperatorVehicleId { get; set; }
     public DateTime? DepartureTime { get; set; }
     public DateTime? ArrivalTime { get; set; }
 
     public Entry Entry { get; set; } = null!;
     public User? ClaimedBy { get; set; }
     public User? AssignedDriver { get; set; }
+    public OperatorVehicle? AssignedOperatorVehicle { get; set; }
     public ICollection<ContainerLocation> Locations { get; set; } = new List<ContainerLocation>();
     public ICollection<WarehouseInventory> Inventories { get; set; } = new List<WarehouseInventory>();
     public ICollection<ContainerInspectionPhoto> InspectionPhotos { get; set; } = new List<ContainerInspectionPhoto>();

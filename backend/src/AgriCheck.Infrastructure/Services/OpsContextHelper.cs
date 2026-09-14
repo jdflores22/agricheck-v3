@@ -37,9 +37,26 @@ internal static class OpsContextHelper
 
 internal static class OpsDtoMapper
 {
-    public static ContainerListItemDto MapContainer(Container c)
+    public static ContainerListItemDto MapContainer(Container c) => MapContainer(c, includeAssignment: false);
+
+    public static ContainerListItemDto MapContainer(Container c, bool includeAssignment)
     {
         var last = c.Locations.OrderByDescending(l => l.RecordedAt).FirstOrDefault();
+        Guid? driverUuid = null;
+        string? driverName = null;
+        string? vehiclePlate = null;
+
+        if (includeAssignment)
+        {
+            if (c.AssignedDriver is not null)
+            {
+                driverUuid = c.AssignedDriver.Uuid;
+                driverName = FormatUserName(c.AssignedDriver.Profile, c.AssignedDriver.Email);
+            }
+
+            vehiclePlate = c.AssignedOperatorVehicle?.PlateNumber;
+        }
+
         return new ContainerListItemDto(
             c.Uuid,
             c.ContainerNumber,
@@ -50,6 +67,20 @@ internal static class OpsDtoMapper
             c.ArrivalTime,
             last?.Latitude,
             last?.Longitude,
-            last?.RecordedAt);
+            last?.RecordedAt,
+            driverUuid,
+            driverName,
+            vehiclePlate);
+    }
+
+    public static string FormatUserName(UserProfile? profile, string email)
+    {
+        if (profile is null)
+        {
+            return email;
+        }
+
+        var name = $"{profile.FirstName} {profile.LastName}".Trim();
+        return string.IsNullOrWhiteSpace(name) ? email : name;
     }
 }

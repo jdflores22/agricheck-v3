@@ -44,10 +44,14 @@ public interface IMobileSyncService
 
 public interface IOperatorOpsService
 {
-    Task<IReadOnlyList<ContainerListItemDto>> ListClaimableContainersAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ContainerListItemDto>> ListClaimableContainersAsync(string? search = null, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ContainerListItemDto>> ListClaimedContainersAsync(CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> ClaimContainerAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> ClaimContainerByQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> AssignDriverAsync(Guid containerUuid, AssignDriverRequest request, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<OperatorDriverListItemDto>> ListDriversAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<OperatorVehicleListItemDto>> ListVehiclesAsync(CancellationToken cancellationToken = default);
+    Task<OperatorVehicleListItemDto> CreateVehicleAsync(CreateOperatorVehicleRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<OperatorInviteCodeListItemDto>> ListInviteCodesAsync(CancellationToken cancellationToken = default);
     Task<OperatorInviteCodeListItemDto> CreateInviteCodeAsync(CreateOperatorInviteCodeRequest request, CancellationToken cancellationToken = default);
 }

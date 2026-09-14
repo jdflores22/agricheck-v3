@@ -17,6 +17,9 @@ public static class ProductionSchemaSeeder
         await DriverRegistrationSchemaSeeder.EnsureAsync(db, cancellationToken);
         logger?.LogInformation("Driver registration schema ensured.");
 
+        await OperatorFleetSchemaSeeder.EnsureAsync(db, cancellationToken);
+        logger?.LogInformation("Operator fleet schema ensured.");
+
         await EntrySchemaSeeder.EnsureAsync(db, cancellationToken);
         logger?.LogInformation("Entry schema ensured.");
 

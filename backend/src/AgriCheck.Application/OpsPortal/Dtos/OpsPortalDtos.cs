@@ -167,11 +167,38 @@ public record ContainerListItemDto(
     DateTime? ArrivalTime,
     decimal? LastLatitude,
     decimal? LastLongitude,
-    DateTime? LastLocationAt);
+    DateTime? LastLocationAt,
+    Guid? AssignedDriverUuid = null,
+    string? AssignedDriverName = null,
+    string? AssignedVehiclePlate = null);
 
 public record UpdateContainerStatusRequest(string Status);
 
-public record AssignDriverRequest(Guid DriverUserUuid);
+public record AssignDriverRequest(Guid DriverUserUuid, Guid? VehicleUuid = null);
+
+public record OperatorDriverListItemDto(
+    Guid UserUuid,
+    string FullName,
+    string Email,
+    string? PhoneNumber,
+    string? VehicleType,
+    string? VehicleRegistration,
+    bool ProfileComplete);
+
+public record OperatorVehicleListItemDto(
+    Guid Uuid,
+    string PlateNumber,
+    string VehicleType,
+    string? Description,
+    Guid? DefaultDriverUuid,
+    string? DefaultDriverName,
+    bool IsActive);
+
+public record CreateOperatorVehicleRequest(
+    string PlateNumber,
+    string VehicleType,
+    string? Description,
+    Guid? DefaultDriverUuid);
 
 public record ScanTransportQrRequest([property: System.ComponentModel.DataAnnotations.MaxLength(8192)] string QrData);
 

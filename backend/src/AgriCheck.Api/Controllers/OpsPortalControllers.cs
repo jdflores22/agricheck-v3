@@ -370,8 +370,9 @@ public class MobileOperatorContainersController : OpsPortalControllerBase
 
     [HttpGet("claimable")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<ContainerListItemDto>>>> ListClaimable(
+        [FromQuery] string? search,
         CancellationToken cancellationToken) =>
-        await ExecuteAsync(() => _service.ListClaimableContainersAsync(cancellationToken));
+        await ExecuteAsync(() => _service.ListClaimableContainersAsync(search, cancellationToken));
 
     [HttpPost("{uuid:guid}/claim")]
     public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> Claim(
