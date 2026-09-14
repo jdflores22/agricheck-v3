@@ -362,10 +362,159 @@ export interface DaWarehouseDetail {
   inventory: DaWarehouseInventoryItem[]
 }
 
+export interface DaPagedResult<T> {
+  items: T[]
+  page: number
+  pageSize: number
+  totalCount: number
+}
+
+export interface DaImporterListItem {
+  uuid: string
+  fullName: string
+  companyName?: string | null
+  email: string
+  status: string
+  accreditationStatus?: string | null
+  accreditationDisplayStatus?: string | null
+  isAccredited: boolean
+  totalEntries: number
+  importEntries: number
+  lastLoginAt?: string | null
+}
+
+export interface DaImporterAccreditationFile {
+  uuid: string
+  originalFileName: string
+  fileSizeBytes: number
+  createdAt: string
+}
+
+export interface DaImporterAccreditationHistory {
+  status: string
+  comment?: string | null
+  createdAt: string
+  actorName?: string | null
+}
+
+export interface DaImporterAccreditation {
+  submissionUuid: string
+  companyName: string
+  submissionType: string
+  status: string
+  displayStatus: string
+  accreditationNumber?: string | null
+  submittedAt?: string | null
+  reviewComments?: string | null
+  assignedOfficerName?: string | null
+  claimedAt?: string | null
+  formDataJson?: string | null
+  formSchemaJson?: string | null
+  formName?: string | null
+  certificateUuid?: string | null
+  certificateNumber?: string | null
+  isAccredited: boolean
+  history: DaImporterAccreditationHistory[]
+  files: DaImporterAccreditationFile[]
+}
+
+export interface DaImporterEntryStats {
+  total: number
+  draft: number
+  pendingReview: number
+  forCompliance: number
+  inPipeline: number
+  rejected: number
+  cancelled: number
+}
+
+export interface DaImporterWorkflowStats {
+  daIssueBilling: number
+  forInspection: number
+  readyForTransport: number
+  awaitingTransport: number
+  inTransit: number
+}
+
+export interface DaImporterLogisticsStats {
+  openBills: number
+  overdueBills: number
+  storedContainers: number
+  activeMavLicenses: number
+}
+
+export interface DaImporterPipelineStats {
+  expectedKg: number
+  actualKg: number
+  pipelineEntries: number
+}
+
+export interface DaImporterCertificate {
+  uuid: string
+  certificateNumber: string
+  title: string
+  status: string
+  issuedAt: string
+  expiresAt?: string | null
+  entryReferenceNo?: string | null
+}
+
+export interface DaImporterBill {
+  uuid: string
+  billNumber: string
+  entryReferenceNo?: string | null
+  agencyCode?: string | null
+  description: string
+  amount: number
+  status: string
+  dueDate?: string | null
+  isOverdue: boolean
+}
+
+export interface DaImporterProfile {
+  uuid: string
+  email: string
+  status: string
+  firstName: string
+  lastName: string
+  fullName: string
+  phone?: string | null
+  companyName?: string | null
+  address?: string | null
+  roles: string[]
+  createdAt: string
+  lastLoginAt?: string | null
+  emailVerifiedAt?: string | null
+  accreditation?: DaImporterAccreditation | null
+  entryStats: DaImporterEntryStats
+  workflowStats: DaImporterWorkflowStats
+  logisticsStats: DaImporterLogisticsStats
+  pipelineStats: DaImporterPipelineStats
+  certificates: DaImporterCertificate[]
+  bills: DaImporterBill[]
+}
+
+export interface DaImporterEntryListItem {
+  uuid: string
+  referenceNo: string
+  entryType: string
+  status: string
+  agencyCode: string
+  commodityName?: string | null
+  hsCode?: string | null
+  createdAt: string
+  submittedAt?: string | null
+  paymentStatus: string
+  paymentAmount?: number | null
+  containerCount: number
+  volumeKg: number
+  importTrack: string
+}
+
 export const daApi = createApi({
   reducerPath: 'daApi',
   baseQuery: baseQueryWithReauth,
-  tagTypes: ['DaDashboard', 'DaAgencies', 'DaReports', 'DaWarehouses'],
+  tagTypes: ['DaDashboard', 'DaAgencies', 'DaReports', 'DaWarehouses', 'DaImporters'],
   endpoints: (builder) => ({
     getDaDashboard: builder.query<ApiEnvelope<DaDashboard>, void>({
       query: () => '/da/dashboard',
@@ -439,6 +588,29 @@ export const daApi = createApi({
       query: ({ id, body }) => ({ url: `/da/warehouses/${id}`, method: 'PUT', body }),
       invalidatesTags: ['DaWarehouses'],
     }),
+    getDaImporters: builder.query<ApiEnvelope<DaPagedResult<DaImporterListItem>>, { page?: number; pageSize?: number; search?: string }>({
+      query: ({ page = 1, pageSize = 20, search }) => {
+        const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+        if (search?.trim()) params.set('search', search.trim())
+        return `/da/importers?${params.toString()}`
+      },
+      providesTags: ['DaImporters'],
+    }),
+    getDaImporterProfile: builder.query<ApiEnvelope<DaImporterProfile>, string>({
+      query: (uuid) => `/da/importers/${uuid}`,
+      providesTags: (_result, _error, uuid) => [{ type: 'DaImporters', id: uuid }],
+    }),
+    getDaImporterEntries: builder.query<
+      ApiEnvelope<DaPagedResult<DaImporterEntryListItem>>,
+      { uuid: string; page?: number; pageSize?: number; status?: string }
+    >({
+      query: ({ uuid, page = 1, pageSize = 20, status }) => {
+        const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+        if (status) params.set('status', status)
+        return `/da/importers/${uuid}/entries?${params.toString()}`
+      },
+      providesTags: (_result, _error, { uuid }) => [{ type: 'DaImporters', id: `${uuid}-entries` }],
+    }),
   }),
 })
 
@@ -455,4 +627,7 @@ export const {
   useGetDaWarehouseDetailQuery,
   useCreateDaWarehouseMutation,
   useUpdateDaWarehouseMutation,
+  useGetDaImportersQuery,
+  useGetDaImporterProfileQuery,
+  useGetDaImporterEntriesQuery,
 } = daApi

@@ -25,6 +25,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   inspection: 'Inspection Upload',
   status: 'Status',
   warehouses: 'Warehouses',
+  importers: 'Importers',
   agencies: 'Agencies',
   entries: 'My Entries',
   accreditation: 'Accreditation',

@@ -1,4 +1,5 @@
 using AgriCheck.Application.ClientPortal;
+using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Application.Common;
 using AgriCheck.Application.DaPortal;
 using AgriCheck.Application.DaPortal.Dtos;
@@ -1687,6 +1688,428 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
 
     private static string? NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+public class DaImporterProfileService : IDaImporterProfileService
+{
+    private static readonly string[] ClientRoleCodes = { "ROLE_IMPORTER", "ROLE_EXPORTER", "ROLE_BROKER" };
+
+    private readonly AgriCheckDbContext _db;
+    private readonly ICurrentUserService _currentUser;
+
+    public DaImporterProfileService(AgriCheckDbContext db, ICurrentUserService currentUser)
+    {
+        _db = db;
+        _currentUser = currentUser;
+    }
+
+    public async Task<PagedResult<DaImporterListItemDto>> ListAsync(
+        int page,
+        int pageSize,
+        string? search,
+        CancellationToken cancellationToken = default)
+    {
+        await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var query = _db.Users
+            .AsNoTracking()
+            .Include(u => u.Profile)
+            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
+            .Where(u => u.UserRoles.Any(ur => ClientRoleCodes.Contains(ur.Role.Code)));
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(u =>
+                u.Email.Contains(term)
+                || (u.Profile != null && (
+                    u.Profile.FirstName.Contains(term)
+                    || u.Profile.LastName.Contains(term)
+                    || (u.Profile.CompanyName != null && u.Profile.CompanyName.Contains(term)))));
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var users = await query
+            .OrderBy(u => u.Profile != null ? u.Profile.CompanyName ?? u.Email : u.Email)
+            .ThenBy(u => u.Email)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        var userIds = users.Select(u => u.Id).ToList();
+        var entryCounts = await _db.Entries
+            .AsNoTracking()
+            .Where(e => userIds.Contains(e.UserId))
+            .GroupBy(e => e.UserId)
+            .Select(g => new
+            {
+                UserId = g.Key,
+                Total = g.Count(),
+                Import = g.Count(e => e.EntryType == EntryType.Import),
+            })
+            .ToListAsync(cancellationToken);
+
+        var accreditations = await _db.AccreditationSubmissions
+            .AsNoTracking()
+            .Where(s => userIds.Contains(s.UserId))
+            .ToListAsync(cancellationToken);
+
+        var items = users.Select(user =>
+        {
+            var counts = entryCounts.FirstOrDefault(c => c.UserId == user.Id);
+            var accreditation = accreditations.FirstOrDefault(s => s.UserId == user.Id);
+            var fullName = FormatFullName(user);
+            return new DaImporterListItemDto(
+                user.Uuid,
+                fullName,
+                user.Profile?.CompanyName?.Trim(),
+                user.Email,
+                user.Status.ToString(),
+                accreditation?.Status.ToString(),
+                accreditation is null ? null : AccreditationSubmissionStatusMapper.GetDisplayStatus(accreditation),
+                accreditation?.Status == AccreditationSubmissionStatus.Approved,
+                counts?.Total ?? 0,
+                counts?.Import ?? 0,
+                user.LastLoginAt);
+        }).ToList();
+
+        return new PagedResult<DaImporterListItemDto>(items, page, pageSize, total);
+    }
+
+    public async Task<DaImporterProfileDto> GetProfileAsync(Guid uuid, CancellationToken cancellationToken = default)
+    {
+        await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
+
+        var user = await _db.Users
+            .AsNoTracking()
+            .Include(u => u.Profile)
+            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
+            .FirstOrDefaultAsync(u => u.Uuid == uuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Importer not found.");
+
+        if (!user.UserRoles.Any(ur => ClientRoleCodes.Contains(ur.Role.Code)))
+        {
+            throw new ClientPortalException("NOT_FOUND", "Importer not found.");
+        }
+
+        var submission = await _db.AccreditationSubmissions
+            .AsNoTracking()
+            .Include(s => s.AssignedOfficer).ThenInclude(o => o!.Profile)
+            .Include(s => s.Files)
+            .Include(s => s.History).ThenInclude(h => h.Actor!).ThenInclude(a => a.Profile)
+            .Where(s => s.UserId == user.Id)
+            .OrderByDescending(s => s.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var (formSchemaJson, formName) = await GetAccreditationFormMetaAsync(cancellationToken);
+        Certificate? accreditationCertificate = null;
+        if (submission is not null)
+        {
+            accreditationCertificate = await AccreditationCertificateLookup.FindForSubmissionAsync(
+                _db,
+                submission.Uuid,
+                cancellationToken: cancellationToken);
+        }
+
+        var entries = _db.Entries.AsNoTracking().Where(e => e.UserId == user.Id);
+        var entryIds = entries.Select(e => e.Id);
+        var entryStatusCounts = await entries
+            .GroupBy(e => e.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+
+        int EntryCount(EntryStatus status) =>
+            entryStatusCounts.FirstOrDefault(x => x.Status == status)?.Count ?? 0;
+
+        var bills = _db.ClientBills.AsNoTracking().Where(b => b.UserId == user.Id);
+        var now = DateTime.UtcNow;
+        var openBills = bills.Where(b => b.Status != ClientBillStatus.Paid && b.Status != ClientBillStatus.Cancelled);
+        var overdueBills = openBills.Where(b => b.Status == ClientBillStatus.Overdue || (b.DueDate != null && b.DueDate < now));
+
+        var containers = _db.Containers.AsNoTracking().Where(c => entryIds.Contains(c.EntryId));
+        var storedContainerIds = await _db.WarehouseInventories
+            .AsNoTracking()
+            .Where(i => i.Status == WarehouseInventoryStatus.Stored)
+            .Select(i => i.ContainerId)
+            .ToListAsync(cancellationToken);
+        var storedContainers = await containers.CountAsync(
+            c => storedContainerIds.Contains(c.Id),
+            cancellationToken);
+
+        var activeMavLicenses = await _db.MavLicenses
+            .AsNoTracking()
+            .CountAsync(l => l.ImporterId == user.Id && l.Status == MavLicenseStatus.Active, cancellationToken);
+
+        var pipelineStats = await BuildPipelineStatsAsync(user.Id, cancellationToken);
+
+        var certificates = await _db.Certificates
+            .AsNoTracking()
+            .Where(c => c.UserId == user.Id)
+            .OrderByDescending(c => c.IssuedAt)
+            .Select(c => new DaImporterCertificateDto(
+                c.Uuid,
+                c.CertificateNumber,
+                c.Title,
+                c.Status.ToString(),
+                c.IssuedAt,
+                c.ExpiresAt,
+                c.Entry != null ? c.Entry.ReferenceNo : null))
+            .ToListAsync(cancellationToken);
+
+        var billRows = await bills
+            .OrderByDescending(b => b.CreatedAt)
+            .Take(20)
+            .Select(b => new DaImporterBillDto(
+                b.Uuid,
+                b.BillNumber,
+                b.Entry != null ? b.Entry.ReferenceNo : null,
+                b.Entry != null ? b.Entry.Agency.Code : null,
+                b.Description,
+                b.Amount,
+                b.Status.ToString(),
+                b.DueDate,
+                b.Status == ClientBillStatus.Overdue || (b.DueDate != null && b.DueDate < now && b.Status != ClientBillStatus.Paid)))
+            .ToListAsync(cancellationToken);
+
+        var roles = user.UserRoles.Select(ur => ur.Role.Code).Distinct().OrderBy(r => r).ToList();
+        var fullName = FormatFullName(user);
+
+        return new DaImporterProfileDto(
+            user.Uuid,
+            user.Email,
+            user.Status.ToString(),
+            user.Profile?.FirstName ?? string.Empty,
+            user.Profile?.LastName ?? string.Empty,
+            fullName,
+            user.Profile?.Phone,
+            user.Profile?.CompanyName?.Trim(),
+            user.Profile?.Address,
+            roles,
+            user.CreatedAt,
+            user.LastLoginAt,
+            user.EmailVerifiedAt,
+            submission is null ? null : MapAccreditation(submission, formSchemaJson, formName, accreditationCertificate),
+            new DaImporterEntryStatsDto(
+                entryStatusCounts.Sum(x => x.Count),
+                EntryCount(EntryStatus.Draft),
+                EntryCount(EntryStatus.Submitted) + EntryCount(EntryStatus.UnderReview),
+                EntryCount(EntryStatus.ForCompliance),
+                EntryStatusRules.OperationalPipelineStatuses.Sum(EntryCount),
+                EntryCount(EntryStatus.Rejected),
+                EntryCount(EntryStatus.Cancelled)),
+            new DaImporterWorkflowStatsDto(
+                EntryCount(EntryStatus.DaIssueBilling),
+                EntryCount(EntryStatus.ForInspection),
+                EntryCount(EntryStatus.ReadyForTransport),
+                EntryCount(EntryStatus.AwaitingTransport) + EntryCount(EntryStatus.PartiallyConfirmed),
+                EntryCount(EntryStatus.InTransit)),
+            new DaImporterLogisticsStatsDto(
+                await openBills.CountAsync(cancellationToken),
+                await overdueBills.CountAsync(cancellationToken),
+                storedContainers,
+                activeMavLicenses),
+            pipelineStats,
+            certificates,
+            billRows);
+    }
+
+    public async Task<PagedResult<DaImporterEntryListItemDto>> ListEntriesAsync(
+        Guid uuid,
+        int page,
+        int pageSize,
+        string? status,
+        CancellationToken cancellationToken = default)
+    {
+        await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Uuid == uuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Importer not found.");
+
+        var query = _db.Entries
+            .AsNoTracking()
+            .Include(e => e.Agency)
+            .Include(e => e.Detail)
+            .Include(e => e.Containers)
+            .Include(e => e.MicUtilizations).ThenInclude(u => u.Mic)
+            .Where(e => e.UserId == user.Id);
+
+        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<EntryStatus>(status, true, out var parsedStatus))
+        {
+            query = query.Where(e => e.Status == parsedStatus);
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var rows = await query
+            .OrderByDescending(e => e.SubmittedAt ?? e.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        var items = rows.Select(entry =>
+        {
+            var mic = entry.MicUtilizations.OrderByDescending(u => u.UtilizedAt).Select(u => u.Mic).FirstOrDefault();
+            var hsCode = mic?.HsCode?.Trim();
+            return new DaImporterEntryListItemDto(
+                entry.Uuid,
+                entry.ReferenceNo,
+                entry.EntryType.ToString(),
+                entry.Status.ToString(),
+                entry.Agency.Code,
+                entry.Detail?.CommodityName ?? mic?.CommodityName,
+                string.IsNullOrWhiteSpace(hsCode) ? null : hsCode,
+                entry.CreatedAt,
+                entry.SubmittedAt,
+                entry.PaymentStatus.ToString(),
+                entry.PaymentAmount,
+                entry.Containers.Count,
+                DaStockVolumeHelper.ToKilograms(entry),
+                entry.ImportTrack.ToString());
+        }).ToList();
+
+        return new PagedResult<DaImporterEntryListItemDto>(items, page, pageSize, total);
+    }
+
+    private async Task<DaImporterPipelineStatsDto> BuildPipelineStatsAsync(long userId, CancellationToken cancellationToken)
+    {
+        var storedContainerIds = (await _db.WarehouseInventories
+            .AsNoTracking()
+            .Where(i => i.Status == WarehouseInventoryStatus.Stored)
+            .Select(i => i.ContainerId)
+            .ToListAsync(cancellationToken)).ToHashSet();
+
+        var activeStatuses = new[]
+        {
+            EntryStatus.Submitted,
+            EntryStatus.UnderReview,
+            EntryStatus.ForCompliance,
+            EntryStatus.Approved,
+            EntryStatus.DaIssueBilling,
+            EntryStatus.ForInspection,
+            EntryStatus.ReadyForTransport,
+            EntryStatus.AwaitingTransport,
+            EntryStatus.PartiallyConfirmed,
+            EntryStatus.InTransit,
+        };
+
+        var pipelineEntries = await _db.Entries
+            .AsNoTracking()
+            .Include(e => e.Containers)
+            .Where(e =>
+                e.UserId == userId
+                && e.EntryType == EntryType.Import
+                && activeStatuses.Contains(e.Status))
+            .ToListAsync(cancellationToken);
+
+        decimal expectedKg = 0;
+        var pipelineEntryIds = new HashSet<long>();
+        foreach (var entry in pipelineEntries)
+        {
+            var pendingContainers = entry.Containers
+                .Where(c => c.Status != ContainerStatus.Released && !storedContainerIds.Contains(c.Id))
+                .ToList();
+            if (pendingContainers.Count == 0 && entry.Containers.Count > 0)
+            {
+                continue;
+            }
+
+            pipelineEntryIds.Add(entry.Id);
+            var entryVolumeKg = DaStockVolumeHelper.ToKilograms(entry);
+            if (pendingContainers.Count == 0)
+            {
+                expectedKg += entryVolumeKg;
+                continue;
+            }
+
+            expectedKg += entryVolumeKg;
+        }
+
+        var storedInventories = await _db.WarehouseInventories
+            .AsNoTracking()
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
+            .Where(i =>
+                i.Status == WarehouseInventoryStatus.Stored
+                && i.Container.Entry.UserId == userId
+                && i.Container.Entry.EntryType == EntryType.Import)
+            .ToListAsync(cancellationToken);
+
+        var storedByEntry = storedInventories
+            .GroupBy(i => i.Container.EntryId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var actualVolume = storedInventories.Sum(item =>
+        {
+            var entry = item.Container.Entry;
+            var split = storedByEntry.GetValueOrDefault(entry.Id, 1);
+            return DaStockVolumeHelper.ToKilograms(entry) / Math.Max(split, 1);
+        });
+
+        return new DaImporterPipelineStatsDto(expectedKg, actualVolume, pipelineEntryIds.Count);
+    }
+
+    private async Task<(string? SchemaJson, string? FormName)> GetAccreditationFormMetaAsync(CancellationToken cancellationToken)
+    {
+        var template = await _db.FormTemplates
+            .AsNoTracking()
+            .Include(t => t.Versions)
+            .Where(t => t.IsActive && t.Status == FormTemplateStatus.Published && t.FormType == "ACCREDITATION")
+            .OrderByDescending(t => t.UpdatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (template is null) return (null, null);
+
+        var version = template.Versions.OrderByDescending(v => v.VersionNumber).FirstOrDefault();
+        return (version?.SchemaJson, template.Name);
+    }
+
+    private static DaImporterAccreditationDto MapAccreditation(
+        AccreditationSubmission submission,
+        string? formSchemaJson,
+        string? formName,
+        Certificate? certificate) =>
+        new(
+            submission.Uuid,
+            submission.CompanyName,
+            submission.SubmissionType,
+            submission.Status.ToString(),
+            AccreditationSubmissionStatusMapper.GetDisplayStatus(submission),
+            submission.AccreditationNumber,
+            submission.SubmittedAt,
+            submission.ReviewComments,
+            submission.AssignedOfficer?.Profile is not null
+                ? $"{submission.AssignedOfficer.Profile.FirstName} {submission.AssignedOfficer.Profile.LastName}".Trim()
+                : submission.AssignedOfficer?.Email,
+            submission.ClaimedAt,
+            submission.FormDataJson,
+            formSchemaJson,
+            formName,
+            certificate?.Uuid,
+            certificate?.CertificateNumber,
+            submission.Status == AccreditationSubmissionStatus.Approved,
+            submission.History
+                .OrderByDescending(h => h.CreatedAt)
+                .Select(AccreditationHistoryMapper.ForOfficer)
+                .ToList(),
+            submission.Files
+                .OrderByDescending(f => f.CreatedAt)
+                .Select(f => new DaImporterAccreditationFileDto(
+                    f.Uuid,
+                    f.OriginalFileName,
+                    f.FileSizeBytes,
+                    f.CreatedAt))
+                .ToList());
+
+    private static string FormatFullName(User user)
+    {
+        var fullName = user.Profile is not null
+            ? $"{user.Profile.FirstName} {user.Profile.LastName}".Trim()
+            : user.Email;
+        return string.IsNullOrWhiteSpace(fullName) ? user.Email : fullName;
+    }
 }
 
 internal static class DaStockVolumeHelper

@@ -141,6 +141,8 @@ import { DaImportPipelinePage } from '../features/da/pages/DaImportPipelinePage'
 import { DaGeoStockPage } from '../features/da/pages/DaGeoStockPage'
 import { DaWarehousesPage } from '../features/da/pages/DaWarehousesPage'
 import { DaWarehouseDetailPage } from '../features/da/pages/DaWarehouseDetailPage'
+import { DaImportersPage } from '../features/da/pages/DaImportersPage'
+import { DaImporterProfilePage } from '../features/da/pages/DaImporterProfilePage'
 
 function InspectorContainerInspectionRedirect() {
   const { containerUuid = '' } = useParams()
@@ -332,6 +334,9 @@ export const router = createBrowserRouter([
                   { path: 'warehouses', element: <DaWarehousesPage /> },
 
                   { path: 'warehouses/:id', element: <DaWarehouseDetailPage /> },
+
+                  { path: 'importers', element: <DaImportersPage /> },
+                  { path: 'importers/:uuid', element: <DaImporterProfilePage /> },
 
                   { path: 'reports', element: <DaReportsPage /> },
                   { path: 'reports/mav', element: <DaMavNationalReportPage /> },

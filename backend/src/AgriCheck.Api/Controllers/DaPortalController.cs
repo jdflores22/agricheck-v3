@@ -1,3 +1,4 @@
+using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Application.Common;
 using AgriCheck.Application.DaPortal;
 using AgriCheck.Application.DaPortal.Dtos;
@@ -15,17 +16,20 @@ public class DaPortalController : AgencyPortalControllerBase
     private readonly IDaAgencyOverviewService _agencyOverviewService;
     private readonly IDaOversightReportService _reportService;
     private readonly IDaWarehouseManagementService _warehouseService;
+    private readonly IDaImporterProfileService _importerProfileService;
 
     public DaPortalController(
         IDaDashboardService dashboardService,
         IDaAgencyOverviewService agencyOverviewService,
         IDaOversightReportService reportService,
-        IDaWarehouseManagementService warehouseService)
+        IDaWarehouseManagementService warehouseService,
+        IDaImporterProfileService importerProfileService)
     {
         _dashboardService = dashboardService;
         _agencyOverviewService = agencyOverviewService;
         _reportService = reportService;
         _warehouseService = warehouseService;
+        _importerProfileService = importerProfileService;
     }
 
     [HttpGet("dashboard")]
@@ -101,4 +105,25 @@ public class DaPortalController : AgencyPortalControllerBase
         [FromBody] SaveDaWarehouseRequest request,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _warehouseService.UpdateAsync(id, request, cancellationToken));
+
+    [HttpGet("importers")]
+    public async Task<ActionResult<ApiResponse<PagedResult<DaImporterListItemDto>>>> Importers(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteAsync(() => _importerProfileService.ListAsync(page, pageSize, search, cancellationToken));
+
+    [HttpGet("importers/{uuid:guid}")]
+    public async Task<ActionResult<ApiResponse<DaImporterProfileDto>>> ImporterProfile(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _importerProfileService.GetProfileAsync(uuid, cancellationToken));
+
+    [HttpGet("importers/{uuid:guid}/entries")]
+    public async Task<ActionResult<ApiResponse<PagedResult<DaImporterEntryListItemDto>>>> ImporterEntries(
+        Guid uuid,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? status = null,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteAsync(() => _importerProfileService.ListEntriesAsync(uuid, page, pageSize, status, cancellationToken));
 }

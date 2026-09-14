@@ -14,7 +14,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { Link as RouterLink } from 'react-router-dom'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalTablePanel } from '../../../components/portal/PortalTablePanel'
@@ -38,6 +38,7 @@ function importerLabel(name: string, companyName?: string | null) {
 }
 
 export function DaImportPipelinePage() {
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [selectedCommodity, setSelectedCommodity] = useState<DaImportPipelineCommodityRow | null>(null)
   const { data, isLoading, isFetching } = useGetDaImportPipelineReportQuery({})
@@ -222,7 +223,12 @@ export function DaImportPipelinePage() {
                 emptyMessage="No importer volume recorded for this commodity."
               >
                 {commodityImporters.map((row) => (
-                  <TableRow key={row.importerUuid} hover>
+                  <TableRow
+                    key={row.importerUuid}
+                    hover
+                    onClick={() => navigate(`/da/importers/${row.importerUuid}`)}
+                    sx={{ cursor: 'pointer' }}
+                  >
                     <TableCell sx={{ fontWeight: 600 }}>
                       {importerLabel(row.importerName, row.companyName)}
                     </TableCell>
@@ -270,7 +276,12 @@ export function DaImportPipelinePage() {
           emptyMessage="No importer rows match your search."
         >
           {filteredImporters.map((row) => (
-            <TableRow key={row.importerUuid} hover>
+            <TableRow
+              key={row.importerUuid}
+              hover
+              onClick={() => navigate(`/da/importers/${row.importerUuid}`)}
+              sx={{ cursor: 'pointer' }}
+            >
               <TableCell sx={{ fontWeight: 600 }}>
                 {importerLabel(row.importerName, row.companyName)}
               </TableCell>
@@ -295,7 +306,17 @@ export function DaImportPipelinePage() {
             <TableRow key={entry.entryUuid} hover>
               <TableCell>{entry.referenceNo}</TableCell>
               <TableCell>
-                <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                <Typography
+                  component={RouterLink}
+                  to={`/da/importers/${entry.importerUuid}`}
+                  sx={{
+                    fontWeight: 600,
+                    fontSize: '0.875rem',
+                    color: portalColors.primary,
+                    textDecoration: 'none',
+                    '&:hover': { textDecoration: 'underline' },
+                  }}
+                >
                   {importerLabel(entry.importerName, entry.companyName)}
                 </Typography>
                 {entry.companyName?.trim() ? (

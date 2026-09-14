@@ -1,3 +1,4 @@
+using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Application.DaPortal.Dtos;
 
 namespace AgriCheck.Application.DaPortal;
@@ -28,4 +29,11 @@ public interface IDaWarehouseManagementService
     Task<DaWarehouseDetailDto> GetDetailAsync(long id, CancellationToken cancellationToken = default);
     Task<DaWarehouseListItemDto> CreateAsync(SaveDaWarehouseRequest request, CancellationToken cancellationToken = default);
     Task<DaWarehouseListItemDto> UpdateAsync(long id, SaveDaWarehouseRequest request, CancellationToken cancellationToken = default);
+}
+
+public interface IDaImporterProfileService
+{
+    Task<PagedResult<DaImporterListItemDto>> ListAsync(int page, int pageSize, string? search, CancellationToken cancellationToken = default);
+    Task<DaImporterProfileDto> GetProfileAsync(Guid uuid, CancellationToken cancellationToken = default);
+    Task<PagedResult<DaImporterEntryListItemDto>> ListEntriesAsync(Guid uuid, int page, int pageSize, string? status, CancellationToken cancellationToken = default);
 }

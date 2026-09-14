@@ -91,6 +91,7 @@ const daNavItems: PortalNavItem[] = [
   { label: 'Dashboard', path: '/da', icon: <DashboardOutlinedIcon /> },
   { label: 'Agencies', path: '/da/agencies', icon: <BusinessOutlinedIcon /> },
   { label: 'Warehouses', path: '/da/warehouses', icon: <WarehouseOutlinedIcon /> },
+  { label: 'Importers', path: '/da/importers', icon: <PeopleOutlinedIcon /> },
   { label: 'Reports', path: '/da/reports', icon: <ReportOutlinedIcon /> },
   { label: 'MAV Utilization', path: '/da/reports/mav', icon: <Inventory2OutlinedIcon /> },
   { label: 'Expected vs Actual', path: '/da/reports/import-pipeline', icon: <LocalShippingOutlinedIcon /> },

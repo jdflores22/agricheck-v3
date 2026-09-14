@@ -322,3 +322,127 @@ public record DaImportPipelineReportDto(
     IReadOnlyList<DaImportPipelineCommodityImporterRowDto> ByCommodityImporter,
     IReadOnlyList<DaImportPipelineCommodityWarehouseRowDto> ByCommodityWarehouse,
     IReadOnlyList<DaImportPipelineEntryRowDto> Entries);
+
+public record DaImporterListItemDto(
+    Guid Uuid,
+    string FullName,
+    string? CompanyName,
+    string Email,
+    string Status,
+    string? AccreditationStatus,
+    string? AccreditationDisplayStatus,
+    bool IsAccredited,
+    int TotalEntries,
+    int ImportEntries,
+    DateTime? LastLoginAt);
+
+public record DaImporterAccreditationFileDto(
+    Guid Uuid,
+    string OriginalFileName,
+    long FileSizeBytes,
+    DateTime CreatedAt);
+
+public record DaImporterAccreditationDto(
+    Guid SubmissionUuid,
+    string CompanyName,
+    string SubmissionType,
+    string Status,
+    string DisplayStatus,
+    string? AccreditationNumber,
+    DateTime? SubmittedAt,
+    string? ReviewComments,
+    string? AssignedOfficerName,
+    DateTime? ClaimedAt,
+    string? FormDataJson,
+    string? FormSchemaJson,
+    string? FormName,
+    Guid? CertificateUuid,
+    string? CertificateNumber,
+    bool IsAccredited,
+    IReadOnlyList<ClientPortal.Dtos.AccreditationHistoryDto> History,
+    IReadOnlyList<DaImporterAccreditationFileDto> Files);
+
+public record DaImporterEntryStatsDto(
+    int Total,
+    int Draft,
+    int PendingReview,
+    int ForCompliance,
+    int InPipeline,
+    int Rejected,
+    int Cancelled);
+
+public record DaImporterWorkflowStatsDto(
+    int DaIssueBilling,
+    int ForInspection,
+    int ReadyForTransport,
+    int AwaitingTransport,
+    int InTransit);
+
+public record DaImporterLogisticsStatsDto(
+    int OpenBills,
+    int OverdueBills,
+    int StoredContainers,
+    int ActiveMavLicenses);
+
+public record DaImporterPipelineStatsDto(
+    decimal ExpectedKg,
+    decimal ActualKg,
+    int PipelineEntries);
+
+public record DaImporterCertificateDto(
+    Guid Uuid,
+    string CertificateNumber,
+    string Title,
+    string Status,
+    DateTime IssuedAt,
+    DateTime? ExpiresAt,
+    string? EntryReferenceNo);
+
+public record DaImporterBillDto(
+    Guid Uuid,
+    string BillNumber,
+    string? EntryReferenceNo,
+    string? AgencyCode,
+    string Description,
+    decimal Amount,
+    string Status,
+    DateTime? DueDate,
+    bool IsOverdue);
+
+public record DaImporterProfileDto(
+    Guid Uuid,
+    string Email,
+    string Status,
+    string FirstName,
+    string LastName,
+    string FullName,
+    string? Phone,
+    string? CompanyName,
+    string? Address,
+    IReadOnlyList<string> Roles,
+    DateTime CreatedAt,
+    DateTime? LastLoginAt,
+    DateTime? EmailVerifiedAt,
+    DaImporterAccreditationDto? Accreditation,
+    DaImporterEntryStatsDto EntryStats,
+    DaImporterWorkflowStatsDto WorkflowStats,
+    DaImporterLogisticsStatsDto LogisticsStats,
+    DaImporterPipelineStatsDto PipelineStats,
+    IReadOnlyList<DaImporterCertificateDto> Certificates,
+    IReadOnlyList<DaImporterBillDto> Bills);
+
+public record DaImporterEntryListItemDto(
+    Guid Uuid,
+    string ReferenceNo,
+    string EntryType,
+    string Status,
+    string AgencyCode,
+    string? CommodityName,
+    string? HsCode,
+    DateTime CreatedAt,
+    DateTime? SubmittedAt,
+    string PaymentStatus,
+    decimal? PaymentAmount,
+    int ContainerCount,
+    decimal VolumeKg,
+    string ImportTrack);
