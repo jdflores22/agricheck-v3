@@ -7,6 +7,30 @@ public static class BillingSchemaSeeder
 {
     public static async Task EnsureAsync(AgriCheckDbContext db, CancellationToken cancellationToken = default)
     {
+        if (!await TableExistsAsync(db, "agency_payment_settings", cancellationToken))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE `agency_payment_settings` (
+                  `Id` bigint NOT NULL AUTO_INCREMENT,
+                  `AgencyId` bigint NOT NULL,
+                  `PayMongoEnabled` tinyint(1) NOT NULL,
+                  `PayMongoApiKey` varchar(255) NULL,
+                  `PayMongoWebhookSecret` varchar(255) NULL,
+                  `PayMongoPublicKey` varchar(255) NULL,
+                  `CashPaymentEnabled` tinyint(1) NOT NULL DEFAULT 1,
+                  `CashPaymentInstructions` varchar(2000) NULL,
+                  `CreatedAt` datetime(6) NOT NULL,
+                  `UpdatedAt` datetime(6) NOT NULL,
+                  PRIMARY KEY (`Id`),
+                  UNIQUE KEY `IX_agency_payment_settings_AgencyId` (`AgencyId`),
+                  CONSTRAINT `FK_agency_payment_settings_agencies_AgencyId`
+                    FOREIGN KEY (`AgencyId`) REFERENCES `agencies` (`Id`) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                """,
+                cancellationToken);
+        }
+
         if (!await TableExistsAsync(db, "billing_charges", cancellationToken))
         {
             await db.Database.ExecuteSqlRawAsync(
@@ -56,6 +80,17 @@ public static class BillingSchemaSeeder
                 """,
                 cancellationToken);
         }
+
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+            SELECT '20260913010000_AgencyPaymentSettings', '8.0.0'
+            WHERE NOT EXISTS (
+              SELECT 1 FROM `__EFMigrationsHistory`
+              WHERE `MigrationId` = '20260913010000_AgencyPaymentSettings'
+            );
+            """,
+            cancellationToken);
 
         await db.Database.ExecuteSqlRawAsync(
             """
