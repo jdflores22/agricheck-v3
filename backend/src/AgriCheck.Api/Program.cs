@@ -203,7 +203,22 @@ app.MapHealthChecks("/health");
 
 app.MapGet("/", () => Results.Redirect("/swagger"));
 
-await EnsureDatabaseReadyAsync(app);
+// Run DB migrations/seeding after the server starts listening so Railway health checks
+// do not get 502 while Hostinger MySQL seeding is still in progress.
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            await EnsureDatabaseReadyAsync(app);
+        }
+        catch (Exception ex)
+        {
+            app.Logger.LogError(ex, "Background database initialization failed.");
+        }
+    });
+});
 
 app.Run();
 
