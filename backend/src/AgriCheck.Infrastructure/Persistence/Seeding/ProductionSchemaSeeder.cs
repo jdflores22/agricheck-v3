@@ -33,21 +33,6 @@ public static class ProductionSchemaSeeder
     public static async Task<int> CountApplicationTablesAsync(AgriCheckDbContext db, CancellationToken cancellationToken = default)
     {
         var connection = db.Database.GetDbConnection();
-        if (connection.State != System.Data.ConnectionState.Open)
-        {
-            await connection.OpenAsync(cancellationToken);
-        }
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT COUNT(*)
-            FROM information_schema.TABLES
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_TYPE = 'BASE TABLE'
-              AND TABLE_NAME != '__EFMigrationsHistory'
-            """;
-
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return Convert.ToInt32(result);
+        return await SchemaIntrospectionHelper.CountApplicationTablesAsync(connection, cancellationToken);
     }
 }

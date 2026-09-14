@@ -7,7 +7,9 @@ public static class BillingSchemaSeeder
 {
     public static async Task EnsureAsync(AgriCheckDbContext db, CancellationToken cancellationToken = default)
     {
-        if (!await TableExistsAsync(db, "agency_payment_settings", cancellationToken))
+        var connection = db.Database.GetDbConnection();
+
+        if (!await SchemaIntrospectionHelper.TableExistsAsync(connection, "agency_payment_settings", cancellationToken))
         {
             await db.Database.ExecuteSqlRawAsync(
                 """
@@ -31,7 +33,7 @@ public static class BillingSchemaSeeder
                 cancellationToken);
         }
 
-        if (!await TableExistsAsync(db, "billing_charges", cancellationToken))
+        if (!await SchemaIntrospectionHelper.TableExistsAsync(connection, "billing_charges", cancellationToken))
         {
             await db.Database.ExecuteSqlRawAsync(
                 """
@@ -54,23 +56,23 @@ public static class BillingSchemaSeeder
                 cancellationToken);
         }
 
-        if (!await ColumnExistsAsync(db, "client_bills", "AgencyBillingId", cancellationToken))
+        if (!await SchemaIntrospectionHelper.ColumnExistsAsync(connection, "client_bills", "AgencyBillingId", cancellationToken))
         {
             await db.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE `client_bills` ADD `AgencyBillingId` bigint NULL;",
                 cancellationToken);
         }
 
-        if (!await IndexExistsAsync(db, "client_bills", "IX_client_bills_AgencyBillingId", cancellationToken)
-            && await ColumnExistsAsync(db, "client_bills", "AgencyBillingId", cancellationToken))
+        if (!await SchemaIntrospectionHelper.IndexExistsAsync(connection, "client_bills", "IX_client_bills_AgencyBillingId", cancellationToken)
+            && await SchemaIntrospectionHelper.ColumnExistsAsync(connection, "client_bills", "AgencyBillingId", cancellationToken))
         {
             await db.Database.ExecuteSqlRawAsync(
                 "CREATE UNIQUE INDEX `IX_client_bills_AgencyBillingId` ON `client_bills` (`AgencyBillingId`);",
                 cancellationToken);
         }
 
-        if (!await ForeignKeyExistsAsync(db, "client_bills", "FK_client_bills_billings_AgencyBillingId", cancellationToken)
-            && await ColumnExistsAsync(db, "client_bills", "AgencyBillingId", cancellationToken))
+        if (!await SchemaIntrospectionHelper.ForeignKeyExistsAsync(connection, "client_bills", "FK_client_bills_billings_AgencyBillingId", cancellationToken)
+            && await SchemaIntrospectionHelper.ColumnExistsAsync(connection, "client_bills", "AgencyBillingId", cancellationToken))
         {
             await db.Database.ExecuteSqlRawAsync(
                 """
@@ -113,136 +115,5 @@ public static class BillingSchemaSeeder
             );
             """,
             cancellationToken);
-    }
-
-    private static async Task<bool> TableExistsAsync(
-        AgriCheckDbContext db,
-        string tableName,
-        CancellationToken cancellationToken)
-    {
-        var connection = db.Database.GetDbConnection();
-        await connection.OpenAsync(cancellationToken);
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT COUNT(*)
-            FROM information_schema.TABLES
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = @tableName
-            """;
-
-        var tableParam = command.CreateParameter();
-        tableParam.ParameterName = "@tableName";
-        tableParam.Value = tableName;
-        command.Parameters.Add(tableParam);
-
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return Convert.ToInt64(result) > 0;
-    }
-
-    private static async Task<bool> ColumnExistsAsync(
-        AgriCheckDbContext db,
-        string tableName,
-        string columnName,
-        CancellationToken cancellationToken)
-    {
-        var connection = db.Database.GetDbConnection();
-        if (connection.State != System.Data.ConnectionState.Open)
-        {
-            await connection.OpenAsync(cancellationToken);
-        }
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT COUNT(*)
-            FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = @tableName
-              AND COLUMN_NAME = @columnName
-            """;
-
-        var tableParam = command.CreateParameter();
-        tableParam.ParameterName = "@tableName";
-        tableParam.Value = tableName;
-        command.Parameters.Add(tableParam);
-
-        var columnParam = command.CreateParameter();
-        columnParam.ParameterName = "@columnName";
-        columnParam.Value = columnName;
-        command.Parameters.Add(columnParam);
-
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return Convert.ToInt64(result) > 0;
-    }
-
-    private static async Task<bool> IndexExistsAsync(
-        AgriCheckDbContext db,
-        string tableName,
-        string indexName,
-        CancellationToken cancellationToken)
-    {
-        var connection = db.Database.GetDbConnection();
-        if (connection.State != System.Data.ConnectionState.Open)
-        {
-            await connection.OpenAsync(cancellationToken);
-        }
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT COUNT(*)
-            FROM information_schema.STATISTICS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = @tableName
-              AND INDEX_NAME = @indexName
-            """;
-
-        var tableParam = command.CreateParameter();
-        tableParam.ParameterName = "@tableName";
-        tableParam.Value = tableName;
-        command.Parameters.Add(tableParam);
-
-        var indexParam = command.CreateParameter();
-        indexParam.ParameterName = "@indexName";
-        indexParam.Value = indexName;
-        command.Parameters.Add(indexParam);
-
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return Convert.ToInt64(result) > 0;
-    }
-
-    private static async Task<bool> ForeignKeyExistsAsync(
-        AgriCheckDbContext db,
-        string tableName,
-        string constraintName,
-        CancellationToken cancellationToken)
-    {
-        var connection = db.Database.GetDbConnection();
-        if (connection.State != System.Data.ConnectionState.Open)
-        {
-            await connection.OpenAsync(cancellationToken);
-        }
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT COUNT(*)
-            FROM information_schema.TABLE_CONSTRAINTS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = @tableName
-              AND CONSTRAINT_NAME = @constraintName
-              AND CONSTRAINT_TYPE = 'FOREIGN KEY'
-            """;
-
-        var tableParam = command.CreateParameter();
-        tableParam.ParameterName = "@tableName";
-        tableParam.Value = tableName;
-        command.Parameters.Add(tableParam);
-
-        var constraintParam = command.CreateParameter();
-        constraintParam.ParameterName = "@constraintName";
-        constraintParam.Value = constraintName;
-        command.Parameters.Add(constraintParam);
-
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return Convert.ToInt64(result) > 0;
     }
 }

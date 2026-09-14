@@ -2,13 +2,17 @@ using AgriCheck.Domain.Entities;
 using AgriCheck.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
+namespace AgriCheck.Infrastructure.Persistence.Seeding;
+
 public static class WarehouseProfilingSchemaSeeder
 {
     private const string SettingKey = "warehouse_profiling_schema_applied";
 
     public static async Task EnsureAsync(AgriCheckDbContext db, CancellationToken cancellationToken = default)
     {
-        if (await ColumnExistsAsync(db, "warehouse_facilities", "BarangayId", cancellationToken))
+        var connection = db.Database.GetDbConnection();
+
+        if (await SchemaIntrospectionHelper.ColumnExistsAsync(connection, "warehouse_facilities", "BarangayId", cancellationToken))
         {
             return;
         }
@@ -64,37 +68,5 @@ public static class WarehouseProfilingSchemaSeeder
             });
             await db.SaveChangesAsync(cancellationToken);
         }
-    }
-
-    private static async Task<bool> ColumnExistsAsync(
-        AgriCheckDbContext db,
-        string tableName,
-        string columnName,
-        CancellationToken cancellationToken)
-    {
-        var connection = db.Database.GetDbConnection();
-        await connection.OpenAsync(cancellationToken);
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT COUNT(*)
-            FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = @tableName
-              AND COLUMN_NAME = @columnName
-            """;
-
-        var tableParam = command.CreateParameter();
-        tableParam.ParameterName = "@tableName";
-        tableParam.Value = tableName;
-        command.Parameters.Add(tableParam);
-
-        var columnParam = command.CreateParameter();
-        columnParam.ParameterName = "@columnName";
-        columnParam.Value = columnName;
-        command.Parameters.Add(columnParam);
-
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return Convert.ToInt64(result) > 0;
     }
 }

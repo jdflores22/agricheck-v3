@@ -1,6 +1,6 @@
--- Sync Hostinger PRODUCTION DB to 83 application tables (matches local v3).
--- Run in phpMyAdmin: ONE statement at a time. Skip "duplicate column/table" errors.
--- Verify with: backend/scripts/verify-database-parity.sql (expect 84 rows from SHOW TABLES).
+-- Sync LOCAL XAMPP DB to 83 application tables (matches production v3).
+-- Run in local phpMyAdmin: ONE statement at a time. Skip "duplicate column/table" errors.
+-- Or run: dotnet ef database update (from AgriCheck.Infrastructure project).
 
 -- === 1. Entry columns ===
 ALTER TABLE `entries` ADD `MavDocumentStatus` varchar(32) NOT NULL DEFAULT 'NotProvided';
@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS `inspector_assignments` (
     FOREIGN KEY (`InspectorUserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- === 7. operator_invite_codes (safe if already exists on production) ===
+-- === 7. operator_invite_codes (often missing on local) ===
 CREATE TABLE IF NOT EXISTS `operator_invite_codes` (
   `Id` bigint NOT NULL AUTO_INCREMENT,
   `Code` varchar(32) NOT NULL,

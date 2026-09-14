@@ -7,7 +7,9 @@ public static class InspectorAssignmentsSchemaSeeder
 {
     public static async Task EnsureAsync(AgriCheckDbContext db, CancellationToken cancellationToken = default)
     {
-        if (!await TableExistsAsync(db, "inspector_assignments", cancellationToken))
+        var connection = db.Database.GetDbConnection();
+
+        if (!await SchemaIntrospectionHelper.TableExistsAsync(connection, "inspector_assignments", cancellationToken))
         {
             await db.Database.ExecuteSqlRawAsync(
                 """
@@ -48,30 +50,5 @@ public static class InspectorAssignmentsSchemaSeeder
             );
             """,
             cancellationToken);
-    }
-
-    private static async Task<bool> TableExistsAsync(
-        AgriCheckDbContext db,
-        string tableName,
-        CancellationToken cancellationToken)
-    {
-        var connection = db.Database.GetDbConnection();
-        await connection.OpenAsync(cancellationToken);
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT COUNT(*)
-            FROM information_schema.TABLES
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = @tableName
-            """;
-
-        var tableParam = command.CreateParameter();
-        tableParam.ParameterName = "@tableName";
-        tableParam.Value = tableName;
-        command.Parameters.Add(tableParam);
-
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return Convert.ToInt64(result) > 0;
     }
 }
