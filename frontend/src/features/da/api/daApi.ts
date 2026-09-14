@@ -250,6 +250,40 @@ export interface DaImportPipelineCommodityRow {
   awaitingStorageKg: number
   expectedContainers: number
   actualContainers: number
+  importerCount: number
+  warehouseCount: number
+}
+
+export interface DaImportPipelineImporterRow {
+  importerUuid: string
+  importerName: string
+  companyName?: string | null
+  expectedKg: number
+  actualKg: number
+  entryCount: number
+  commodityCount: number
+}
+
+export interface DaImportPipelineCommodityImporterRow {
+  hsCode: string
+  commodityName: string
+  importerUuid: string
+  importerName: string
+  companyName?: string | null
+  expectedKg: number
+  actualKg: number
+  containerCount: number
+}
+
+export interface DaImportPipelineCommodityWarehouseRow {
+  hsCode: string
+  commodityName: string
+  warehouseId: number
+  warehouseCode: string
+  warehouseName: string
+  regionName?: string | null
+  actualKg: number
+  containerCount: number
 }
 
 export interface DaImportPipelineEntryRow {
@@ -266,6 +300,9 @@ export interface DaImportPipelineEntryRow {
   storedContainers: number
   pendingContainers: number
   submittedAt?: string | null
+  importerUuid: string
+  importerName: string
+  companyName?: string | null
 }
 
 export interface DaImportPipelineReport {
@@ -276,6 +313,9 @@ export interface DaImportPipelineReport {
   pipelineEntryCount: number
   byStage: DaImportPipelineStageRow[]
   byCommodity: DaImportPipelineCommodityRow[]
+  byImporter: DaImportPipelineImporterRow[]
+  byCommodityImporter: DaImportPipelineCommodityImporterRow[]
+  byCommodityWarehouse: DaImportPipelineCommodityWarehouseRow[]
   entries: DaImportPipelineEntryRow[]
 }
 

@@ -259,7 +259,38 @@ public record DaImportPipelineCommodityRowDto(
     decimal InTransitKg,
     decimal AwaitingStorageKg,
     int ExpectedContainers,
-    int ActualContainers);
+    int ActualContainers,
+    int ImporterCount,
+    int WarehouseCount);
+
+public record DaImportPipelineImporterRowDto(
+    Guid ImporterUuid,
+    string ImporterName,
+    string? CompanyName,
+    decimal ExpectedKg,
+    decimal ActualKg,
+    int EntryCount,
+    int CommodityCount);
+
+public record DaImportPipelineCommodityImporterRowDto(
+    string HsCode,
+    string CommodityName,
+    Guid ImporterUuid,
+    string ImporterName,
+    string? CompanyName,
+    decimal ExpectedKg,
+    decimal ActualKg,
+    int ContainerCount);
+
+public record DaImportPipelineCommodityWarehouseRowDto(
+    string HsCode,
+    string CommodityName,
+    long WarehouseId,
+    string WarehouseCode,
+    string WarehouseName,
+    string? RegionName,
+    decimal ActualKg,
+    int ContainerCount);
 
 public record DaImportPipelineEntryRowDto(
     Guid EntryUuid,
@@ -274,7 +305,10 @@ public record DaImportPipelineEntryRowDto(
     int TotalContainers,
     int StoredContainers,
     int PendingContainers,
-    DateTime? SubmittedAt);
+    DateTime? SubmittedAt,
+    Guid ImporterUuid,
+    string ImporterName,
+    string? CompanyName);
 
 public record DaImportPipelineReportDto(
     decimal TotalExpectedKg,
@@ -284,4 +318,7 @@ public record DaImportPipelineReportDto(
     int PipelineEntryCount,
     IReadOnlyList<DaImportPipelineStageRowDto> ByStage,
     IReadOnlyList<DaImportPipelineCommodityRowDto> ByCommodity,
+    IReadOnlyList<DaImportPipelineImporterRowDto> ByImporter,
+    IReadOnlyList<DaImportPipelineCommodityImporterRowDto> ByCommodityImporter,
+    IReadOnlyList<DaImportPipelineCommodityWarehouseRowDto> ByCommodityWarehouse,
     IReadOnlyList<DaImportPipelineEntryRowDto> Entries);

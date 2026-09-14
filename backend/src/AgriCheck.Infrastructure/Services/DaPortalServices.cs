@@ -687,6 +687,11 @@ public class DaOversightReportService : IDaOversightReportService
                 var actualForKey = filteredActual.Where(l => Norm(l.HsCode) == key.Item1 && Norm(l.CommodityName) == key.Item2).ToList();
                 var hsCode = expectedForKey.FirstOrDefault()?.HsCode ?? actualForKey.First().HsCode;
                 var commodityName = expectedForKey.FirstOrDefault()?.CommodityName ?? actualForKey.First().CommodityName;
+                var importerCount = expectedForKey.Select(l => l.ImporterUuid)
+                    .Concat(actualForKey.Select(l => l.ImporterUuid))
+                    .Distinct()
+                    .Count();
+                var warehouseCount = actualForKey.Select(l => l.FacilityId).Distinct().Count();
                 return new DaImportPipelineCommodityRowDto(
                     string.IsNullOrWhiteSpace(hsCode) ? "—" : hsCode,
                     commodityName,
@@ -696,10 +701,99 @@ public class DaOversightReportService : IDaOversightReportService
                     expectedForKey.Where(l => l.Stage == "InTransit").Sum(l => l.VolumeKg),
                     expectedForKey.Where(l => l.Stage == "AwaitingStorage").Sum(l => l.VolumeKg),
                     expectedForKey.Count(l => l.ContainerCount > 0),
-                    actualForKey.Count);
+                    actualForKey.Count,
+                    importerCount,
+                    warehouseCount);
             })
             .OrderByDescending(r => r.ExpectedKg + r.ActualKg)
             .ThenBy(r => r.CommodityName)
+            .ToList();
+
+        var byImporter = filteredExpected
+            .Select(l => (l.ImporterUuid, l.ImporterName, l.CompanyName, Kg: l.VolumeKg, EntryId: l.EntryId, Hs: Norm(l.HsCode), Commodity: Norm(l.CommodityName), IsExpected: true))
+            .Concat(filteredActual.Select(l => (l.ImporterUuid, l.ImporterName, l.CompanyName, Kg: l.VolumeKg, EntryId: l.EntryId, Hs: Norm(l.HsCode), Commodity: Norm(l.CommodityName), IsExpected: false)))
+            .GroupBy(l => l.ImporterUuid)
+            .Select(g =>
+            {
+                var sample = g.First();
+                return new DaImportPipelineImporterRowDto(
+                    sample.ImporterUuid,
+                    sample.ImporterName,
+                    sample.CompanyName,
+                    g.Where(l => l.IsExpected).Sum(l => l.Kg),
+                    g.Where(l => !l.IsExpected).Sum(l => l.Kg),
+                    g.Where(l => l.IsExpected).Select(l => l.EntryId).Distinct().Count(),
+                    g.Select(l => (l.Hs, l.Commodity)).Distinct().Count());
+            })
+            .OrderByDescending(r => r.ExpectedKg + r.ActualKg)
+            .ThenBy(r => r.CompanyName ?? r.ImporterName)
+            .ToList();
+
+        var byCommodityImporter = commodityKeys
+            .SelectMany(key =>
+            {
+                var expectedForKey = filteredExpected.Where(l => Norm(l.HsCode) == key.Item1 && Norm(l.CommodityName) == key.Item2);
+                var actualForKey = filteredActual.Where(l => Norm(l.HsCode) == key.Item1 && Norm(l.CommodityName) == key.Item2);
+                var hsCode = expectedForKey.FirstOrDefault()?.HsCode ?? actualForKey.First().HsCode;
+                var commodityName = expectedForKey.FirstOrDefault()?.CommodityName ?? actualForKey.First().CommodityName;
+                var importerKeys = expectedForKey.Select(l => l.ImporterUuid)
+                    .Concat(actualForKey.Select(l => l.ImporterUuid))
+                    .Distinct();
+
+                return importerKeys.Select(importerUuid =>
+                {
+                    var expectedImporter = expectedForKey.Where(l => l.ImporterUuid == importerUuid).ToList();
+                    var actualImporter = actualForKey.Where(l => l.ImporterUuid == importerUuid).ToList();
+                    var importerName = expectedImporter.FirstOrDefault()?.ImporterName
+                        ?? actualImporter.First().ImporterName;
+                    var companyName = expectedImporter.FirstOrDefault()?.CompanyName
+                        ?? actualImporter.First().CompanyName;
+                    return new DaImportPipelineCommodityImporterRowDto(
+                        string.IsNullOrWhiteSpace(hsCode) ? "—" : hsCode,
+                        commodityName,
+                        importerUuid,
+                        importerName,
+                        companyName,
+                        expectedImporter.Sum(l => l.VolumeKg),
+                        actualImporter.Sum(l => l.VolumeKg),
+                        expectedImporter.Count(l => l.ContainerCount > 0) + actualImporter.Count);
+                });
+            })
+            .OrderByDescending(r => r.ExpectedKg + r.ActualKg)
+            .ThenBy(r => r.CommodityName)
+            .ThenBy(r => r.CompanyName ?? r.ImporterName)
+            .ToList();
+
+        var byCommodityWarehouse = commodityKeys
+            .SelectMany(key =>
+            {
+                var actualForKey = filteredActual.Where(l => Norm(l.HsCode) == key.Item1 && Norm(l.CommodityName) == key.Item2).ToList();
+                if (actualForKey.Count == 0)
+                {
+                    return Array.Empty<DaImportPipelineCommodityWarehouseRowDto>();
+                }
+
+                var hsCode = actualForKey.First().HsCode;
+                var commodityName = actualForKey.First().CommodityName;
+                return actualForKey
+                    .GroupBy(l => l.FacilityId)
+                    .Select(g =>
+                    {
+                        var sample = g.First();
+                        return new DaImportPipelineCommodityWarehouseRowDto(
+                            string.IsNullOrWhiteSpace(hsCode) ? "—" : hsCode,
+                            commodityName,
+                            sample.FacilityId,
+                            sample.FacilityCode,
+                            sample.FacilityName,
+                            sample.RegionName,
+                            g.Sum(l => l.VolumeKg),
+                            g.Count());
+                    });
+            })
+            .OrderByDescending(r => r.ActualKg)
+            .ThenBy(r => r.CommodityName)
+            .ThenBy(r => r.WarehouseName)
             .ToList();
 
         var storedByEntry = filteredActual
@@ -732,7 +826,10 @@ public class DaOversightReportService : IDaOversightReportService
                     totalContainers,
                     storedContainers,
                     pendingContainers,
-                    sample.SubmittedAt);
+                    sample.SubmittedAt,
+                    sample.ImporterUuid,
+                    sample.ImporterName,
+                    sample.CompanyName);
             })
             .OrderByDescending(e => e.ExpectedKg)
             .ThenByDescending(e => e.SubmittedAt ?? DateTime.MinValue)
@@ -747,6 +844,9 @@ public class DaOversightReportService : IDaOversightReportService
             entries.Count,
             byStage,
             byCommodity,
+            byImporter,
+            byCommodityImporter,
+            byCommodityWarehouse,
             entries);
     }
 
@@ -1036,6 +1136,19 @@ public class DaOversightReportService : IDaOversightReportService
 
     private static string Norm(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant();
 
+    private static (Guid ImporterUuid, string ImporterName, string? CompanyName) ResolveImporter(User user)
+    {
+        var importerName = user.Profile != null
+            ? $"{user.Profile.FirstName} {user.Profile.LastName}".Trim()
+            : user.Email;
+        if (string.IsNullOrWhiteSpace(importerName))
+        {
+            importerName = user.Email;
+        }
+
+        return (user.Uuid, importerName, user.Profile?.CompanyName?.Trim());
+    }
+
     private static string ClassifyPipelineStage(Entry entry, Container? container)
     {
         if (container is null)
@@ -1092,6 +1205,7 @@ public class DaOversightReportService : IDaOversightReportService
         var entries = await _db.Entries
             .AsNoTracking()
             .Include(e => e.Agency)
+            .Include(e => e.User).ThenInclude(u => u.Profile)
             .Include(e => e.Detail)
             .Include(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .Include(e => e.Containers)
@@ -1107,6 +1221,7 @@ public class DaOversightReportService : IDaOversightReportService
             var entryVolumeKg = DaStockVolumeHelper.ToKilograms(entry);
             var agencyCode = entry.Agency?.Code ?? "Shared";
             var totalContainers = entry.Containers.Count;
+            var (importerUuid, importerName, companyName) = ResolveImporter(entry.User);
 
             var pendingContainers = entry.Containers
                 .Where(c => c.Status != ContainerStatus.Released && !storedContainerIds.Contains(c.Id))
@@ -1123,6 +1238,9 @@ public class DaOversightReportService : IDaOversightReportService
                         agencyCode,
                         entry.Status.ToString(),
                         entry.SubmittedAt,
+                        importerUuid,
+                        importerName,
+                        companyName,
                         hsCode,
                         commodityName,
                         entryVolumeKg,
@@ -1144,6 +1262,9 @@ public class DaOversightReportService : IDaOversightReportService
                     agencyCode,
                     entry.Status.ToString(),
                     entry.SubmittedAt,
+                    importerUuid,
+                    importerName,
+                    companyName,
                     hsCode,
                     commodityName,
                     perContainerKg,
@@ -1167,6 +1288,7 @@ public class DaOversightReportService : IDaOversightReportService
             .Include(i => i.WarehouseFacility).ThenInclude(f => f.City)
             .Include(i => i.WarehouseFacility).ThenInclude(f => f.Barangay)
             .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Agency)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.User).ThenInclude(u => u.Profile)
             .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Detail)
             .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .Where(i => i.Status == WarehouseInventoryStatus.Stored)
@@ -1186,9 +1308,15 @@ public class DaOversightReportService : IDaOversightReportService
             var commodityName = FirstNonEmpty(mic?.CommodityName, entry.Detail?.CommodityName) ?? "Unclassified";
             var split = storedByEntry.GetValueOrDefault(entry.Id, 1);
             var volumeKg = DaStockVolumeHelper.ToKilograms(entry) / Math.Max(split, 1);
+            var (importerUuid, importerName, companyName) = ResolveImporter(entry.User);
             lines.Add(new StockInventoryLine(
                 facility.Id,
+                facility.Code,
+                facility.Name,
                 entry.Id,
+                importerUuid,
+                importerName,
+                companyName,
                 entry.Agency?.Code ?? "Shared",
                 entry.ImportTrack,
                 facility.RegionId,
@@ -1214,6 +1342,9 @@ public class DaOversightReportService : IDaOversightReportService
         string AgencyCode,
         string EntryStatus,
         DateTime? SubmittedAt,
+        Guid ImporterUuid,
+        string ImporterName,
+        string? CompanyName,
         string HsCode,
         string CommodityName,
         decimal VolumeKg,
@@ -1223,7 +1354,12 @@ public class DaOversightReportService : IDaOversightReportService
 
     private sealed record StockInventoryLine(
         long FacilityId,
+        string FacilityCode,
+        string FacilityName,
         long EntryId,
+        Guid ImporterUuid,
+        string ImporterName,
+        string? CompanyName,
         string AgencyCode,
         EntryImportTrack ImportTrack,
         long? RegionId,
