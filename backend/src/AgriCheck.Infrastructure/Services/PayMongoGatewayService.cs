@@ -618,11 +618,12 @@ public class PayMongoGatewayService : IPaymentGatewayService
             return gateway.PayMongoApiKey;
         }
 
-        return null;
+        var systemGateway = await PaymentSettingsReader.ResolveForSystemAsync(_db, _configuration, cancellationToken);
+        return systemGateway.PayMongoApiKey;
     }
 
     private async Task<ResolvedAgencyPaymentGateway> ResolveGlobalGatewayAsync(CancellationToken cancellationToken)
     {
-        return new ResolvedAgencyPaymentGateway(false, true, "simulated", null, null, null, false);
+        return await PaymentSettingsReader.ResolveForSystemAsync(_db, _configuration, cancellationToken);
     }
 }

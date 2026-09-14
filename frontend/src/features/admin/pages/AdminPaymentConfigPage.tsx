@@ -2,7 +2,10 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
+  FormControlLabel,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from '@mui/material'
@@ -11,6 +14,7 @@ import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalPanel } from '../../../components/portal/PortalPanel'
 import { portalColors } from '../../../components/portal/portalTheme'
 import { portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
+import { getApiV1Base } from '../../../app/apiBase'
 import {
   useGetAdminPaymentSettingsQuery,
   useUpdateAdminPaymentSettingsMutation,
@@ -22,6 +26,10 @@ export function AdminPaymentConfigPage() {
   const settings = data?.data
 
   const [form, setForm] = useState({
+    payMongoEnabled: false,
+    payMongoApiKey: '',
+    payMongoWebhookSecret: '',
+    payMongoPublicKey: '',
     importFeeAmount: 2500,
     exportFeeAmount: 2500,
     currency: 'PHP',
@@ -33,6 +41,10 @@ export function AdminPaymentConfigPage() {
     const exportFee = settings.processingFees.find((fee) => fee.entryType === 'Export')?.amount ?? 2500
     const currency = settings.processingFees[0]?.currency ?? 'PHP'
     setForm({
+      payMongoEnabled: settings.gateway.enabled,
+      payMongoApiKey: '',
+      payMongoWebhookSecret: '',
+      payMongoPublicKey: settings.gateway.publicKey ?? '',
       importFeeAmount: importFee,
       exportFeeAmount: exportFee,
       currency,
@@ -42,38 +54,103 @@ export function AdminPaymentConfigPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     await updateSettings({
+      payMongoEnabled: form.payMongoEnabled,
+      payMongoApiKey: form.payMongoApiKey || undefined,
+      payMongoWebhookSecret: form.payMongoWebhookSecret || undefined,
+      payMongoPublicKey: form.payMongoPublicKey || undefined,
       importFeeAmount: form.importFeeAmount,
       exportFeeAmount: form.exportFeeAmount,
       currency: form.currency,
     }).unwrap()
+    setForm((prev) => ({ ...prev, payMongoApiKey: '', payMongoWebhookSecret: '' }))
   }
+
+  const gatewayMode = settings?.gateway.mode ?? 'simulated'
 
   return (
     <Box>
       <PortalPageHeader
-        eyebrow="Management"
-        title="Entry Processing Fees"
-        subtitle="Set the platform fee charged when a client submits an import or export entry. PayMongo and agency billing are configured per agency."
+        eyebrow="System Provider"
+        title="Payment Configuration"
+        subtitle="Configure how AgriCheck collects system entry processing fees. Agency billing (inspection charges, certificates, etc.) is configured separately by each agency."
       />
 
       {isSuccess && (
         <Alert severity="success" sx={{ mb: 2, borderRadius: '0.75rem' }}>
-          Entry processing fees saved.
+          System payment settings saved.
         </Alert>
       )}
       {isError && (
         <Alert severity="error" sx={{ mb: 2, borderRadius: '0.75rem' }}>
-          Unable to save entry processing fees.
+          Unable to save system payment settings.
         </Alert>
       )}
 
       <Box component="form" onSubmit={handleSubmit}>
         <Stack spacing={3}>
-          <PortalPanel title="Global Entry Processing Fees">
+          <PortalPanel title="System Provider PayMongo">
+            <Stack spacing={2.5} sx={{ px: 2.5, py: 2.5 }}>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                <Chip
+                  size="small"
+                  label={gatewayMode === 'paymongo' ? 'Live PayMongo' : 'Simulated mode'}
+                  color={gatewayMode === 'paymongo' ? 'success' : 'default'}
+                />
+                <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted }}>
+                  Used only for entry processing fee payments collected by the system provider.
+                </Typography>
+              </Stack>
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={form.payMongoEnabled}
+                    onChange={(e) => setForm({ ...form, payMongoEnabled: e.target.checked })}
+                  />
+                }
+                label="Enable PayMongo for entry processing fees"
+              />
+
+              <TextField
+                label="Secret API key"
+                value={form.payMongoApiKey}
+                onChange={(e) => setForm({ ...form, payMongoApiKey: e.target.value })}
+                placeholder={settings?.gateway.hasApiKey ? settings.gateway.apiKeyMasked : 'sk_live_...'}
+                fullWidth
+                size="small"
+                type="password"
+                helperText="Leave blank to keep the current key."
+              />
+              <Alert severity="info" sx={{ borderRadius: '0.75rem' }}>
+                In the PayMongo dashboard, add a webhook to{' '}
+                <strong>{getApiV1Base()}/webhooks/paymongo</strong> and subscribe to{' '}
+                <strong>checkout_session.payment.paid</strong>.
+              </Alert>
+              <TextField
+                label="Webhook secret"
+                value={form.payMongoWebhookSecret}
+                onChange={(e) => setForm({ ...form, payMongoWebhookSecret: e.target.value })}
+                placeholder={settings?.gateway.hasWebhookSecret ? '********' : 'whsec_...'}
+                fullWidth
+                size="small"
+                type="password"
+              />
+              <TextField
+                label="Public key (optional)"
+                value={form.payMongoPublicKey}
+                onChange={(e) => setForm({ ...form, payMongoPublicKey: e.target.value })}
+                placeholder="pk_live_..."
+                fullWidth
+                size="small"
+              />
+            </Stack>
+          </PortalPanel>
+
+          <PortalPanel title="System Entry Processing Fees">
             <Stack spacing={2.5} sx={{ px: 2.5, py: 2.5 }}>
               <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted }}>
-                Default fee applied when a client submits an entry. Agencies may override these amounts
-                through per-agency fee configuration in the admin payment configs list.
+                Platform fee charged to clients when they submit an import or export entry. This revenue
+                belongs to the system provider, not the agency.
               </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField
@@ -108,7 +185,7 @@ export function AdminPaymentConfigPage() {
 
           <Box>
             <Button type="submit" variant="contained" sx={portalPrimaryButtonSx} disabled={saving || isLoading}>
-              {saving ? 'Saving…' : 'Save entry fees'}
+              {saving ? 'Saving…' : 'Save payment settings'}
             </Button>
           </Box>
         </Stack>

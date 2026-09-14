@@ -131,10 +131,15 @@ export interface GlobalEntryProcessingFee {
 }
 
 export interface AdminPaymentSettings {
+  gateway: PaymentGatewaySettings
   processingFees: GlobalEntryProcessingFee[]
 }
 
 export interface UpdateAdminPaymentSettingsRequest {
+  payMongoEnabled: boolean
+  payMongoApiKey?: string
+  payMongoWebhookSecret?: string
+  payMongoPublicKey?: string
   importFeeAmount: number
   exportFeeAmount: number
   currency: string

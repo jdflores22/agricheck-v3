@@ -56,6 +56,42 @@ public static class PaymentSettingsReader
         return configuration["PayMongo:WebhookSecret"];
     }
 
+    public static async Task<ResolvedAgencyPaymentGateway> ResolveForSystemAsync(
+        AgriCheckDbContext db,
+        IConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        var settings = await GetAllAsync(db, cancellationToken);
+        var enabled = settings.GetValueOrDefault(PaymentSettingsDefaults.PayMongoEnabled) == "1";
+        var apiKey = settings.GetValueOrDefault(PaymentSettingsDefaults.PayMongoApiKey);
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            apiKey = configuration["PayMongo:ApiKey"];
+        }
+
+        var webhookSecret = settings.GetValueOrDefault(PaymentSettingsDefaults.PayMongoWebhookSecret);
+        if (string.IsNullOrWhiteSpace(webhookSecret))
+        {
+            webhookSecret = configuration["PayMongo:WebhookSecret"];
+        }
+
+        var publicKey = settings.GetValueOrDefault(PaymentSettingsDefaults.PayMongoPublicKey);
+
+        if (enabled && !string.IsNullOrWhiteSpace(apiKey))
+        {
+            return new ResolvedAgencyPaymentGateway(
+                true,
+                true,
+                "paymongo",
+                apiKey.Trim(),
+                webhookSecret?.Trim(),
+                string.IsNullOrWhiteSpace(publicKey) ? null : publicKey.Trim(),
+                true);
+        }
+
+        return new ResolvedAgencyPaymentGateway(false, true, "simulated", null, null, null, false);
+    }
+
     public static async Task<ResolvedAgencyPaymentGateway> ResolveForAgencyAsync(
         AgriCheckDbContext db,
         long agencyId,

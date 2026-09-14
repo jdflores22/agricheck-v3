@@ -788,20 +788,19 @@ public class ClientBillService : IClientBillService
         var bill = await QueryBill().FirstOrDefaultAsync(b => b.Uuid == uuid && b.UserId == user.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Bill not found.");
 
-        var agencyId = bill.Entry?.AgencyId;
-        if (agencyId is null)
+        var gateway = await ResolveBillPaymentGatewayAsync(bill, cancellationToken);
+        string? cashInstructions = null;
+        if (bill.AgencyBillingId is not null && bill.Entry?.AgencyId is long agencyId)
         {
-            return new BillPaymentOptionsDto(false, true, "simulated", null);
+            var agencySettings = await PaymentSettingsReader.TryGetAgencySettingsAsync(_db, agencyId, cancellationToken);
+            cashInstructions = agencySettings?.CashPaymentInstructions;
         }
-
-        var agencySettings = await PaymentSettingsReader.TryGetAgencySettingsAsync(_db, agencyId.Value, cancellationToken);
-        var gateway = await PaymentSettingsReader.ResolveForAgencyAsync(_db, agencyId.Value, _configuration, cancellationToken);
 
         return new BillPaymentOptionsDto(
             gateway.PayMongoEnabled,
             gateway.CashPaymentEnabled,
             gateway.Mode,
-            agencySettings?.CashPaymentInstructions);
+            cashInstructions);
     }
 
     public async Task<InitiateBillPaymentResultDto> InitiatePaymentAsync(Guid uuid, PayBillRequest request, CancellationToken cancellationToken = default)
@@ -830,14 +829,12 @@ public class ClientBillService : IClientBillService
             throw new ClientPortalException("ALREADY_PAID", "Bill is already paid.");
         }
 
-        var agencyId = bill.Entry?.AgencyId;
-        var gateway = agencyId is long resolvedAgencyId
-            ? await PaymentSettingsReader.ResolveForAgencyAsync(_db, resolvedAgencyId, _configuration, cancellationToken)
-            : null;
+        var gateway = await ResolveBillPaymentGatewayAsync(bill, cancellationToken);
+        var payMongoAgencyId = bill.AgencyBillingId is not null ? bill.Entry?.AgencyId : null;
 
         if (string.Equals(request.PaymentMethod, "cash", StringComparison.OrdinalIgnoreCase))
         {
-            if (gateway is not null && !gateway.CashPaymentEnabled)
+            if (bill.AgencyBillingId is not null && !gateway.CashPaymentEnabled)
             {
                 throw new ClientPortalException("CASH_DISABLED", "Cash payment is not enabled for this agency.");
             }
@@ -876,7 +873,7 @@ public class ClientBillService : IClientBillService
                 request.PaymentMethod,
                 successUrl,
                 cancelUrl,
-                agencyId,
+                payMongoAgencyId,
                 cancellationToken);
         }
         catch (InvalidOperationException ex)
@@ -1016,6 +1013,18 @@ public class ClientBillService : IClientBillService
         return allowed.Contains(origin) ? origin : configured;
     }
 
+    private async Task<ResolvedAgencyPaymentGateway> ResolveBillPaymentGatewayAsync(
+        ClientBill bill,
+        CancellationToken cancellationToken)
+    {
+        if (bill.AgencyBillingId is not null && bill.Entry?.AgencyId is long agencyId)
+        {
+            return await PaymentSettingsReader.ResolveForAgencyAsync(_db, agencyId, _configuration, cancellationToken);
+        }
+
+        return await PaymentSettingsReader.ResolveForSystemAsync(_db, _configuration, cancellationToken);
+    }
+
     private static void ExpirePendingPayments(ClientBill bill)
     {
         foreach (var pending in bill.Payments.Where(p => p.Status == "pending"))
@@ -1049,7 +1058,8 @@ public class ClientBillService : IClientBillService
                 continue;
             }
 
-            if (await _paymentGateway.IsGatewayPaymentPaidAsync(pending.GatewayTransactionId, bill.Entry?.AgencyId, cancellationToken))
+            var payMongoAgencyId = bill.AgencyBillingId is not null ? bill.Entry?.AgencyId : null;
+            if (await _paymentGateway.IsGatewayPaymentPaidAsync(pending.GatewayTransactionId, payMongoAgencyId, cancellationToken))
             {
                 paidPending = pending;
                 break;

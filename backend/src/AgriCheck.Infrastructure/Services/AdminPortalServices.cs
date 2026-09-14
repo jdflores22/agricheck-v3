@@ -667,6 +667,19 @@ public class AdminPaymentConfigService : IAdminPaymentConfigService
     {
         var admin = await AdminContextHelper.RequireAdminAsync(_db, _currentUser, cancellationToken);
 
+        await UpsertSettingAsync(PaymentSettingsDefaults.PayMongoEnabled, request.PayMongoEnabled ? "1" : "0", cancellationToken);
+        await UpsertSettingAsync(PaymentSettingsDefaults.PayMongoPublicKey, request.PayMongoPublicKey?.Trim() ?? string.Empty, cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(request.PayMongoApiKey) && request.PayMongoApiKey != "********")
+        {
+            await UpsertSettingAsync(PaymentSettingsDefaults.PayMongoApiKey, request.PayMongoApiKey.Trim(), cancellationToken);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.PayMongoWebhookSecret) && request.PayMongoWebhookSecret != "********")
+        {
+            await UpsertSettingAsync(PaymentSettingsDefaults.PayMongoWebhookSecret, request.PayMongoWebhookSecret.Trim(), cancellationToken);
+        }
+
         await UpsertSettingAsync(PaymentSettingsDefaults.EntryProcessingFeeImport, request.ImportFeeAmount.ToString("0.##"), cancellationToken);
         await UpsertSettingAsync(PaymentSettingsDefaults.EntryProcessingFeeExport, request.ExportFeeAmount.ToString("0.##"), cancellationToken);
         await UpsertSettingAsync(PaymentSettingsDefaults.EntryProcessingFeeCurrency, request.Currency.Trim().ToUpperInvariant(), cancellationToken);
@@ -692,17 +705,38 @@ public class AdminPaymentConfigService : IAdminPaymentConfigService
 
     private static AdminPaymentSettingsDto MapSettings(IReadOnlyDictionary<string, string> settings)
     {
+        var apiKey = settings.GetValueOrDefault(PaymentSettingsDefaults.PayMongoApiKey);
+        var webhookSecret = settings.GetValueOrDefault(PaymentSettingsDefaults.PayMongoWebhookSecret);
+        var enabled = settings.GetValueOrDefault(PaymentSettingsDefaults.PayMongoEnabled) == "1";
+        var hasApiKey = !string.IsNullOrWhiteSpace(apiKey);
+        var mode = enabled && hasApiKey ? "paymongo" : "simulated";
         var currency = settings.GetValueOrDefault(PaymentSettingsDefaults.EntryProcessingFeeCurrency) ?? "PHP";
 
         decimal importFee = decimal.TryParse(settings.GetValueOrDefault(PaymentSettingsDefaults.EntryProcessingFeeImport), out var importParsed) ? importParsed : 2500m;
         decimal exportFee = decimal.TryParse(settings.GetValueOrDefault(PaymentSettingsDefaults.EntryProcessingFeeExport), out var exportParsed) ? exportParsed : 2500m;
 
         return new AdminPaymentSettingsDto(
+            new PaymentGatewaySettingsDto(
+                enabled,
+                mode,
+                hasApiKey,
+                MaskSecret(apiKey),
+                !string.IsNullOrWhiteSpace(webhookSecret),
+                string.IsNullOrWhiteSpace(settings.GetValueOrDefault(PaymentSettingsDefaults.PayMongoPublicKey))
+                    ? null
+                    : settings[PaymentSettingsDefaults.PayMongoPublicKey]),
             new List<GlobalEntryProcessingFeeDto>
             {
                 new("Import", importFee, currency),
                 new("Export", exportFee, currency),
             });
+    }
+
+    private static string MaskSecret(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        if (value.Length <= 8) return "********";
+        return $"{value[..4]}…{value[^4..]}";
     }
 }
 
