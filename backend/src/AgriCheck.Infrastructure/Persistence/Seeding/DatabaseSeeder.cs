@@ -563,47 +563,6 @@ public class DatabaseSeeder : IHostedService
         _logger.LogInformation("Seeded demo client {Email} with password Importer@12345", email);
     }
 
-    private static async Task EnsureAgencyProcessingFeeConfigsAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
-    {
-        var defaults = new (string AgencyCode, EntryType EntryType, decimal Amount)[]
-        {
-            ("BAI", EntryType.Import, 2500m),
-            ("BAI", EntryType.Export, 1500m),
-            ("BFAR", EntryType.Import, 2000m),
-            ("BPI", EntryType.Import, 2500m),
-            ("SRA", EntryType.Import, 2500m),
-            ("NTA", EntryType.Import, 2500m),
-        };
-
-        foreach (var (agencyCode, entryType, amount) in defaults)
-        {
-            var agency = await db.Agencies.FirstOrDefaultAsync(a => a.Code == agencyCode, cancellationToken);
-            if (agency is null)
-            {
-                continue;
-            }
-
-            var exists = await db.ProcessingFeeConfigs.AnyAsync(
-                c => c.AgencyId == agency.Id && c.EntryType == entryType,
-                cancellationToken);
-            if (exists)
-            {
-                continue;
-            }
-
-            db.ProcessingFeeConfigs.Add(new ProcessingFeeConfig
-            {
-                AgencyId = agency.Id,
-                EntryType = entryType,
-                Amount = amount,
-                Currency = "PHP",
-                IsActive = true
-            });
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
-    }
-
     private static async Task EnsureAgencyPaymentSettingsAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
     {
         var agencies = await db.Agencies.Where(a => a.IsActive && a.Code != "DA" && a.Code != "MAV").ToListAsync(cancellationToken);
@@ -628,7 +587,6 @@ public class DatabaseSeeder : IHostedService
 
     private async Task SeedAdminPortalDataAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
     {
-        await EnsureAgencyProcessingFeeConfigsAsync(db, cancellationToken);
         await EnsureAgencyPaymentSettingsAsync(db, cancellationToken);
 
         if (!await db.FormTemplates.AnyAsync(cancellationToken))

@@ -127,32 +127,31 @@ public static class PaymentSettingsReader
             ? PaymentSettingsDefaults.EntryProcessingFeeExport
             : PaymentSettingsDefaults.EntryProcessingFeeImport;
 
-        if (decimal.TryParse(settings.GetValueOrDefault(key), out var amount) && amount > 0)
+        if (decimal.TryParse(settings.GetValueOrDefault(key), out var amount) && amount >= 0)
         {
             return amount;
         }
 
-        return 1500m;
+        var defaults = PaymentSettingsDefaults.Values;
+        var fallbackKey = entryType == EntryType.Export
+            ? PaymentSettingsDefaults.EntryProcessingFeeExport
+            : PaymentSettingsDefaults.EntryProcessingFeeImport;
+
+        return decimal.TryParse(defaults.GetValueOrDefault(fallbackKey), out var fallbackAmount)
+            ? fallbackAmount
+            : 2500m;
     }
 
-    public static async Task<decimal> ResolveEntryProcessingFeeForAgencyAsync(
+    /// <summary>
+    /// System-provider entry processing fee (configured in /admin/payment-config).
+    /// Agency-specific <c>processing_fee_configs</c> rows are legacy and are not used for client entry bills.
+    /// </summary>
+    public static Task<decimal> ResolveEntryProcessingFeeForAgencyAsync(
         AgriCheckDbContext db,
         long agencyId,
         EntryType entryType,
-        CancellationToken cancellationToken = default)
-    {
-        var agencyFee = await db.ProcessingFeeConfigs.AsNoTracking()
-            .Where(c => c.AgencyId == agencyId && c.EntryType == entryType && c.IsActive)
-            .Select(c => (decimal?)c.Amount)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (agencyFee is > 0)
-        {
-            return agencyFee.Value;
-        }
-
-        return await ResolveEntryProcessingFeeAsync(db, entryType, cancellationToken);
-    }
+        CancellationToken cancellationToken = default) =>
+        ResolveEntryProcessingFeeAsync(db, entryType, cancellationToken);
 
     public static async Task<IReadOnlyList<string>> GetWebhookSecretsAsync(
         AgriCheckDbContext db,

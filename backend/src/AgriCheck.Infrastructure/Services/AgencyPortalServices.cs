@@ -1,3 +1,4 @@
+using AgriCheck.Application.AdminPortal;
 using AgriCheck.Application.AgencyPortal;
 using AgriCheck.Application.AgencyPortal.Dtos;
 using AgriCheck.Application.ClientPortal;
@@ -1254,13 +1255,10 @@ public class AgencyBillingService : IAgencyBillingService
             ? $"{entry.User.Profile.FirstName} {entry.User.Profile.LastName}".Trim()
             : entry.User.Email;
 
-        var feeConfig = await _db.ProcessingFeeConfigs.AsNoTracking()
-            .FirstOrDefaultAsync(
-                c => c.AgencyId == agencyId && c.EntryType == entry.EntryType && c.IsActive,
-                cancellationToken);
-        var suggestedFee = feeConfig?.Amount
-            ?? await PaymentSettingsReader.ResolveEntryProcessingFeeForAgencyAsync(
-                _db, agencyId, entry.EntryType, cancellationToken);
+        var paymentSettings = await PaymentSettingsReader.GetAllAsync(_db, cancellationToken);
+        var suggestedFee = await PaymentSettingsReader.ResolveEntryProcessingFeeAsync(
+            _db, entry.EntryType, cancellationToken);
+        var feeCurrency = paymentSettings.GetValueOrDefault(PaymentSettingsDefaults.EntryProcessingFeeCurrency) ?? "PHP";
 
         var commodity = await EntryMavCommodityResolver.ResolveBillingCommodityAsync(_db, entry, cancellationToken);
 
@@ -1288,7 +1286,7 @@ public class AgencyBillingService : IAgencyBillingService
             commodity,
             micUtilizations,
             suggestedFee,
-            feeConfig?.Currency ?? "PHP");
+            feeCurrency);
     }
 
     private static List<AgencyBillingChargeRequest> NormalizeBillingCharges(

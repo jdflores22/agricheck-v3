@@ -541,7 +541,7 @@ public class EntryService : IEntryService
 
     private async Task<decimal> ResolveProcessingFeeAsync(long agencyId, EntryType entryType, CancellationToken cancellationToken)
     {
-        return await PaymentSettingsReader.ResolveEntryProcessingFeeForAgencyAsync(_db, agencyId, entryType, cancellationToken);
+        return await PaymentSettingsReader.ResolveEntryProcessingFeeAsync(_db, entryType, cancellationToken);
     }
 
     private static EntryFileDto MapFile(EntryFile file)
