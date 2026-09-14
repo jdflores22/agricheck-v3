@@ -795,8 +795,7 @@ public class ClientBillService : IClientBillService
             return new BillPaymentOptionsDto(globalEnabled, true, globalEnabled ? "paymongo" : "simulated", null);
         }
 
-        var agencySettings = await _db.AgencyPaymentSettings.AsNoTracking()
-            .FirstOrDefaultAsync(s => s.AgencyId == agencyId.Value, cancellationToken);
+        var agencySettings = await PaymentSettingsReader.TryGetAgencySettingsAsync(_db, agencyId.Value, cancellationToken);
         var gateway = await PaymentSettingsReader.ResolveForAgencyAsync(_db, agencyId.Value, _configuration, cancellationToken);
 
         return new BillPaymentOptionsDto(

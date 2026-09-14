@@ -1,5 +1,6 @@
 using AgriCheck.Application.AdminPortal;
 using AgriCheck.Application.Payments;
+using AgriCheck.Domain.Entities;
 using AgriCheck.Domain.Enums;
 using AgriCheck.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -61,8 +62,7 @@ public static class PaymentSettingsReader
         IConfiguration configuration,
         CancellationToken cancellationToken = default)
     {
-        var agencySettings = await db.AgencyPaymentSettings.AsNoTracking()
-            .FirstOrDefaultAsync(s => s.AgencyId == agencyId, cancellationToken);
+        var agencySettings = await TryGetAgencySettingsAsync(db, agencyId, cancellationToken);
 
         var global = await GetAllAsync(db, cancellationToken);
         var globalApiKey = global.GetValueOrDefault(PaymentSettingsDefaults.PayMongoApiKey);
@@ -178,19 +178,42 @@ public static class PaymentSettingsReader
             secrets.Add(global);
         }
 
-        var agencySecrets = await db.AgencyPaymentSettings.AsNoTracking()
-            .Where(s => s.PayMongoEnabled && s.PayMongoWebhookSecret != null && s.PayMongoWebhookSecret != "")
-            .Select(s => s.PayMongoWebhookSecret!)
-            .ToListAsync(cancellationToken);
-
-        foreach (var secret in agencySecrets)
+        try
         {
-            if (!secrets.Contains(secret, StringComparer.Ordinal))
+            var agencySecrets = await db.AgencyPaymentSettings.AsNoTracking()
+                .Where(s => s.PayMongoEnabled && s.PayMongoWebhookSecret != null && s.PayMongoWebhookSecret != "")
+                .Select(s => s.PayMongoWebhookSecret!)
+                .ToListAsync(cancellationToken);
+
+            foreach (var secret in agencySecrets)
             {
-                secrets.Add(secret);
+                if (!secrets.Contains(secret, StringComparer.Ordinal))
+                {
+                    secrets.Add(secret);
+                }
             }
+        }
+        catch
+        {
+            // Legacy production DBs may not have agency_payment_settings yet.
         }
 
         return secrets;
+    }
+
+    public static async Task<AgencyPaymentSettings?> TryGetAgencySettingsAsync(
+        AgriCheckDbContext db,
+        long agencyId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await db.AgencyPaymentSettings.AsNoTracking()
+                .FirstOrDefaultAsync(s => s.AgencyId == agencyId, cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
