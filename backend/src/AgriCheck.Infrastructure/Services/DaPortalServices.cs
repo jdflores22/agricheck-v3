@@ -1875,6 +1875,12 @@ public class DaImporterProfileService : IDaImporterProfileService
 
         var roles = user.UserRoles.Select(ur => ur.Role.Code).Distinct().OrderBy(r => r).ToList();
         var fullName = FormatFullName(user);
+        var formData = ParseImporterFormData(submission?.FormDataJson);
+        var resolvedAddress = AccreditationFormVariableResolver.ResolveAddress(formData, user.Profile?.Address);
+        if (string.Equals(resolvedAddress, "N/A", StringComparison.OrdinalIgnoreCase))
+        {
+            resolvedAddress = null;
+        }
 
         return new DaImporterProfileDto(
             user.Uuid,
@@ -1885,7 +1891,7 @@ public class DaImporterProfileService : IDaImporterProfileService
             fullName,
             user.Profile?.Phone,
             user.Profile?.CompanyName?.Trim(),
-            user.Profile?.Address,
+            resolvedAddress,
             roles,
             user.CreatedAt,
             user.LastLoginAt,
@@ -2109,6 +2115,24 @@ public class DaImporterProfileService : IDaImporterProfileService
             ? $"{user.Profile.FirstName} {user.Profile.LastName}".Trim()
             : user.Email;
         return string.IsNullOrWhiteSpace(fullName) ? user.Email : fullName;
+    }
+
+    private static Dictionary<string, string> ParseImporterFormData(string? formDataJson)
+    {
+        if (string.IsNullOrWhiteSpace(formDataJson))
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(formDataJson)
+                ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
     }
 }
 

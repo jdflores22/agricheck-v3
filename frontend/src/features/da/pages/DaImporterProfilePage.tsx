@@ -23,6 +23,7 @@ import { useMemo, useState } from 'react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { AccreditationStatusChip } from '../../accreditation/AccreditationStatusChip'
 import { AccreditationStatusTimeline } from '../../client/components/AccreditationStatusTimeline'
+import { formatAddressSummary } from '../../addresses/AddressFieldRenderer'
 import { parseFormDataJson, parseFormSchema, visibleFormFields } from '../../forms/formSchema'
 import { PortalPanel } from '../../../components/portal/PortalPanel'
 import { PortalTablePanel } from '../../../components/portal/PortalTablePanel'
@@ -43,14 +44,39 @@ function formatMoney(amount: number) {
   return `₱${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+const panelBodySx = { px: { xs: 2, md: 2.5 }, py: { xs: 2, md: 2.5 } }
+
 function DetailField({ label, value }: { label: string; value?: string | null }) {
   return (
-    <Box>
-      <Typography sx={{ fontSize: '0.6875rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: portalColors.textMuted, mb: 0.25 }}>
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: portalColors.textMuted, mb: 0.5, lineHeight: 1.35 }}>
         {label}
       </Typography>
-      <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: portalColors.textDark }}>
+      <Typography sx={{ fontSize: '0.9375rem', fontWeight: 600, color: portalColors.textDark, lineHeight: 1.45, wordBreak: 'break-word' }}>
         {value?.trim() ? value : '—'}
+      </Typography>
+    </Box>
+  )
+}
+
+function StatTile({ label, value }: { label: string; value: string | number }) {
+  return (
+    <Box
+      sx={{
+        borderRadius: '0.625rem',
+        border: `1px solid ${portalColors.border}`,
+        bgcolor: portalColors.bgMuted,
+        px: 1.5,
+        py: 1.25,
+        minWidth: 0,
+        height: '100%',
+      }}
+    >
+      <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: portalColors.textMuted, mb: 0.5, lineHeight: 1.35 }}>
+        {label}
+      </Typography>
+      <Typography sx={{ fontSize: '1.35rem', fontWeight: 700, color: portalColors.textDark, fontVariantNumeric: 'tabular-nums' }}>
+        {value}
       </Typography>
     </Box>
   )
@@ -76,6 +102,15 @@ export function DaImporterProfilePage() {
     () => parseFormDataJson(profile?.accreditation?.formDataJson),
     [profile?.accreditation?.formDataJson],
   )
+  const resolvedAddress = useMemo(() => {
+    if (profile?.address?.trim()) return profile.address
+    const addressField = schemaFields.find((field) => field.type === 'address')
+    if (addressField) {
+      const formatted = formatAddressSummary(addressField.name, formValues)
+      if (formatted.trim()) return formatted
+    }
+    return null
+  }, [profile?.address, schemaFields, formValues])
 
   if (!uuid) {
     return <Alert severity="error">Invalid importer id.</Alert>
@@ -228,36 +263,49 @@ export function DaImporterProfilePage() {
       </Tabs>
 
       {tab === 0 ? (
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 12, md: 6 }}>
-            <PortalPanel title="Account details">
-              <Grid container spacing={2}>
-                <Grid size={{ xs: 12, sm: 6 }}><DetailField label="First name" value={profile.firstName} /></Grid>
-                <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Last name" value={profile.lastName} /></Grid>
-                <Grid size={{ xs: 12 }}><DetailField label="Company" value={profile.companyName} /></Grid>
-                <Grid size={{ xs: 12 }}><DetailField label="Address" value={profile.address} /></Grid>
-                <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Registered" value={new Date(profile.createdAt).toLocaleString()} /></Grid>
-                <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Last login" value={profile.lastLoginAt ? new Date(profile.lastLoginAt).toLocaleString() : null} /></Grid>
-                <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Email verified" value={profile.emailVerifiedAt ? new Date(profile.emailVerifiedAt).toLocaleString() : null} /></Grid>
-              </Grid>
-            </PortalPanel>
+        <Grid container spacing={2} sx={{ alignItems: 'stretch' }}>
+          <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex' }}>
+            <Box sx={{ width: '100%', display: 'flex' }}>
+              <PortalPanel title="Account details">
+                <Box sx={panelBodySx}>
+                  <Grid container spacing={2.5}>
+                    <Grid size={{ xs: 12, sm: 6 }}><DetailField label="First name" value={profile.firstName} /></Grid>
+                    <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Last name" value={profile.lastName} /></Grid>
+                    <Grid size={{ xs: 12 }}><DetailField label="Company" value={profile.companyName} /></Grid>
+                    <Grid size={{ xs: 12 }}><DetailField label="Address" value={resolvedAddress} /></Grid>
+                    <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Registered" value={new Date(profile.createdAt).toLocaleString()} /></Grid>
+                    <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Last login" value={profile.lastLoginAt ? new Date(profile.lastLoginAt).toLocaleString() : null} /></Grid>
+                    <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Email verified" value={profile.emailVerifiedAt ? new Date(profile.emailVerifiedAt).toLocaleString() : null} /></Grid>
+                  </Grid>
+                </Box>
+              </PortalPanel>
+            </Box>
           </Grid>
-          <Grid size={{ xs: 12, md: 6 }}>
-            <PortalPanel title="Entry & workflow summary">
-              <Grid container spacing={2}>
-                <Grid size={{ xs: 6, sm: 4 }}><DetailField label="Draft" value={String(profile.entryStats.draft)} /></Grid>
-                <Grid size={{ xs: 6, sm: 4 }}><DetailField label="Pending review" value={String(profile.entryStats.pendingReview)} /></Grid>
-                <Grid size={{ xs: 6, sm: 4 }}><DetailField label="For compliance" value={String(profile.entryStats.forCompliance)} /></Grid>
-                <Grid size={{ xs: 6, sm: 4 }}><DetailField label="In pipeline" value={String(profile.entryStats.inPipeline)} /></Grid>
-                <Grid size={{ xs: 6, sm: 4 }}><DetailField label="Rejected" value={String(profile.entryStats.rejected)} /></Grid>
-                <Grid size={{ xs: 6, sm: 4 }}><DetailField label="Cancelled" value={String(profile.entryStats.cancelled)} /></Grid>
-                <Grid size={{ xs: 6, sm: 4 }}><DetailField label="DA billing" value={String(profile.workflowStats.daIssueBilling)} /></Grid>
-                <Grid size={{ xs: 6, sm: 4 }}><DetailField label="For inspection" value={String(profile.workflowStats.forInspection)} /></Grid>
-                <Grid size={{ xs: 6, sm: 4 }}><DetailField label="In transit" value={String(profile.workflowStats.inTransit)} /></Grid>
-                <Grid size={{ xs: 6, sm: 4 }}><DetailField label="Open bills" value={String(profile.logisticsStats.openBills)} /></Grid>
-                <Grid size={{ xs: 6, sm: 4 }}><DetailField label="Overdue bills" value={String(profile.logisticsStats.overdueBills)} /></Grid>
-              </Grid>
-            </PortalPanel>
+          <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex' }}>
+            <Box sx={{ width: '100%', display: 'flex' }}>
+              <PortalPanel title="Entry & workflow summary">
+                <Box
+                  sx={{
+                    ...panelBodySx,
+                    display: 'grid',
+                    gap: 1.5,
+                    gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))' },
+                  }}
+                >
+                  <StatTile label="Draft" value={profile.entryStats.draft} />
+                  <StatTile label="Pending review" value={profile.entryStats.pendingReview} />
+                  <StatTile label="For compliance" value={profile.entryStats.forCompliance} />
+                  <StatTile label="In pipeline" value={profile.entryStats.inPipeline} />
+                  <StatTile label="Rejected" value={profile.entryStats.rejected} />
+                  <StatTile label="Cancelled" value={profile.entryStats.cancelled} />
+                  <StatTile label="DA billing" value={profile.workflowStats.daIssueBilling} />
+                  <StatTile label="For inspection" value={profile.workflowStats.forInspection} />
+                  <StatTile label="In transit" value={profile.workflowStats.inTransit} />
+                  <StatTile label="Open bills" value={profile.logisticsStats.openBills} />
+                  <StatTile label="Overdue bills" value={profile.logisticsStats.overdueBills} />
+                </Box>
+              </PortalPanel>
+            </Box>
           </Grid>
         </Grid>
       ) : null}
@@ -266,35 +314,42 @@ export function DaImporterProfilePage() {
         profile.accreditation ? (
           <Stack spacing={2}>
             <PortalPanel title="Accreditation status">
-              <Grid container spacing={2} sx={{ mb: 2 }}>
-                <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Company on file" value={profile.accreditation.companyName} /></Grid>
-                <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Application type" value={profile.accreditation.submissionType} /></Grid>
-                <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Accreditation no." value={profile.accreditation.accreditationNumber} /></Grid>
-                <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Certificate no." value={profile.accreditation.certificateNumber} /></Grid>
-                <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Submitted" value={profile.accreditation.submittedAt ? new Date(profile.accreditation.submittedAt).toLocaleString() : null} /></Grid>
-                <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Assigned officer" value={profile.accreditation.assignedOfficerName} /></Grid>
-                <Grid size={{ xs: 12 }}><DetailField label="Officer remarks" value={profile.accreditation.reviewComments} /></Grid>
-              </Grid>
-              <AccreditationStatusTimeline
-                history={profile.accreditation.history.map((item) => ({
-                  status: item.status,
-                  comment: item.comment ?? undefined,
-                  createdAt: item.createdAt,
-                  actorName: item.actorName ?? undefined,
-                }))}
-                showActorName
-              />
+              <Box sx={panelBodySx}>
+                <Grid container spacing={2.5} sx={{ mb: 2.5 }}>
+                  <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Company on file" value={profile.accreditation.companyName} /></Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Application type" value={profile.accreditation.submissionType} /></Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Accreditation no." value={profile.accreditation.accreditationNumber} /></Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Certificate no." value={profile.accreditation.certificateNumber} /></Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Submitted" value={profile.accreditation.submittedAt ? new Date(profile.accreditation.submittedAt).toLocaleString() : null} /></Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}><DetailField label="Assigned officer" value={profile.accreditation.assignedOfficerName} /></Grid>
+                  <Grid size={{ xs: 12 }}><DetailField label="Officer remarks" value={profile.accreditation.reviewComments} /></Grid>
+                </Grid>
+                <AccreditationStatusTimeline
+                  history={profile.accreditation.history.map((item) => ({
+                    status: item.status,
+                    comment: item.comment ?? undefined,
+                    createdAt: item.createdAt,
+                    actorName: item.actorName ?? undefined,
+                  }))}
+                  showActorName
+                />
+              </Box>
             </PortalPanel>
 
             {schemaFields.length > 0 ? (
               <PortalPanel title={profile.accreditation.formName ?? 'Accreditation application data'}>
-                <Grid container spacing={2}>
-                  {visibleFormFields(schemaFields, formValues).map((field) => (
-                    <Grid key={field.name} size={{ xs: 12, sm: 6 }}>
-                      <DetailField label={field.label} value={formValues[field.name]} />
-                    </Grid>
-                  ))}
-                </Grid>
+                <Box sx={panelBodySx}>
+                  <Grid container spacing={2.5}>
+                    {visibleFormFields(schemaFields, formValues).map((field) => (
+                      <Grid key={field.name} size={{ xs: 12, sm: field.type === 'address' ? 12 : 6 }}>
+                        <DetailField
+                          label={field.label}
+                          value={field.type === 'address' ? formatAddressSummary(field.name, formValues) : formValues[field.name]}
+                        />
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
               </PortalPanel>
             ) : null}
 
