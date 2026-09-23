@@ -1,5 +1,7 @@
+import type { FetchBaseQueryError } from '@reduxjs/toolkit/query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import type { ApiEnvelope } from '../../auth/types'
 import {
   Alert,
   Box,
@@ -25,6 +27,15 @@ import {
   useReleaseAccreditationSubmissionMutation,
   useReviewAccreditationOfficerFileMutation,
 } from '../api/accreditationOfficerApi'
+
+function getApiErrorMessage(error: unknown): string | null {
+  if (!error || typeof error !== 'object' || !('data' in error)) {
+    return null
+  }
+
+  const data = (error as FetchBaseQueryError).data as ApiEnvelope<unknown> | undefined
+  return data?.errors?.[0]?.message ?? null
+}
 import { AccreditationDocumentReviewControls } from '../components/AccreditationDocumentReviewControls'
 import {
   buildAutoApplicationComment,
@@ -204,8 +215,11 @@ export function AccreditationOfficerDetailPage() {
       }
 
       navigate('/accreditation-officer/dashboard')
-    } catch {
-      setSubmitError('Unable to submit review. Check document reviews and try again.')
+    } catch (err) {
+      setSubmitError(
+        getApiErrorMessage(err)
+          ?? 'Unable to submit review. Check document reviews and try again.',
+      )
       setConfirmOpen(false)
     }
   }

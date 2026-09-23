@@ -1672,12 +1672,13 @@ public class AccreditationReviewService : IAccreditationReviewService
 
     private static void EnsureAllDocumentsEvaluated(AccreditationSubmission submission, long reviewerId)
     {
-        if (submission.Files.Count == 0)
+        var activeFiles = GetActiveReviewFiles(submission);
+        if (activeFiles.Count == 0)
         {
             throw new ClientPortalException("NO_FILES", "Cannot complete review for an application with no submitted documents.");
         }
 
-        foreach (var file in submission.Files)
+        foreach (var file in activeFiles)
         {
             var review = file.Reviews.FirstOrDefault(r => r.ReviewerUserId == reviewerId);
             if (review is null)
@@ -1691,12 +1692,13 @@ public class AccreditationReviewService : IAccreditationReviewService
 
     private static void EnsureAllFilesApproved(AccreditationSubmission submission, long reviewerId)
     {
-        if (submission.Files.Count == 0)
+        var activeFiles = GetActiveReviewFiles(submission);
+        if (activeFiles.Count == 0)
         {
             throw new ClientPortalException("NO_FILES", "Cannot approve an application with no submitted documents.");
         }
 
-        foreach (var file in submission.Files)
+        foreach (var file in activeFiles)
         {
             var review = file.Reviews.FirstOrDefault(r => r.ReviewerUserId == reviewerId);
             if (review?.Decision != EvaluationDecision.Approved)
@@ -1710,9 +1712,10 @@ public class AccreditationReviewService : IAccreditationReviewService
 
     private static bool HasBlockingFileReviews(AccreditationSubmission submission, long reviewerId)
     {
-        if (submission.Files.Count == 0) return false;
+        var activeFiles = GetActiveReviewFiles(submission);
+        if (activeFiles.Count == 0) return false;
 
-        foreach (var file in submission.Files)
+        foreach (var file in activeFiles)
         {
             var review = file.Reviews.FirstOrDefault(r => r.ReviewerUserId == reviewerId);
             if (review is null || review.Decision != EvaluationDecision.Approved)
@@ -1722,6 +1725,58 @@ public class AccreditationReviewService : IAccreditationReviewService
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Files still referenced by the applicant's current form payload (matches officer UI required-doc list).
+    /// Older uploads left on the submission but no longer referenced are ignored.
+    /// </summary>
+    private static List<SubmissionFile> GetActiveReviewFiles(AccreditationSubmission submission)
+    {
+        var referencedUuids = GetReferencedFileUuids(submission.FormDataJson);
+        if (referencedUuids.Count == 0)
+        {
+            return submission.Files.ToList();
+        }
+
+        return submission.Files.Where(f => referencedUuids.Contains(f.Uuid)).ToList();
+    }
+
+    private static HashSet<Guid> GetReferencedFileUuids(string? formDataJson)
+    {
+        var uuids = new HashSet<Guid>();
+        if (string.IsNullOrWhiteSpace(formDataJson))
+        {
+            return uuids;
+        }
+
+        try
+        {
+            var values = JsonSerializer.Deserialize<Dictionary<string, string>>(formDataJson);
+            if (values is null)
+            {
+                return uuids;
+            }
+
+            foreach (var entry in values)
+            {
+                if (!entry.Key.EndsWith("_file_uuid", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (Guid.TryParse(entry.Value, out var fileUuid))
+                {
+                    uuids.Add(fileUuid);
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Legacy/non-JSON payloads fall back to all submission files.
+        }
+
+        return uuids;
     }
 
     private async Task<(string? SchemaJson, string? FormName)> GetAccreditationFormMetaAsync(CancellationToken cancellationToken)
