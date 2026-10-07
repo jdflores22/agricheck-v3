@@ -1,4 +1,5 @@
 using AgriCheck.Application.ClientPortal;
+using AgriCheck.Application.Compliance;
 using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Application.Common;
 using AgriCheck.Application.Notifications;
@@ -572,11 +573,16 @@ public class WarehouseBookingService : IWarehouseBookingService
 {
     private readonly AgriCheckDbContext _db;
     private readonly ICurrentUserService _currentUser;
+    private readonly IFacilityComplianceService _facilityCompliance;
 
-    public WarehouseBookingService(AgriCheckDbContext db, ICurrentUserService currentUser)
+    public WarehouseBookingService(
+        AgriCheckDbContext db,
+        ICurrentUserService currentUser,
+        IFacilityComplianceService facilityCompliance)
     {
         _db = db;
         _currentUser = currentUser;
+        _facilityCompliance = facilityCompliance;
     }
 
     public async Task<IReadOnlyList<WarehouseFacilityDto>> ListFacilitiesAsync(CancellationToken cancellationToken = default)
@@ -638,6 +644,13 @@ public class WarehouseBookingService : IWarehouseBookingService
         var user = await UserContextHelper.RequireUserAsync(_db, _currentUser, cancellationToken);
         var facility = await _db.WarehouseFacilities.FirstOrDefaultAsync(f => f.Id == request.WarehouseFacilityId && f.IsActive, cancellationToken)
             ?? throw new ClientPortalException("FACILITY_NOT_FOUND", "Warehouse facility not found.");
+
+        if (!await _facilityCompliance.IsDestinationReadyAsync(facility.Id, cancellationToken))
+        {
+            throw new ClientPortalException(
+                "COMPLIANCE_DESTINATION_RSAS_CSW",
+                "This warehouse must have active RSAS registration and CSW accreditation before booking.");
+        }
 
         Container? linkedContainer = null;
         if (request.ContainerUuid is Guid containerUuid)

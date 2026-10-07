@@ -1,3 +1,4 @@
+using AgriCheck.Application.Compliance;
 using AgriCheck.Application.ClientPortal;
 using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Application.MavPortal;
@@ -6,8 +7,10 @@ using AgriCheck.Application.Notifications;
 using AgriCheck.Domain.Entities;
 using AgriCheck.Domain.Enums;
 using AgriCheck.Infrastructure.Helpers;
+using AgriCheck.Infrastructure.Persistence.Seeding;
 using AgriCheck.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace AgriCheck.Infrastructure.Services;
 
@@ -18,19 +21,28 @@ public class EntryService : IEntryService
     private readonly IFileStorageService _fileStorage;
     private readonly INotificationService _notifications;
     private readonly IMavMicService _micService;
+    private readonly IComplianceGateService _complianceGate;
+    private readonly IEntryDestinationValidationService _destinationValidation;
+    private readonly ComplianceOptions _complianceOptions;
 
     public EntryService(
         AgriCheckDbContext db,
         ICurrentUserService currentUser,
         IFileStorageService fileStorage,
         INotificationService notifications,
-        IMavMicService micService)
+        IMavMicService micService,
+        IComplianceGateService complianceGate,
+        IEntryDestinationValidationService destinationValidation,
+        IOptions<ComplianceOptions> complianceOptions)
     {
         _db = db;
         _currentUser = currentUser;
         _fileStorage = fileStorage;
         _notifications = notifications;
         _micService = micService;
+        _complianceGate = complianceGate;
+        _destinationValidation = destinationValidation;
+        _complianceOptions = complianceOptions.Value;
     }
 
     public async Task<PagedResult<EntryListItemDto>> ListAsync(int page, int pageSize, string? status, CancellationToken cancellationToken = default)
@@ -70,7 +82,9 @@ public class EntryService : IEntryService
     public async Task<EntryDto> CreateAsync(CreateEntryRequest request, CancellationToken cancellationToken = default)
     {
         var user = await UserContextHelper.RequireUserAsync(_db, _currentUser, cancellationToken);
-        await UserContextHelper.RequireAccreditedAsync(_db, user.Id, cancellationToken);
+        await _complianceGate.RequireAsync(
+            new ComplianceGateContext(user.Id, 0, request.AgencyId, ComplianceGatePhase.EntryCreate),
+            cancellationToken);
         var agency = await _db.Agencies.FirstOrDefaultAsync(a => a.Id == request.AgencyId && a.IsActive, cancellationToken)
             ?? throw new ClientPortalException("AGENCY_NOT_FOUND", "Agency not found.");
 
@@ -89,7 +103,8 @@ public class EntryService : IEntryService
             Status = EntryStatus.Draft,
             Notes = request.Notes,
             FormDataJson = NormalizeFormDataJson(request.FormDataJson),
-            Detail = MapDetailInput(request.Detail)
+            Detail = MapDetailInput(request.Detail),
+            FinalWarehouseFacilityId = await ResolveWarehouseFacilityIdAsync(request.FinalWarehouseFacilityId, cancellationToken)
         };
 
         if (entryType == EntryType.Import)
@@ -113,6 +128,7 @@ public class EntryService : IEntryService
         _db.Entries.Add(entry);
         await _db.SaveChangesAsync(cancellationToken);
         await EntryContainerSyncService.SyncAsync(_db, entry, request.NumContainers, request.ContainersJson, cancellationToken);
+        await EnforceDestinationValidationBeforeSaveAsync(user.Id, entry, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
         return MapEntry(await QueryEntryGraph().FirstAsync(e => e.Id == entry.Id, cancellationToken));
     }
@@ -130,6 +146,9 @@ public class EntryService : IEntryService
 
         entry.Notes = request.Notes;
         entry.FormDataJson = NormalizeFormDataJson(request.FormDataJson);
+        entry.FinalWarehouseFacilityId = await ResolveWarehouseFacilityIdAsync(
+            request.FinalWarehouseFacilityId ?? EntryComplianceBackfillSeeder.TryParseWarehouseFacilityId(entry.FormDataJson),
+            cancellationToken);
         if (entry.Detail is null)
         {
             entry.Detail = MapDetailInput(request.Detail);
@@ -165,6 +184,7 @@ public class EntryService : IEntryService
         }
 
         await EntryContainerSyncService.SyncAsync(_db, entry, request.NumContainers, request.ContainersJson, cancellationToken);
+        await EnforceDestinationValidationBeforeSaveAsync(user.Id, entry, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
         return MapEntry(await QueryEntryGraph().FirstAsync(e => e.Id == entry.Id, cancellationToken));
     }
@@ -172,7 +192,6 @@ public class EntryService : IEntryService
     public async Task<EntryDto> SubmitAsync(Guid uuid, CancellationToken cancellationToken = default)
     {
         var user = await UserContextHelper.RequireUserAsync(_db, _currentUser, cancellationToken);
-        await UserContextHelper.RequireAccreditedAsync(_db, user.Id, cancellationToken);
         var entry = await _db.Entries
             .Include(e => e.Detail)
             .Include(e => e.Files)
@@ -185,6 +204,16 @@ public class EntryService : IEntryService
             throw new ClientPortalException("ENTRY_ALREADY_SUBMITTED", "Entry has already been submitted.");
         }
 
+        await _complianceGate.RequireAsync(
+            new ComplianceGateContext(
+                user.Id,
+                entry.Id,
+                entry.AgencyId,
+                ComplianceGatePhase.EntrySubmit,
+                entry.FinalWarehouseFacilityId,
+                entry.Detail?.CommodityId),
+            cancellationToken);
+
         await EntryFormValidator.ValidateDraftCompletenessAsync(_db, entry, cancellationToken);
         await EntryContainerSyncService.ValidateOnSubmitAsync(_db, entry, cancellationToken);
         await EntryMavHelper.ValidateImportMavOnSubmitAsync(_db, entry, cancellationToken);
@@ -196,6 +225,7 @@ public class EntryService : IEntryService
 
         var previous = entry.Status;
         var processingFee = await ResolveProcessingFeeAsync(entry.AgencyId, entry.EntryType, cancellationToken);
+        entry.CompliancePhase = EntryCompliancePhase.AccreditationReady;
         entry.Status = EntryStatus.Submitted;
         entry.SubmittedAt = DateTime.UtcNow;
         entry.PaymentAmount = processingFee;
@@ -502,9 +532,54 @@ public class EntryService : IEntryService
             file.OriginalFileName);
     }
 
+    private async Task EnforceDestinationValidationBeforeSaveAsync(
+        long importerUserId,
+        Entry entry,
+        CancellationToken cancellationToken)
+    {
+        if (entry.EntryType != EntryType.Import
+            || !_complianceOptions.EnforceEntryDestinationValidation
+            || !_complianceOptions.BlockEntrySaveOnDestinationValidation
+            || entry.FinalWarehouseFacilityId is not long warehouseId)
+        {
+            return;
+        }
+
+        var shipmentKg = ShipmentQuantityHelper.ToKg(entry.Detail?.Quantity ?? 0, entry.Detail?.Unit);
+        if (shipmentKg <= 0)
+        {
+            return;
+        }
+
+        await _destinationValidation.RequireValidForEntryAsync(
+            importerUserId,
+            entry.Id,
+            warehouseId,
+            shipmentKg,
+            entry.FormDataJson,
+            cancellationToken);
+    }
+
+    private async Task<long?> ResolveWarehouseFacilityIdAsync(long? facilityId, CancellationToken cancellationToken)
+    {
+        if (facilityId is null)
+        {
+            return null;
+        }
+
+        var exists = await _db.WarehouseFacilities.AnyAsync(f => f.Id == facilityId && f.IsActive, cancellationToken);
+        if (!exists)
+        {
+            throw new ClientPortalException("WAREHOUSE_NOT_FOUND", "Warehouse facility not found.");
+        }
+
+        return facilityId;
+    }
+
     private IQueryable<Entry> QueryEntryGraph() =>
         _db.Entries
             .Include(e => e.Agency)
+            .Include(e => e.FinalWarehouseFacility)
             .Include(e => e.Detail)
             .Include(e => e.Files).ThenInclude(f => f.Evaluations)
             .Include(e => e.Files).ThenInclude(f => f.Versions)
@@ -605,6 +680,10 @@ public class EntryService : IEntryService
         entry.PaymentStatus.ToString(),
         entry.PaymentAmount,
         entry.ComplianceDeadlineAt,
+        entry.CompliancePhase.ToString(),
+        entry.FinalWarehouseFacilityId,
+        entry.FinalWarehouseFacility?.Code,
+        entry.FinalWarehouseFacility?.Name,
         entry.Detail is null ? null : new EntryDetailDto(
             entry.Detail.CommodityId, entry.Detail.CommodityName, entry.Detail.Description, entry.Detail.Quantity,
             entry.Detail.Unit, entry.Detail.OriginCountry, entry.Detail.DestinationCountry, entry.Detail.PortOfEntry),

@@ -75,7 +75,25 @@ public record DaWarehouseListItemDto(
     string? ZipCode,
     string FormattedAddress,
     decimal? Latitude,
-    decimal? Longitude);
+    decimal? Longitude,
+    string? RsasStatus,
+    string? CswStatus,
+    bool DestinationReady,
+    bool HasActiveWarehouseLto,
+    string? WarehouseLtoNumber);
+
+public record WarehouseOperatingLicenseDto(
+    string LicenseNumber,
+    string Status,
+    DateTime IssuedAt,
+    DateTime ExpiresAt,
+    string? Notes);
+
+public record IssueWarehouseOperatingLicenseRequest(
+    string LicenseNumber,
+    DateTime IssuedAt,
+    DateTime ExpiresAt,
+    string? Notes);
 
 public record SaveDaWarehouseRequest(
     string Code,
@@ -231,6 +249,15 @@ public record DaCommodityStockAgencyRowDto(
     int StoredContainers,
     int WarehouseCount);
 
+public record DaCommodityStockRegionRowDto(
+    long? RegionId,
+    string RegionName,
+    string HsCode,
+    string CommodityName,
+    decimal StockKg,
+    int StoredContainers,
+    int WarehouseCount);
+
 public record DaCommodityStockReportDto(
     decimal TotalStockKg,
     decimal TotalMavStockKg,
@@ -239,7 +266,8 @@ public record DaCommodityStockReportDto(
     int StoredContainers,
     int WarehouseCount,
     IReadOnlyList<DaCommodityStockRowDto> Commodities,
-    IReadOnlyList<DaCommodityStockAgencyRowDto> ByAgency);
+    IReadOnlyList<DaCommodityStockAgencyRowDto> ByAgency,
+    IReadOnlyList<DaCommodityStockRegionRowDto> ByRegion);
 
 public record DaImportPipelineQuery(string? HsCode = null, string? CommodityName = null, string? AgencyCode = null);
 
@@ -289,7 +317,9 @@ public record DaImportPipelineCommodityWarehouseRowDto(
     string WarehouseCode,
     string WarehouseName,
     string? RegionName,
+    decimal ExpectedKg,
     decimal ActualKg,
+    int ExpectedEntryCount,
     int ContainerCount);
 
 public record DaImportPipelineEntryRowDto(
@@ -308,7 +338,20 @@ public record DaImportPipelineEntryRowDto(
     DateTime? SubmittedAt,
     Guid ImporterUuid,
     string ImporterName,
-    string? CompanyName);
+    string? CompanyName,
+    long? DestinationWarehouseId,
+    string? DestinationWarehouseCode,
+    string? DestinationWarehouseName);
+
+public record DaStorageTallyMonthRowDto(
+    int Year,
+    int Month,
+    int CheckIns,
+    int CheckOuts,
+    decimal VolumeKgIn,
+    decimal VolumeKgOut);
+
+public record DaStorageTallySummaryDto(int Year, IReadOnlyList<DaStorageTallyMonthRowDto> Months);
 
 public record DaImportPipelineReportDto(
     decimal TotalExpectedKg,
@@ -382,7 +425,9 @@ public record DaImporterLogisticsStatsDto(
     int OpenBills,
     int OverdueBills,
     int StoredContainers,
-    int ActiveMavLicenses);
+    int ActiveMavLicenses,
+    int ActiveAgencyLicenses,
+    int IssuedSpsClearances);
 
 public record DaImporterPipelineStatsDto(
     decimal ExpectedKg,

@@ -93,6 +93,27 @@ public class AgriCheckDbContext : DbContext
     public DbSet<AddressProvince> AddressProvinces => Set<AddressProvince>();
     public DbSet<AddressCity> AddressCities => Set<AddressCity>();
     public DbSet<AddressBarangay> AddressBarangays => Set<AddressBarangay>();
+    public DbSet<ComplianceSyncOutbox> ComplianceSyncOutbox => Set<ComplianceSyncOutbox>();
+    public DbSet<AgencyLicenseType> AgencyLicenseTypes => Set<AgencyLicenseType>();
+    public DbSet<AgencyLicense> AgencyLicenses => Set<AgencyLicense>();
+    public DbSet<AgencyLicenseApplication> AgencyLicenseApplications => Set<AgencyLicenseApplication>();
+    public DbSet<CommodityLicenseRule> CommodityLicenseRules => Set<CommodityLicenseRule>();
+    public DbSet<FacilityRegistration> FacilityRegistrations => Set<FacilityRegistration>();
+    public DbSet<FacilityAccreditation> FacilityAccreditations => Set<FacilityAccreditation>();
+    public DbSet<SpsImportClearanceApplication> SpsImportClearanceApplications => Set<SpsImportClearanceApplication>();
+    public DbSet<SpsImportClearance> SpsImportClearances => Set<SpsImportClearance>();
+    public DbSet<SpsIssuingRule> SpsIssuingRules => Set<SpsIssuingRule>();
+    public DbSet<SpsDocumentChecklistTemplate> SpsDocumentChecklistTemplates => Set<SpsDocumentChecklistTemplate>();
+    public DbSet<SpsApplicationDocument> SpsApplicationDocuments => Set<SpsApplicationDocument>();
+    public DbSet<ErfiSubmission> ErfiSubmissions => Set<ErfiSubmission>();
+    public DbSet<SpsPrerequisiteClearance> SpsPrerequisiteClearances => Set<SpsPrerequisiteClearance>();
+    public DbSet<SpsMustShipOutRule> SpsMustShipOutRules => Set<SpsMustShipOutRule>();
+    public DbSet<StorageTallySheet> StorageTallySheets => Set<StorageTallySheet>();
+    public DbSet<WarehouseOperatingLicense> WarehouseOperatingLicenses => Set<WarehouseOperatingLicense>();
+    public DbSet<ImporterFacilityAffiliation> ImporterFacilityAffiliations => Set<ImporterFacilityAffiliation>();
+    public DbSet<WarehouseStaffAssignment> WarehouseStaffAssignments => Set<WarehouseStaffAssignment>();
+    public DbSet<WarehouseOperatingLicenseApplication> WarehouseOperatingLicenseApplications => Set<WarehouseOperatingLicenseApplication>();
+    public DbSet<WarehouseImporterAllocation> WarehouseImporterAllocations => Set<WarehouseImporterAllocation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

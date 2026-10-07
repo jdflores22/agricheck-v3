@@ -196,8 +196,20 @@ public static class WorkflowDemoSeeder
 
         // 8) At warehouse — eligible for client warehouse booking (V3 enhancement over V1)
         var atWarehouseEntry = CreateEntry(importer.Id, bai.Id, $"{ReferencePrefix}008", EntryStatus.InTransit, now.AddDays(-5));
+        atWarehouseEntry.FinalWarehouseFacilityId = facility.Id;
+        atWarehouseEntry.CompliancePhase = EntryCompliancePhase.AtWarehouse;
         db.Entries.Add(atWarehouseEntry);
         await db.SaveChangesAsync(cancellationToken);
+        db.EntryDetails.Add(new EntryDetail
+        {
+            EntryId = atWarehouseEntry.Id,
+            CommodityName = "Frozen Beef",
+            Quantity = 100m,
+            Unit = "kg",
+            OriginCountry = "Australia",
+            DestinationCountry = "Philippines",
+            PortOfEntry = "Manila",
+        });
         if (certTemplateVersion is not null)
         {
             db.Certificates.Add(CreateCertificate(importer.Id, atWarehouseEntry.Id, bai.Id, certTemplateVersion.Id, $"{ReferencePrefix}008"));

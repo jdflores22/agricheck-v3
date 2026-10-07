@@ -1,7 +1,9 @@
 using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Application.Common;
+using AgriCheck.Application.Compliance;
 using AgriCheck.Application.DaPortal;
 using AgriCheck.Application.DaPortal.Dtos;
+using AgriCheck.Application.OpsPortal;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -17,19 +19,25 @@ public class DaPortalController : AgencyPortalControllerBase
     private readonly IDaOversightReportService _reportService;
     private readonly IDaWarehouseManagementService _warehouseService;
     private readonly IDaImporterProfileService _importerProfileService;
+    private readonly IDaFacilityRegistrationService _facilityRegistrationService;
+    private readonly IDaWarehouseLtoApplicationService _ltoApplicationService;
 
     public DaPortalController(
         IDaDashboardService dashboardService,
         IDaAgencyOverviewService agencyOverviewService,
         IDaOversightReportService reportService,
         IDaWarehouseManagementService warehouseService,
-        IDaImporterProfileService importerProfileService)
+        IDaImporterProfileService importerProfileService,
+        IDaFacilityRegistrationService facilityRegistrationService,
+        IDaWarehouseLtoApplicationService ltoApplicationService)
     {
         _dashboardService = dashboardService;
         _agencyOverviewService = agencyOverviewService;
         _reportService = reportService;
         _warehouseService = warehouseService;
         _importerProfileService = importerProfileService;
+        _facilityRegistrationService = facilityRegistrationService;
+        _ltoApplicationService = ltoApplicationService;
     }
 
     [HttpGet("dashboard")]
@@ -75,6 +83,12 @@ public class DaPortalController : AgencyPortalControllerBase
             new DaGeoStockQuery(regionId, provinceId, cityId, barangayId, hsCode, commodityName),
             cancellationToken));
 
+    [HttpGet("reports/storage-tally")]
+    public async Task<ActionResult<ApiResponse<DaStorageTallySummaryDto>>> StorageTallyReport(
+        [FromQuery] int? year,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _reportService.GetStorageTallySummaryAsync(year, cancellationToken));
+
     [HttpGet("reports/import-pipeline")]
     public async Task<ActionResult<ApiResponse<DaImportPipelineReportDto>>> ImportPipelineReport(
         [FromQuery] string? hsCode,
@@ -105,6 +119,73 @@ public class DaPortalController : AgencyPortalControllerBase
         [FromBody] SaveDaWarehouseRequest request,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _warehouseService.UpdateAsync(id, request, cancellationToken));
+
+    [HttpGet("warehouses/{id:long}/operating-license")]
+    public async Task<ActionResult<ApiResponse<WarehouseOperatingLicenseDto>>> GetWarehouseOperatingLicense(
+        long id,
+        CancellationToken cancellationToken)
+    {
+        var license = await _warehouseService.GetOperatingLicenseAsync(id, cancellationToken);
+        if (license is null)
+        {
+            return NotFound(ApiResponse<WarehouseOperatingLicenseDto>.Fail("NOT_FOUND", "No warehouse LTO on record."));
+        }
+
+        return Ok(ApiResponse<WarehouseOperatingLicenseDto>.Ok(license));
+    }
+
+    [HttpPost("warehouses/{id:long}/operating-license")]
+    public async Task<ActionResult<ApiResponse<WarehouseOperatingLicenseDto>>> IssueWarehouseOperatingLicense(
+        long id,
+        [FromBody] IssueWarehouseOperatingLicenseRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _warehouseService.IssueOperatingLicenseAsync(id, request, cancellationToken));
+
+    [HttpGet("warehouses/{id:long}/facility-registration")]
+    public async Task<ActionResult<ApiResponse<FacilityRegistrationDaReviewDto>>> PendingFacilityRegistration(
+        long id,
+        CancellationToken cancellationToken)
+    {
+        var item = await _facilityRegistrationService.GetPendingAsync(id, cancellationToken);
+        if (item is null)
+        {
+            return NotFound(ApiResponse<FacilityRegistrationDaReviewDto>.Fail("NOT_FOUND", "No submitted RSAS registration."));
+        }
+
+        return Ok(ApiResponse<FacilityRegistrationDaReviewDto>.Ok(item));
+    }
+
+    [HttpPost("warehouses/{id:long}/facility-registration/verify")]
+    public async Task<ActionResult<ApiResponse<FacilityRegistrationDaReviewDto>>> VerifyFacilityRegistration(
+        long id,
+        [FromBody] VerifyFacilityRegistrationRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _facilityRegistrationService.VerifyAsync(id, request, cancellationToken));
+
+    [HttpPost("warehouses/{id:long}/csw-accreditation")]
+    public async Task<ActionResult<ApiResponse<FacilityAccreditationSummaryDto>>> RegisterWarehouseCsw(
+        long id,
+        [FromBody] RegisterFacilityCswRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _facilityRegistrationService.RegisterCswAsync(id, request, cancellationToken));
+
+    [HttpGet("warehouse-lto-applications")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<DaWarehouseLtoApplicationListItemDto>>>> PendingWarehouseLtoApplications(
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _ltoApplicationService.ListPendingAsync(cancellationToken));
+
+    [HttpGet("warehouse-lto-applications/recent")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<DaWarehouseLtoApplicationListItemDto>>>> RecentWarehouseLtoApplications(
+        [FromQuery] int limit = 50,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteAsync(() => _ltoApplicationService.ListRecentAsync(limit, cancellationToken));
+
+    [HttpPost("warehouse-lto-applications/{uuid:guid}/resolve")]
+    public async Task<ActionResult<ApiResponse<WarehouseLtoApplicationDto>>> ResolveWarehouseLtoApplication(
+        Guid uuid,
+        [FromBody] ResolveWarehouseLtoApplicationRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _ltoApplicationService.ResolveAsync(uuid, request, cancellationToken));
 
     [HttpGet("importers")]
     public async Task<ActionResult<ApiResponse<PagedResult<DaImporterListItemDto>>>> Importers(

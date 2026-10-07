@@ -22,10 +22,13 @@ public class Entry : BaseEntity
     public EntryMavDocumentStatus MavDocumentStatus { get; set; } = EntryMavDocumentStatus.NotProvided;
     public string? MavRemarks { get; set; }
     public long? PrimaryMicId { get; set; }
+    public long? FinalWarehouseFacilityId { get; set; }
+    public EntryCompliancePhase CompliancePhase { get; set; } = EntryCompliancePhase.Draft;
 
     public User User { get; set; } = null!;
     public MavImportCertificate? PrimaryMic { get; set; }
     public Agency Agency { get; set; } = null!;
+    public WarehouseFacility? FinalWarehouseFacility { get; set; }
     public EntryDetail? Detail { get; set; }
     public ICollection<EntryStatusHistory> StatusHistory { get; set; } = new List<EntryStatusHistory>();
     public ICollection<TimelineEvent> TimelineEvents { get; set; } = new List<TimelineEvent>();

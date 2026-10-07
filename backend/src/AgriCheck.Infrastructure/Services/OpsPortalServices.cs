@@ -1,5 +1,6 @@
 using AgriCheck.Application.ClientPortal;
 using AgriCheck.Application.ClientPortal.Dtos;
+using AgriCheck.Application.Compliance;
 using AgriCheck.Application.Common;
 using AgriCheck.Application.Notifications;
 using AgriCheck.Application.OpsPortal;
@@ -17,11 +18,16 @@ public class WarehouseOpsService : IWarehouseOpsService
 {
     private readonly AgriCheckDbContext _db;
     private readonly ICurrentUserService _currentUser;
+    private readonly IContainerImportComplianceGate _importCompliance;
 
-    public WarehouseOpsService(AgriCheckDbContext db, ICurrentUserService currentUser)
+    public WarehouseOpsService(
+        AgriCheckDbContext db,
+        ICurrentUserService currentUser,
+        IContainerImportComplianceGate importCompliance)
     {
         _db = db;
         _currentUser = currentUser;
+        _importCompliance = importCompliance;
     }
 
     public async Task<WarehouseDashboardDto> GetDashboardAsync(CancellationToken cancellationToken = default)
@@ -36,25 +42,67 @@ public class WarehouseOpsService : IWarehouseOpsService
         return new WarehouseDashboardDto(stored, pendingReleases, releasedToday, facilities);
     }
 
+    public async Task<IReadOnlyList<WarehouseFacilityDto>> ListFacilitiesAsync(CancellationToken cancellationToken = default)
+    {
+        await OpsContextHelper.RequireWarehouseStaffAsync(_db, _currentUser, cancellationToken);
+        var user = await UserContextHelper.RequireUserAsync(_db, _currentUser, cancellationToken);
+        var warehouseIds = await WarehouseStaffAccessHelper.GetAccessibleWarehouseIdsAsync(
+            _db, _currentUser, user.Id, cancellationToken);
+
+        if (warehouseIds.Count == 0)
+        {
+            return Array.Empty<WarehouseFacilityDto>();
+        }
+
+        var facilities = await _db.WarehouseFacilities.AsNoTracking()
+            .Where(f => f.IsActive && warehouseIds.Contains(f.Id))
+            .Include(f => f.Region)
+            .Include(f => f.Province)
+            .Include(f => f.City)
+            .Include(f => f.Barangay)
+            .OrderBy(f => f.Name)
+            .ToListAsync(cancellationToken);
+
+        return facilities.Select(f => new WarehouseFacilityDto(
+            f.Id,
+            f.Code,
+            f.Name,
+            f.Location,
+            f.Capacity,
+            WarehouseAddressFormatter.Format(
+                f.StreetAddress,
+                f.Barangay?.Name,
+                f.City?.Name,
+                f.Province?.Name,
+                f.Region?.Name,
+                f.ZipCode ?? f.Barangay?.ZipCode,
+                f.Location),
+            f.Latitude,
+            f.Longitude,
+            f.Region?.Name,
+            f.Province?.Name,
+            f.City?.Name,
+            f.Barangay?.Name,
+            f.StreetAddress,
+            f.ZipCode ?? f.Barangay?.ZipCode)).ToList();
+    }
+
     public async Task<PagedResult<WarehouseInventoryListItemDto>> ListInventoryAsync(int page, int pageSize, CancellationToken cancellationToken = default)
     {
         await OpsContextHelper.RequireWarehouseStaffAsync(_db, _currentUser, cancellationToken);
         var query = _db.WarehouseInventories
-            .Include(i => i.Container).ThenInclude(c => c.Entry)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .Include(i => i.WarehouseFacility)
             .OrderByDescending(i => i.ReceivedAt);
 
         var total = await query.CountAsync(cancellationToken);
-        var items = await query.Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(i => new WarehouseInventoryListItemDto(
-                i.Uuid,
-                i.Container.ContainerNumber,
-                i.Container.Entry.ReferenceNo,
-                i.WarehouseFacility.Name,
-                i.LocationCode,
-                i.Status.ToString(),
-                i.ReceivedAt))
-            .ToListAsync(cancellationToken);
+        var rows = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
+        var items = new List<WarehouseInventoryListItemDto>();
+        foreach (var row in rows)
+        {
+            items.Add(await MapInventoryItemAsync(row, cancellationToken));
+        }
 
         return new PagedResult<WarehouseInventoryListItemDto>(items, page, pageSize, total);
     }
@@ -67,7 +115,8 @@ public class WarehouseOpsService : IWarehouseOpsService
             .Select(i => i.ContainerId);
 
         var containers = await _db.Containers
-            .Include(c => c.Entry)
+            .Include(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(c => c.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .Include(c => c.Locations)
             .Include(c => c.DoctorInspections)
             .Where(c => !storedIds.Contains(c.Id) &&
@@ -76,13 +125,21 @@ public class WarehouseOpsService : IWarehouseOpsService
             .OrderByDescending(c => c.UpdatedAt)
             .ToListAsync(cancellationToken);
 
-        return containers.Select(OpsDtoMapper.MapContainer).ToList();
+        var items = new List<ContainerListItemDto>();
+        foreach (var container in containers)
+        {
+            items.Add(await MapContainerWithMavCommodityAsync(container, cancellationToken));
+        }
+
+        return items;
     }
 
     public async Task<WarehouseInventoryListItemDto> ReceiveContainerAsync(ReceiveContainerRequest request, CancellationToken cancellationToken = default)
     {
         var staff = await OpsContextHelper.RequireWarehouseStaffAsync(_db, _currentUser, cancellationToken);
-        var container = await _db.Containers.Include(c => c.Entry)
+        var container = await _db.Containers
+            .Include(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(c => c.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .FirstOrDefaultAsync(c => c.Uuid == request.ContainerUuid, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Container not found.");
 
@@ -111,6 +168,21 @@ public class WarehouseOpsService : IWarehouseOpsService
         var facility = await _db.WarehouseFacilities.FirstOrDefaultAsync(f => f.Id == request.WarehouseFacilityId && f.IsActive, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Warehouse facility not found.");
 
+        await _importCompliance.ValidateCswReceiveAsync(container.Entry, container, facility.Id, cancellationToken);
+
+        if (facility.Capacity > 0)
+        {
+            var storedCount = await _db.WarehouseInventories.CountAsync(
+                i => i.WarehouseFacilityId == facility.Id && i.Status == WarehouseInventoryStatus.Stored,
+                cancellationToken);
+            if (storedCount >= facility.Capacity)
+            {
+                throw new ClientPortalException(
+                    "COMPLIANCE_WAREHOUSE_CAPACITY",
+                    "Warehouse is at capacity (DA MC 7.2).");
+            }
+        }
+
         var inventory = new WarehouseInventory
         {
             Uuid = Guid.NewGuid(),
@@ -121,41 +193,71 @@ public class WarehouseOpsService : IWarehouseOpsService
             Status = WarehouseInventoryStatus.Stored
         };
         container.Status = ContainerStatus.AtWarehouse;
+        container.WarehouseFacilityId = facility.Id;
         container.ArrivalTime ??= DateTime.UtcNow;
+        container.Entry.CompliancePhase = EntryCompliancePhase.AtWarehouse;
         _db.WarehouseInventories.Add(inventory);
+        var libraryCommodity = await EntryMavCommodityResolver.ResolveLibraryCommodityAsync(_db, container.Entry, cancellationToken);
+        _db.StorageTallySheets.Add(new StorageTallySheet
+        {
+            WarehouseFacilityId = facility.Id,
+            ContainerId = container.Id,
+            EntryId = container.EntryId,
+            Direction = "In",
+            CommodityDescription = libraryCommodity?.MavHsLabel ?? libraryCommodity?.CommodityName,
+            RecordedByUserId = staff.Id,
+        });
+        ComplianceTimelineRecorder.Add(
+            _db,
+            container.EntryId,
+            "Compliance.Tis",
+            "Warehouse check-in (TIS)",
+            $"Container {container.ContainerNumber} received at {facility.Name}.",
+            staff.Id);
         await _db.SaveChangesAsync(cancellationToken);
 
-        return new WarehouseInventoryListItemDto(
-            inventory.Uuid,
-            container.ContainerNumber,
-            container.Entry.ReferenceNo,
-            facility.Name,
-            inventory.LocationCode,
-            inventory.Status.ToString(),
-            inventory.ReceivedAt);
+        inventory.WarehouseFacility = facility;
+        inventory.Container = container;
+        return await MapInventoryItemAsync(inventory, cancellationToken);
     }
 
     public async Task<IReadOnlyList<ReleaseAuthorizationListItemDto>> ListReleaseAuthorizationsAsync(CancellationToken cancellationToken = default)
     {
         await OpsContextHelper.RequireWarehouseStaffAsync(_db, _currentUser, cancellationToken);
-        return await _db.ReleaseAuthorizations
-            .Include(a => a.Entry)
+        var rows = await _db.ReleaseAuthorizations
+            .Include(a => a.Entry).ThenInclude(e => e.Detail)
+            .Include(a => a.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .Include(a => a.ReleaseRecords)
             .OrderByDescending(a => a.AuthorizedAt)
-            .Select(a => new ReleaseAuthorizationListItemDto(
-                a.Uuid,
-                a.Entry.ReferenceNo,
-                a.RecipientName,
-                a.RecipientIdNumber,
-                a.AuthorizedAt,
-                a.ReleaseRecords.Count))
             .ToListAsync(cancellationToken);
+
+        var items = new List<ReleaseAuthorizationListItemDto>();
+        foreach (var row in rows)
+        {
+            var lib = await EntryMavCommodityResolver.ResolveLibraryCommodityAsync(_db, row.Entry, cancellationToken);
+            items.Add(new ReleaseAuthorizationListItemDto(
+                row.Uuid,
+                row.Entry.ReferenceNo,
+                row.RecipientName,
+                row.RecipientIdNumber,
+                row.AuthorizedAt,
+                row.ReleaseRecords.Count,
+                lib is not null,
+                lib?.HsCode,
+                lib?.CommodityName,
+                lib?.MavHsLabel));
+        }
+
+        return items;
     }
 
     public async Task<ReleaseAuthorizationListItemDto> CreateReleaseAuthorizationAsync(CreateReleaseAuthorizationRequest request, CancellationToken cancellationToken = default)
     {
         var staff = await OpsContextHelper.RequireWarehouseStaffAsync(_db, _currentUser, cancellationToken);
-        var entry = await _db.Entries.FirstOrDefaultAsync(e => e.Uuid == request.EntryUuid && e.Status == EntryStatus.Approved, cancellationToken)
+        var entry = await _db.Entries
+            .Include(e => e.Detail)
+            .Include(e => e.MicUtilizations).ThenInclude(u => u.Mic)
+            .FirstOrDefaultAsync(e => e.Uuid == request.EntryUuid && e.Status == EntryStatus.Approved, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Approved entry not found.");
 
         var auth = new ReleaseAuthorization
@@ -169,20 +271,26 @@ public class WarehouseOpsService : IWarehouseOpsService
         _db.ReleaseAuthorizations.Add(auth);
         await _db.SaveChangesAsync(cancellationToken);
 
+        var lib = await EntryMavCommodityResolver.ResolveLibraryCommodityAsync(_db, entry, cancellationToken);
         return new ReleaseAuthorizationListItemDto(
             auth.Uuid,
             entry.ReferenceNo,
             auth.RecipientName,
             auth.RecipientIdNumber,
             auth.AuthorizedAt,
-            0);
+            0,
+            lib is not null,
+            lib?.HsCode,
+            lib?.CommodityName,
+            lib?.MavHsLabel);
     }
 
     public async Task<ReleaseRecordListItemDto> ExecuteReleaseAsync(ExecuteReleaseRequest request, CancellationToken cancellationToken = default)
     {
         var staff = await OpsContextHelper.RequireWarehouseStaffAsync(_db, _currentUser, cancellationToken);
         var inventory = await _db.WarehouseInventories
-            .Include(i => i.Container).ThenInclude(c => c.Entry)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .FirstOrDefaultAsync(i => i.Uuid == request.InventoryUuid && i.Status == WarehouseInventoryStatus.Stored, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Stored inventory item not found.");
 
@@ -207,6 +315,39 @@ public class WarehouseOpsService : IWarehouseOpsService
         inventory.Status = WarehouseInventoryStatus.Released;
         inventory.Container.Status = ContainerStatus.Released;
         _db.ReleaseRecords.Add(record);
+        var releaseCommodity = await EntryMavCommodityResolver.ResolveLibraryCommodityAsync(
+            _db,
+            inventory.Container.Entry,
+            cancellationToken);
+        _db.StorageTallySheets.Add(new StorageTallySheet
+        {
+            WarehouseFacilityId = inventory.WarehouseFacilityId,
+            ContainerId = inventory.ContainerId,
+            EntryId = inventory.Container.EntryId,
+            Direction = "Out",
+            CommodityDescription = releaseCommodity?.MavHsLabel ?? releaseCommodity?.CommodityName,
+            RecordedByUserId = staff.Id,
+        });
+
+        var entry = inventory.Container.Entry;
+        var otherStored = await _db.WarehouseInventories.AnyAsync(
+            i => i.Container.EntryId == entry.Id
+                && i.Id != inventory.Id
+                && i.Status == WarehouseInventoryStatus.Stored,
+            cancellationToken);
+        if (!otherStored)
+        {
+            entry.CompliancePhase = EntryCompliancePhase.Released;
+        }
+
+        ComplianceTimelineRecorder.Add(
+            _db,
+            entry.Id,
+            "Compliance.Tos",
+            "Warehouse check-out (TOS)",
+            $"Container {inventory.Container.ContainerNumber} released to {authorization.RecipientName}.",
+            staff.Id);
+
         await _db.SaveChangesAsync(cancellationToken);
 
         return new ReleaseRecordListItemDto(
@@ -214,6 +355,59 @@ public class WarehouseOpsService : IWarehouseOpsService
             inventory.Container.ContainerNumber,
             authorization.RecipientName,
             record.ReleasedAt);
+    }
+
+    private async Task<WarehouseInventoryListItemDto> MapInventoryItemAsync(
+        WarehouseInventory inventory,
+        CancellationToken cancellationToken)
+    {
+        var entry = inventory.Container.Entry;
+        var library = await EntryMavCommodityResolver.ResolveLibraryCommodityAsync(_db, entry, cancellationToken);
+        return new WarehouseInventoryListItemDto(
+            inventory.Uuid,
+            entry.Uuid,
+            inventory.Container.ContainerNumber,
+            entry.ReferenceNo,
+            inventory.WarehouseFacility.Name,
+            inventory.LocationCode,
+            inventory.Status.ToString(),
+            inventory.ReceivedAt,
+            library is not null,
+            library?.HsCode,
+            library?.CommodityName,
+            library?.MavHsLabel,
+            library?.CategoryDescription,
+            library?.VolumeKg);
+    }
+
+    private async Task<ContainerListItemDto> MapContainerWithMavCommodityAsync(
+        Container container,
+        CancellationToken cancellationToken)
+    {
+        var mapped = OpsDtoMapper.MapContainer(container);
+        var library = await EntryMavCommodityResolver.ResolveLibraryCommodityAsync(_db, container.Entry, cancellationToken);
+        return new ContainerListItemDto(
+            mapped.Uuid,
+            mapped.ContainerNumber,
+            mapped.EntryUuid,
+            mapped.EntryReference,
+            mapped.Status,
+            mapped.DepartureTime,
+            mapped.ArrivalTime,
+            mapped.LastLatitude,
+            mapped.LastLongitude,
+            mapped.LastLocationAt,
+            mapped.AssignedDriverUuid,
+            mapped.AssignedDriverName,
+            mapped.AssignedVehiclePlate,
+            library is not null,
+            library?.HsCode,
+            library?.CommodityName,
+            library?.MavHsLabel,
+            library?.CategoryDescription,
+            library?.VolumeKg,
+            mapped.Pickup,
+            mapped.Destination);
     }
 }
 
@@ -321,12 +515,19 @@ public class DriverOpsService : IDriverOpsService
     {
         var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
         var containers = await _db.Containers
-            .Include(c => c.Entry)
+            .Include(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(c => c.Entry).ThenInclude(e => e.FinalWarehouseFacility)
             .Include(c => c.Locations)
             .Where(c => c.AssignedDriverUserId == driver.Id)
             .OrderByDescending(c => c.UpdatedAt)
             .ToListAsync(cancellationToken);
-        return containers.Select(OpsDtoMapper.MapContainer).ToList();
+        var results = new List<ContainerListItemDto>();
+        foreach (var container in containers)
+        {
+            results.Add(await MapDriverContainerAsync(container, cancellationToken));
+        }
+
+        return results;
     }
 
     public async Task<ContainerListItemDto> UpdateContainerStatusAsync(Guid containerUuid, UpdateContainerStatusRequest request, CancellationToken cancellationToken = default)
@@ -337,23 +538,77 @@ public class DriverOpsService : IDriverOpsService
             throw new ClientPortalException("INVALID_STATUS", "Invalid container status.");
         }
 
-        var container = await _db.Containers.Include(c => c.Entry).Include(c => c.Locations)
+        var container = await _db.Containers
+            .Include(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(c => c.Entry).ThenInclude(e => e.FinalWarehouseFacility)
+            .Include(c => c.Locations)
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
 
+        if (status is ContainerStatus.AtWarehouse
+            or ContainerStatus.UnderInspection
+            or ContainerStatus.Inspected
+            or ContainerStatus.Released)
+        {
+            throw new ClientPortalException(
+                "FORBIDDEN",
+                "Delivery cannot be ended from the driver app. Present the delivery QR for NMIS/Doctor scanning at the warehouse.");
+        }
+
+        if (status != ContainerStatus.InTransit)
+        {
+            throw new ClientPortalException("INVALID_STATUS", "Drivers may only start in-transit delivery from this endpoint.");
+        }
+
+        if (container.Status is not (ContainerStatus.PickedUp or ContainerStatus.Assigned or ContainerStatus.ReadyForTransport or ContainerStatus.Inspected))
+        {
+            throw new ClientPortalException("INVALID_STATUS", "Confirm pickup before starting in-transit delivery.");
+        }
+
         container.Status = status;
-        if (status == ContainerStatus.InTransit && container.DepartureTime is null)
+        if (container.DepartureTime is null)
         {
             container.DepartureTime = DateTime.UtcNow;
         }
 
-        if (status == ContainerStatus.AtWarehouse && container.ArrivalTime is null)
+        await _db.SaveChangesAsync(cancellationToken);
+        return await MapDriverContainerAsync(container, cancellationToken);
+    }
+
+    public async Task<ContainerListItemDto> ConfirmContainerPickupAsync(
+        Guid containerUuid,
+        ConfirmContainerPickupRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        var container = await _db.Containers
+            .Include(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(c => c.Entry).ThenInclude(e => e.FinalWarehouseFacility)
+            .Include(c => c.Locations)
+            .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
+
+        if (container.Status is ContainerStatus.AtWarehouse or ContainerStatus.Released)
         {
-            container.ArrivalTime = DateTime.UtcNow;
+            throw new ClientPortalException("INVALID_STATUS", "This delivery is already completed.");
         }
 
+        var label = string.IsNullOrWhiteSpace(request.Label)
+            ? ContainerDeliveryPointHelper.ResolvePlannedPickup(container.Entry).Label
+            : request.Label.Trim();
+
+        ContainerDeliveryPointHelper.SetPickup(container, label, request.Latitude, request.Longitude);
+        container.Status = ContainerStatus.PickedUp;
+        _db.ContainerLocations.Add(new ContainerLocation
+        {
+            ContainerId = container.Id,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+            RecordedAt = DateTime.UtcNow
+        });
+
         await _db.SaveChangesAsync(cancellationToken);
-        return OpsDtoMapper.MapContainer(container);
+        return await MapDriverContainerAsync(container, cancellationToken);
     }
 
     public async Task RecordContainerLocationAsync(Guid containerUuid, RecordContainerLocationRequest request, CancellationToken cancellationToken = default)
@@ -376,11 +631,13 @@ public class DriverOpsService : IDriverOpsService
     {
         var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
         var container = await _db.Containers
-            .Include(c => c.Entry)
+            .Include(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(c => c.Entry).ThenInclude(e => e.FinalWarehouseFacility)
             .Include(c => c.Locations)
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
 
+        var pickup = ResolveTrackPickup(container);
         var destination = await ResolveTrackDestinationAsync(container, cancellationToken);
         var trail = container.Locations
             .Where(l => l.Latitude != null && l.Longitude != null)
@@ -396,12 +653,54 @@ public class DriverOpsService : IDriverOpsService
             container.Status.ToString(),
             last?.Latitude,
             last?.Longitude,
+            pickup,
             destination,
             trail);
     }
 
+    private static ContainerTrackDestinationDto ResolveTrackPickup(Container container)
+    {
+        var pickup = ContainerDeliveryPointHelper.ResolvePickup(container, container.Entry);
+        return new ContainerTrackDestinationDto(pickup.Label, pickup.Latitude, pickup.Longitude);
+    }
+
+    private async Task<ContainerListItemDto> MapDriverContainerAsync(Container container, CancellationToken cancellationToken)
+    {
+        var mapped = OpsDtoMapper.MapContainer(container);
+        var pickup = ContainerDeliveryPointHelper.ResolvePickup(container, container.Entry);
+        var destination = await ResolveTrackDestinationAsync(container, cancellationToken);
+        return new ContainerListItemDto(
+            mapped.Uuid,
+            mapped.ContainerNumber,
+            mapped.EntryUuid,
+            mapped.EntryReference,
+            mapped.Status,
+            mapped.DepartureTime,
+            mapped.ArrivalTime,
+            mapped.LastLatitude,
+            mapped.LastLongitude,
+            mapped.LastLocationAt,
+            mapped.AssignedDriverUuid,
+            mapped.AssignedDriverName,
+            mapped.AssignedVehiclePlate,
+            mapped.MavLibraryLinked,
+            mapped.MavHsCode,
+            mapped.MavCommodityName,
+            mapped.MavHsLabel,
+            mapped.MavCategoryName,
+            mapped.VolumeKg,
+            new ContainerDeliveryStopDto(pickup.Label, pickup.Latitude, pickup.Longitude),
+            new ContainerDeliveryStopDto(destination.Name, destination.Latitude, destination.Longitude));
+    }
+
     private async Task<ContainerTrackDestinationDto> ResolveTrackDestinationAsync(Container container, CancellationToken cancellationToken)
     {
+        var finalFacility = container.Entry.FinalWarehouseFacility;
+        if (finalFacility?.Latitude is not null && finalFacility.Longitude is not null)
+        {
+            return new ContainerTrackDestinationDto(finalFacility.Name, finalFacility.Latitude.Value, finalFacility.Longitude.Value);
+        }
+
         var booking = await _db.WarehouseBookings
             .Include(b => b.WarehouseFacility)
             .Where(b => b.UserId == container.Entry.UserId)
@@ -424,6 +723,59 @@ public class DriverOpsService : IDriverOpsService
         }
 
         return new ContainerTrackDestinationDto(facility.Name, facility.Latitude.Value, facility.Longitude.Value);
+    }
+
+    public async Task<DriverDeliveryHandoffQrDto> GetDeliveryHandoffQrAsync(
+        Guid containerUuid,
+        CancellationToken cancellationToken = default)
+    {
+        var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        var container = await _db.Containers
+            .Include(c => c.Entry)
+            .Include(c => c.TransportTags)
+            .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
+
+        if (container.Status is ContainerStatus.Released or ContainerStatus.Pending)
+        {
+            throw new ClientPortalException("INVALID_STATUS", "Delivery QR is not available for this container.");
+        }
+
+        var tag = container.TransportTags.OrderByDescending(t => t.TaggedAt).FirstOrDefault();
+        string qrPayload;
+        string? qrCodeData;
+        if (tag?.QrPayload is { Length: > 0 } existingPayload)
+        {
+            qrPayload = existingPayload;
+            qrCodeData = tag.QrCodeData;
+        }
+        else
+        {
+            var signingKey = TransportQrSigningKeyResolver.Resolve(_configuration);
+            var syntheticTagUuid = tag?.Uuid ?? Guid.NewGuid();
+            var taggedAt = tag?.TaggedAt ?? DateTime.UtcNow;
+            qrPayload = TransportQrCodec.Encode(
+                new TransportQrPayload(
+                    syntheticTagUuid,
+                    container.Uuid,
+                    container.ContainerNumber,
+                    container.Entry.ReferenceNo,
+                    tag?.TransportType ?? "warehouse_nmis",
+                    tag?.ScheduledWarehouseDate.HasValue == true
+                        ? DateOnly.FromDateTime(tag.ScheduledWarehouseDate!.Value)
+                        : null,
+                    taggedAt),
+                signingKey);
+            qrCodeData = QrCodeGenerator.ToBase64Png(qrPayload);
+        }
+
+        return new DriverDeliveryHandoffQrDto(
+            container.Uuid,
+            container.ContainerNumber,
+            container.Entry.ReferenceNo,
+            qrPayload,
+            qrCodeData,
+            "Present this QR at the warehouse. NMIS/Doctor will scan it to complete the delivery — you cannot end the trip from the app.");
     }
 
     public async Task<DriverTransportQrPreviewDto> PreviewTransportQrAsync(
@@ -493,14 +845,11 @@ public class DriverOpsService : IDriverOpsService
             request.Longitude,
             destination.Latitude,
             destination.Longitude);
-        var withinGeofence = distance <= GeoDistanceHelper.DefaultWarehouseGeofenceMeters;
-        if (!withinGeofence)
+        if (container.Status is not ContainerStatus.InTransit and not ContainerStatus.UnderInspection)
         {
-            return new DriverWarehouseCheckInResultDto(false, distance, OpsDtoMapper.MapContainer(container));
+            throw new ClientPortalException("INVALID_STATUS", "Check-in is only available while delivery is in progress.");
         }
 
-        container.Status = ContainerStatus.AtWarehouse;
-        container.ArrivalTime = DateTime.UtcNow;
         _db.ContainerLocations.Add(new ContainerLocation
         {
             ContainerId = container.Id,
@@ -508,9 +857,15 @@ public class DriverOpsService : IDriverOpsService
             Longitude = request.Longitude,
             RecordedAt = DateTime.UtcNow
         });
+
+        var withinGeofence = distance <= GeoDistanceHelper.DefaultWarehouseGeofenceMeters;
+        if (withinGeofence)
+        {
+            await _push.NotifyWarehouseArrivalAsync(container.ContainerNumber, container.Uuid, destination.Name, cancellationToken);
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
-        await _push.NotifyWarehouseArrivalAsync(container.ContainerNumber, container.Uuid, destination.Name, cancellationToken);
-        return new DriverWarehouseCheckInResultDto(true, distance, OpsDtoMapper.MapContainer(container));
+        return new DriverWarehouseCheckInResultDto(withinGeofence, distance, OpsDtoMapper.MapContainer(container));
     }
 
     public async Task<DriverDocumentDto> UploadDocumentAsync(

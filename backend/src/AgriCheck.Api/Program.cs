@@ -241,6 +241,8 @@ static async Task EnsureDatabaseReadyAsync(WebApplication app)
 
     try
     {
+        await MigrationHistoryBaselineHelper.BaselineSchemaDriftBeforeMigrateAsync(db);
+
         var pending = await db.Database.GetPendingMigrationsAsync();
         if (pending.Any())
         {

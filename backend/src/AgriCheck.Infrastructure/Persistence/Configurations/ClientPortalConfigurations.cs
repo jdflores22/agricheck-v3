@@ -48,8 +48,11 @@ public class EntryConfiguration : IEntityTypeConfiguration<Entry>
         builder.Property(x => x.ImportTrack).HasConversion<string>().HasMaxLength(16);
         builder.Property(x => x.MavDocumentStatus).HasConversion<string>().HasMaxLength(32);
         builder.Property(x => x.MavRemarks).HasMaxLength(2000);
+        builder.Property(x => x.CompliancePhase).HasConversion<string>().HasMaxLength(32);
         builder.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
         builder.HasOne(x => x.Agency).WithMany(x => x.Entries).HasForeignKey(x => x.AgencyId);
+        builder.HasOne(x => x.FinalWarehouseFacility).WithMany().HasForeignKey(x => x.FinalWarehouseFacilityId)
+            .OnDelete(DeleteBehavior.SetNull);
         builder.HasOne(x => x.Detail).WithOne(x => x.Entry).HasForeignKey<EntryDetail>(x => x.EntryId);
         builder.HasOne(x => x.PrimaryMic).WithMany().HasForeignKey(x => x.PrimaryMicId).OnDelete(DeleteBehavior.SetNull);
     }

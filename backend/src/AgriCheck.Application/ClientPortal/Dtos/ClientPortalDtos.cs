@@ -24,6 +24,7 @@ public record EntryContainerDto(
 public record EntryDto(
     Guid Uuid, string ReferenceNo, string EntryType, string Status, long AgencyId, string AgencyCode, string AgencyName,
     string? Notes, string? FormDataJson, DateTime? SubmittedAt, string PaymentStatus, decimal? PaymentAmount, DateTime? ComplianceDeadlineAt,
+    string CompliancePhase, long? FinalWarehouseFacilityId, string? FinalWarehouseFacilityCode, string? FinalWarehouseFacilityName,
     EntryDetailDto? Detail, IReadOnlyList<EntryFileDto> Files, IReadOnlyList<EntryContainerDto> Containers,
     IReadOnlyList<StatusHistoryDto> StatusHistory,
     IReadOnlyList<TimelineEventDto> Timeline, IReadOnlyList<ClientBillSummaryDto> Bills,
@@ -69,8 +70,8 @@ public record EntryFileDto(
 public record StatusHistoryDto(string FromStatus, string ToStatus, string? Comment, DateTime CreatedAt);
 public record TimelineEventDto(string EventType, string Title, string? Description, DateTime CreatedAt);
 
-public record CreateEntryRequest(long AgencyId, string EntryType, EntryDetailInputDto Detail, string? Notes, string? FormDataJson, int? NumContainers, string? ContainersJson, string? MavNo = null, string? ImportTrack = null);
-public record UpdateEntryRequest(EntryDetailInputDto Detail, string? Notes, string? FormDataJson, int? NumContainers, string? ContainersJson, string? MavNo = null, string? ImportTrack = null);
+public record CreateEntryRequest(long AgencyId, string EntryType, EntryDetailInputDto Detail, string? Notes, string? FormDataJson, int? NumContainers, string? ContainersJson, string? MavNo = null, string? ImportTrack = null, long? FinalWarehouseFacilityId = null);
+public record UpdateEntryRequest(EntryDetailInputDto Detail, string? Notes, string? FormDataJson, int? NumContainers, string? ContainersJson, string? MavNo = null, string? ImportTrack = null, long? FinalWarehouseFacilityId = null);
 public record EntryDetailInputDto(long? CommodityId, string? CommodityName, string? Description, decimal Quantity, string Unit, string? OriginCountry, string? DestinationCountry, string? PortOfEntry);
 
 public record AccreditationListItemDto(Guid Uuid, string CompanyName, string SubmissionType, string Status, string DisplayStatus, DateTime? SubmittedAt, DateTime CreatedAt);

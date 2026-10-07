@@ -7,6 +7,8 @@ public interface IAddressLookupService
     Task<IReadOnlyList<AddressOptionDto>> ListCitiesAsync(long provinceId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AddressBarangayOptionDto>> ListBarangaysAsync(long cityId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RegisteredWarehouseDto>> ListRegisteredWarehousesAsync(CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<RegisteredWarehouseDto>> SearchLicensedWarehousesAsync(string? query, int limit = 25, CancellationToken cancellationToken = default);
 }
 
 public interface ISystemBrandingService

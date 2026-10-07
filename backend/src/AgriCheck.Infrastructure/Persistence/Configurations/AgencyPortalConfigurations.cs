@@ -106,7 +106,10 @@ public class InspectionConfiguration : IEntityTypeConfiguration<Inspection>
         builder.Property(x => x.Uuid).IsRequired();
         builder.HasIndex(x => x.Uuid).IsUnique();
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+        builder.Property(x => x.Kind).HasConversion<string>().HasMaxLength(32);
         builder.HasOne(x => x.Entry).WithMany(x => x.Inspections).HasForeignKey(x => x.EntryId);
+        builder.HasOne(x => x.SpsImportClearance).WithMany().HasForeignKey(x => x.SpsImportClearanceId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne(x => x.ErfiSubmission).WithMany().HasForeignKey(x => x.ErfiSubmissionId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne(x => x.Agency).WithMany().HasForeignKey(x => x.AgencyId);
         builder.HasOne(x => x.Inspector).WithMany().HasForeignKey(x => x.InspectorUserId);
     }

@@ -1,5 +1,7 @@
 using AgriCheck.Application.ClientPortal.Dtos;
+using AgriCheck.Application.Compliance;
 using AgriCheck.Application.DaPortal.Dtos;
+using AgriCheck.Application.OpsPortal;
 
 namespace AgriCheck.Application.DaPortal;
 
@@ -21,6 +23,8 @@ public interface IDaOversightReportService
     Task<DaGeoStockReportDto> GetGeoStockReportAsync(DaGeoStockQuery query, CancellationToken cancellationToken = default);
     Task<DaCommodityStockReportDto> GetCommodityStockReportAsync(DaCommodityStockQuery query, CancellationToken cancellationToken = default);
     Task<DaImportPipelineReportDto> GetImportPipelineReportAsync(DaImportPipelineQuery query, CancellationToken cancellationToken = default);
+
+    Task<DaStorageTallySummaryDto> GetStorageTallySummaryAsync(int? year, CancellationToken cancellationToken = default);
 }
 
 public interface IDaWarehouseManagementService
@@ -29,6 +33,28 @@ public interface IDaWarehouseManagementService
     Task<DaWarehouseDetailDto> GetDetailAsync(long id, CancellationToken cancellationToken = default);
     Task<DaWarehouseListItemDto> CreateAsync(SaveDaWarehouseRequest request, CancellationToken cancellationToken = default);
     Task<DaWarehouseListItemDto> UpdateAsync(long id, SaveDaWarehouseRequest request, CancellationToken cancellationToken = default);
+
+    Task<WarehouseOperatingLicenseDto?> GetOperatingLicenseAsync(long warehouseFacilityId, CancellationToken cancellationToken = default);
+
+    Task<WarehouseOperatingLicenseDto> IssueOperatingLicenseAsync(
+        long warehouseFacilityId,
+        IssueWarehouseOperatingLicenseRequest request,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IDaFacilityRegistrationService
+{
+    Task<FacilityRegistrationDaReviewDto?> GetPendingAsync(long warehouseFacilityId, CancellationToken cancellationToken = default);
+
+    Task<FacilityRegistrationDaReviewDto> VerifyAsync(
+        long warehouseFacilityId,
+        VerifyFacilityRegistrationRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<FacilityAccreditationSummaryDto> RegisterCswAsync(
+        long warehouseFacilityId,
+        RegisterFacilityCswRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IDaImporterProfileService

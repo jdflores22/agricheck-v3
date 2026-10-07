@@ -1,4 +1,5 @@
 using AgriCheck.Application.Common;
+using AgriCheck.Infrastructure.Helpers;
 using AgriCheck.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -40,13 +41,52 @@ public class AddressLookupService : IAddressLookupService
 
     public async Task<IReadOnlyList<RegisteredWarehouseDto>> ListRegisteredWarehousesAsync(CancellationToken cancellationToken = default)
     {
+        var licensedIds = await WarehouseOperatingLicenseHelper.GetActiveLicensedWarehouseIdsAsync(_db, cancellationToken);
+        if (licensedIds.Count == 0)
+        {
+            return Array.Empty<RegisteredWarehouseDto>();
+        }
+
         var facilities = await _db.WarehouseFacilities.AsNoTracking()
-            .Where(x => x.IsActive)
+            .Where(x => x.IsActive && licensedIds.Contains(x.Id))
             .Include(x => x.Region)
             .Include(x => x.Province)
             .Include(x => x.City)
             .Include(x => x.Barangay)
             .OrderBy(x => x.Name)
+            .ToListAsync(cancellationToken);
+
+        return facilities.Select(MapRegisteredWarehouse).ToList();
+    }
+
+    public async Task<IReadOnlyList<RegisteredWarehouseDto>> SearchLicensedWarehousesAsync(
+        string? query,
+        int limit = 25,
+        CancellationToken cancellationToken = default)
+    {
+        limit = Math.Clamp(limit, 1, 50);
+        var licensedIds = await WarehouseOperatingLicenseHelper.GetActiveLicensedWarehouseIdsAsync(_db, cancellationToken);
+        if (licensedIds.Count == 0)
+        {
+            return Array.Empty<RegisteredWarehouseDto>();
+        }
+
+        var q = _db.WarehouseFacilities.AsNoTracking()
+            .Where(x => x.IsActive && licensedIds.Contains(x.Id));
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            var term = query.Trim();
+            q = q.Where(x => x.Name.Contains(term) || x.Code.Contains(term) || (x.Location != null && x.Location.Contains(term)));
+        }
+
+        var facilities = await q
+            .Include(x => x.Region)
+            .Include(x => x.Province)
+            .Include(x => x.City)
+            .Include(x => x.Barangay)
+            .OrderBy(x => x.Name)
+            .Take(limit)
             .ToListAsync(cancellationToken);
 
         return facilities.Select(MapRegisteredWarehouse).ToList();

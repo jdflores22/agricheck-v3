@@ -23,6 +23,8 @@ public class ContainerConfiguration : IEntityTypeConfiguration<Container>
         builder.HasOne(x => x.ClaimedBy).WithMany().HasForeignKey(x => x.ClaimedByUserId);
         builder.HasOne(x => x.AssignedDriver).WithMany().HasForeignKey(x => x.AssignedDriverUserId);
         builder.HasOne(x => x.AssignedOperatorVehicle).WithMany().HasForeignKey(x => x.AssignedOperatorVehicleId);
+        builder.HasOne(x => x.SpsImportClearance).WithMany().HasForeignKey(x => x.SpsImportClearanceId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne(x => x.WarehouseFacility).WithMany().HasForeignKey(x => x.WarehouseFacilityId).OnDelete(DeleteBehavior.SetNull);
     }
 }
 

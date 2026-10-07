@@ -13,8 +13,14 @@ public class Inspection : BaseEntity
     public DateTime? ScheduledAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public string? Findings { get; set; }
+    public InspectionKind Kind { get; set; } = InspectionKind.Standard;
+    public long? SpsImportClearanceId { get; set; }
+    public long? ErfiSubmissionId { get; set; }
+    public DateTime? SpsUsedStampAt { get; set; }
 
     public Entry Entry { get; set; } = null!;
+    public SpsImportClearance? SpsImportClearance { get; set; }
+    public ErfiSubmission? ErfiSubmission { get; set; }
     public Agency Agency { get; set; } = null!;
     public User Inspector { get; set; } = null!;
     public ICollection<InspectionPhoto> Photos { get; set; } = new List<InspectionPhoto>();

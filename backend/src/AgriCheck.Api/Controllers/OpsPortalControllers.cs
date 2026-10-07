@@ -3,6 +3,7 @@ using AgriCheck.Application.Auth.Dtos;
 using AgriCheck.Application.ClientPortal;
 using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Application.Common;
+using AgriCheck.Application.Compliance;
 using AgriCheck.Application.OpsPortal;
 using AgriCheck.Application.OpsPortal.Dtos;
 using AgriCheck.Infrastructure.Services;
@@ -23,6 +24,20 @@ public class WarehouseDashboardController : OpsPortalControllerBase
     [HttpGet]
     public async Task<ActionResult<ApiResponse<WarehouseDashboardDto>>> Get(CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.GetDashboardAsync(cancellationToken));
+}
+
+[ApiController]
+[Route("api/v1/ops/warehouse/facilities")]
+[Authorize(Roles = "ROLE_WAREHOUSE_STAFF,ROLE_ADMIN")]
+public class WarehouseFacilitiesController : OpsPortalControllerBase
+{
+    private readonly IWarehouseOpsService _service;
+
+    public WarehouseFacilitiesController(IWarehouseOpsService service) => _service = service;
+
+    [HttpGet]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<WarehouseFacilityDto>>>> List(CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListFacilitiesAsync(cancellationToken));
 }
 
 [ApiController]
@@ -70,6 +85,67 @@ public class ReleaseAuthorizationController : OpsPortalControllerBase
         [FromBody] CreateReleaseAuthorizationRequest request,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.CreateReleaseAuthorizationAsync(request, cancellationToken));
+}
+
+[ApiController]
+[Route("api/v1/ops/warehouse/compliance")]
+[Authorize(Roles = "ROLE_WAREHOUSE_STAFF,ROLE_ADMIN")]
+public class WarehouseComplianceController : OpsPortalControllerBase
+{
+    private readonly IWarehouseComplianceService _service;
+
+    public WarehouseComplianceController(IWarehouseComplianceService service) => _service = service;
+
+    [HttpGet("facilities")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<WarehouseComplianceFacilityListItemDto>>>> ListFacilities(
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListFacilitiesAsync(cancellationToken));
+
+    [HttpGet("facilities/{warehouseFacilityId:long}")]
+    public async Task<ActionResult<ApiResponse<WarehouseComplianceDetailDto>>> GetDetail(
+        long warehouseFacilityId,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.GetDetailAsync(warehouseFacilityId, cancellationToken));
+
+    [HttpPost("lto-applications")]
+    public async Task<ActionResult<ApiResponse<WarehouseLtoApplicationDto>>> SubmitLtoApplication(
+        [FromBody] SubmitWarehouseLtoApplicationRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.SubmitLtoApplicationAsync(request, cancellationToken));
+
+    [HttpPut("rsas")]
+    public async Task<ActionResult<ApiResponse<ClientFacilityRegistrationDto>>> UpsertRsas(
+        [FromBody] UpsertFacilityRegistrationRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.UpsertRsasAsync(request, cancellationToken));
+
+    [HttpPost("rsas/{uuid:guid}/submit")]
+    public async Task<ActionResult<ApiResponse<ClientFacilityRegistrationDto>>> SubmitRsas(
+        Guid uuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.SubmitRsasAsync(uuid, cancellationToken));
+}
+
+[ApiController]
+[Route("api/v1/ops/warehouse/importer-contracts")]
+[Authorize(Roles = "ROLE_WAREHOUSE_STAFF,ROLE_ADMIN")]
+public class WarehouseImporterContractsController : OpsPortalControllerBase
+{
+    private readonly IWarehouseImporterContractService _service;
+
+    public WarehouseImporterContractsController(IWarehouseImporterContractService service) => _service = service;
+
+    [HttpGet]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<WarehouseImporterContractListItemDto>>>> List(
+        [FromQuery] long? warehouseFacilityId,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListAsync(warehouseFacilityId, cancellationToken));
+
+    [HttpPut]
+    public async Task<ActionResult<ApiResponse<WarehouseImporterContractListItemDto>>> Upsert(
+        [FromBody] UpsertWarehouseImporterContractRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.UpsertAsync(request, cancellationToken));
 }
 
 [ApiController]
@@ -232,6 +308,14 @@ public class MobileContainersController : OpsPortalControllerBase
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.UpdateContainerStatusAsync(uuid, request, cancellationToken));
 
+    [HttpPost("{uuid:guid}/pickup")]
+    [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> ConfirmPickup(
+        Guid uuid,
+        [FromBody] ConfirmContainerPickupRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ConfirmContainerPickupAsync(uuid, request, cancellationToken));
+
     [HttpPost("{uuid:guid}/location")]
     public async Task<ActionResult<ApiResponse<object>>> RecordLocation(
         Guid uuid,
@@ -247,6 +331,13 @@ public class MobileContainersController : OpsPortalControllerBase
         Guid uuid,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.GetContainerTrackAsync(uuid, cancellationToken));
+
+    [HttpGet("{uuid:guid}/delivery-qr")]
+    [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<DriverDeliveryHandoffQrDto>>> DeliveryQr(
+        Guid uuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.GetDeliveryHandoffQrAsync(uuid, cancellationToken));
 
     [HttpPost("scan/preview")]
     [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]

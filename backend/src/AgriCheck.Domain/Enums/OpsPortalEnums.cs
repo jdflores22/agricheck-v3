@@ -6,6 +6,7 @@ public enum ContainerStatus
     ReadyForTransport,
     AwaitingConfirmation,
     Assigned,
+    PickedUp,
     InTransit,
     UnderInspection,
     Inspected,

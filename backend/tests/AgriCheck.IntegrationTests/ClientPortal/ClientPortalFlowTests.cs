@@ -1,7 +1,10 @@
 using AgriCheck.Application.ClientPortal.Dtos;
+using AgriCheck.Application.Compliance;
 using AgriCheck.Domain.Enums;
 using AgriCheck.Infrastructure.Services;
+using Microsoft.Extensions.Options;
 using AgriCheck.IntegrationTests.Fixtures;
+using AgriCheck.IntegrationTests.Support;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -26,7 +29,10 @@ public class ClientPortalFlowTests
             });
             await ctx.Db.SaveChangesAsync();
 
-            var entryService = new EntryService(ctx.Db, new TestCurrentUserService(ctx.Importer.Uuid), new TestFileStorageService(), TestNotificationFactory.Create(ctx.Db, new TestCurrentUserService(ctx.Importer.Uuid)));
+            var entryService = IntegrationTestServices.CreateEntryService(
+                ctx.Db,
+                ctx.Importer.Uuid,
+                new ComplianceOptions { EnforceEntryDestinationValidation = false });
 
             var created = await entryService.CreateAsync(EndToEndTestData.SampleEntryRequest(ctx.Agency.Id));
             Assert.Equal(EntryStatus.Draft.ToString(), created.Status);

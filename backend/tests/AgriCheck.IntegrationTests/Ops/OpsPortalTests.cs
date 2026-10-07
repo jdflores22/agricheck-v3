@@ -1,6 +1,7 @@
 using AgriCheck.Application.OpsPortal.Dtos;
 using AgriCheck.Infrastructure.Services;
 using AgriCheck.IntegrationTests.Fixtures;
+using AgriCheck.IntegrationTests.Support;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -14,7 +15,7 @@ public class OpsPortalTests
         var (db, _, driver, _, assigned, other, _, _) = await OpsTestData.CreateAsync();
         await using (db)
         {
-            var service = new DriverOpsService(db, new TestCurrentUserService(driver.Uuid, "ROLE_DRIVER"));
+            var service = IntegrationTestServices.CreateDriverOpsService(db, driver.Uuid, "ROLE_DRIVER");
             var result = await service.ListAssignedContainersAsync();
 
             Assert.Single(result);
@@ -29,7 +30,7 @@ public class OpsPortalTests
         var (db, staff, _, _, container, _, _, facility) = await OpsTestData.CreateAsync();
         await using (db)
         {
-            var service = new WarehouseOpsService(db, new TestCurrentUserService(staff.Uuid, "ROLE_WAREHOUSE_STAFF"));
+            var service = IntegrationTestServices.CreateWarehouseOpsService(db, staff.Uuid, "ROLE_WAREHOUSE_STAFF");
             var result = await service.ReceiveContainerAsync(new ReceiveContainerRequest(container.Uuid, facility.Id, "A-01"));
 
             Assert.Equal("Stored", result.Status);
@@ -45,7 +46,7 @@ public class OpsPortalTests
         var (db, _, driver, _, container, _, _, _) = await OpsTestData.CreateAsync();
         await using (db)
         {
-            var driverService = new DriverOpsService(db, new TestCurrentUserService(driver.Uuid, "ROLE_DRIVER"));
+            var driverService = IntegrationTestServices.CreateDriverOpsService(db, driver.Uuid, "ROLE_DRIVER");
             var syncService = new MobileSyncService(db, new TestCurrentUserService(driver.Uuid, "ROLE_DRIVER"), driverService);
 
             var payload = $$"""{"containerUuid":"{{container.Uuid}}","status":"InTransit"}""";

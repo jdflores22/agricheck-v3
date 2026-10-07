@@ -137,6 +137,7 @@ public class MicUtilizationConfiguration : IEntityTypeConfiguration<MicUtilizati
         builder.Property(x => x.Volume).HasPrecision(15, 3);
         builder.HasOne(x => x.Mic).WithMany(x => x.Utilizations).HasForeignKey(x => x.MicId);
         builder.HasOne(x => x.Entry).WithMany(x => x.MicUtilizations).HasForeignKey(x => x.EntryId);
+        builder.HasOne(x => x.SpsImportClearance).WithMany().HasForeignKey(x => x.SpsImportClearanceId).OnDelete(DeleteBehavior.SetNull);
     }
 }
 

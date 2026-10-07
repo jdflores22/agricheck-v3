@@ -1,5 +1,6 @@
 using AgriCheck.Infrastructure.Services;
 using AgriCheck.IntegrationTests.Fixtures;
+using AgriCheck.IntegrationTests.Support;
 using Xunit;
 
 namespace AgriCheck.IntegrationTests.AgencyPortal;
@@ -12,7 +13,7 @@ public class AgencyDataIsolationTests
         var (db, baiEvaluator, _, baiEntry, bfarEntry) = await AgencyTestData.CreateAsync();
         await using (db)
         {
-            var service = new EvaluatorService(db, new TestCurrentUserService(baiEvaluator.Uuid, "ROLE_EVALUATOR"), TestNotificationFactory.Create(db, new TestCurrentUserService(baiEvaluator.Uuid, "ROLE_EVALUATOR")));
+            var service = IntegrationTestServices.CreateEvaluatorService(db, baiEvaluator.Uuid, "ROLE_EVALUATOR");
             var result = await service.ListQueueAsync(1, 20);
 
             Assert.Single(result.Items);
@@ -27,7 +28,7 @@ public class AgencyDataIsolationTests
         var (db, baiEvaluator, _, _, bfarEntry) = await AgencyTestData.CreateAsync();
         await using (db)
         {
-            var service = new EvaluatorService(db, new TestCurrentUserService(baiEvaluator.Uuid, "ROLE_EVALUATOR"), TestNotificationFactory.Create(db, new TestCurrentUserService(baiEvaluator.Uuid, "ROLE_EVALUATOR")));
+            var service = IntegrationTestServices.CreateEvaluatorService(db, baiEvaluator.Uuid, "ROLE_EVALUATOR");
             var ex = await Assert.ThrowsAsync<ClientPortalException>(() => service.AssignToSelfAsync(bfarEntry.Uuid));
             Assert.Equal("ENTRY_NOT_FOUND", ex.Code);
         }
@@ -39,23 +40,23 @@ public class AgencyDataIsolationTests
         var (db, baiEvaluator, _, _, bfarEntry) = await AgencyTestData.CreateAsync();
         await using (db)
         {
-            var service = new EvaluatorService(db, new TestCurrentUserService(baiEvaluator.Uuid, "ROLE_EVALUATOR"), TestNotificationFactory.Create(db, new TestCurrentUserService(baiEvaluator.Uuid, "ROLE_EVALUATOR")));
+            var service = IntegrationTestServices.CreateEvaluatorService(db, baiEvaluator.Uuid, "ROLE_EVALUATOR");
             var entry = await service.GetEntryAsync(bfarEntry.Uuid);
             Assert.Null(entry);
         }
     }
 
     [Fact]
-    public async Task ApprovedEntries_OnlyReturnsOwnAgencyApprovedEntries()
+    public async Task ApprovedEntries_OnlyReturnsOwnAgencySchedulableEntriesWithoutInspection()
     {
         var (db, baiEvaluator, _, baiEntry, bfarEntry) = await AgencyTestData.CreateAsync();
-        baiEntry.Status = Domain.Enums.EntryStatus.Approved;
-        bfarEntry.Status = Domain.Enums.EntryStatus.Approved;
+        baiEntry.Status = Domain.Enums.EntryStatus.ForInspection;
+        bfarEntry.Status = Domain.Enums.EntryStatus.ForInspection;
         await db.SaveChangesAsync();
 
         await using (db)
         {
-            var service = new EvaluatorService(db, new TestCurrentUserService(baiEvaluator.Uuid, "ROLE_EVALUATOR"), TestNotificationFactory.Create(db, new TestCurrentUserService(baiEvaluator.Uuid, "ROLE_EVALUATOR")));
+            var service = IntegrationTestServices.CreateEvaluatorService(db, baiEvaluator.Uuid, "ROLE_EVALUATOR");
             var result = await service.ListApprovedEntriesAsync(1, 20);
 
             Assert.Single(result.Items);

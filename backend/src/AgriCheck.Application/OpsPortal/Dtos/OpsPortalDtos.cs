@@ -10,12 +10,19 @@ public record WarehouseDashboardDto(
 
 public record WarehouseInventoryListItemDto(
     Guid Uuid,
+    Guid EntryUuid,
     string ContainerNumber,
     string EntryReference,
     string FacilityName,
     string? LocationCode,
     string Status,
-    DateTime ReceivedAt);
+    DateTime ReceivedAt,
+    bool MavLibraryLinked,
+    string? MavHsCode,
+    string? MavCommodityName,
+    string? MavHsLabel,
+    string? MavCategoryName,
+    decimal? VolumeKg);
 
 public record ReceiveContainerRequest(
     Guid ContainerUuid,
@@ -28,7 +35,11 @@ public record ReleaseAuthorizationListItemDto(
     string RecipientName,
     string RecipientIdNumber,
     DateTime AuthorizedAt,
-    int ReleaseCount);
+    int ReleaseCount,
+    bool MavLibraryLinked,
+    string? MavHsCode,
+    string? MavCommodityName,
+    string? MavHsLabel);
 
 public record CreateReleaseAuthorizationRequest(
     Guid EntryUuid,
@@ -153,9 +164,22 @@ public record DriverWarehouseCheckInResultDto(
     double DistanceMeters,
     ContainerListItemDto Container);
 
+public record DriverDeliveryHandoffQrDto(
+    Guid ContainerUuid,
+    string ContainerNumber,
+    string EntryReference,
+    string QrPayload,
+    string? QrCodeData,
+    string HandoffInstruction);
+
 public record SubmitFaceVerificationRequest(
     decimal? Confidence,
     string? Notes);
+
+public record ContainerDeliveryStopDto(
+    string Name,
+    decimal Latitude,
+    decimal Longitude);
 
 public record ContainerListItemDto(
     Guid Uuid,
@@ -170,7 +194,15 @@ public record ContainerListItemDto(
     DateTime? LastLocationAt,
     Guid? AssignedDriverUuid = null,
     string? AssignedDriverName = null,
-    string? AssignedVehiclePlate = null);
+    string? AssignedVehiclePlate = null,
+    bool MavLibraryLinked = false,
+    string? MavHsCode = null,
+    string? MavCommodityName = null,
+    string? MavHsLabel = null,
+    string? MavCategoryName = null,
+    decimal? VolumeKg = null,
+    ContainerDeliveryStopDto? Pickup = null,
+    ContainerDeliveryStopDto? Destination = null);
 
 public record UpdateContainerStatusRequest(string Status);
 
@@ -206,6 +238,8 @@ public record CompleteDoctorInspectionRequest(string Decision, string? Findings)
 
 public record RecordContainerLocationRequest(decimal Latitude, decimal Longitude);
 
+public record ConfirmContainerPickupRequest(decimal Latitude, decimal Longitude, string? Label = null);
+
 public record MobileSyncPushRequest(IReadOnlyList<MobileSyncItemRequest> Items);
 
 public record MobileSyncItemRequest(
@@ -239,6 +273,7 @@ public record ContainerTrackDto(
     string Status,
     decimal? CurrentLatitude,
     decimal? CurrentLongitude,
+    ContainerTrackDestinationDto Pickup,
     ContainerTrackDestinationDto Destination,
     IReadOnlyList<ContainerLocationPointDto> Trail);
 

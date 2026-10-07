@@ -17,8 +17,12 @@ public class Container : BaseEntity
     public long? AssignedOperatorVehicleId { get; set; }
     public DateTime? DepartureTime { get; set; }
     public DateTime? ArrivalTime { get; set; }
+    public long? SpsImportClearanceId { get; set; }
+    public long? WarehouseFacilityId { get; set; }
 
     public Entry Entry { get; set; } = null!;
+    public WarehouseFacility? WarehouseFacility { get; set; }
+    public SpsImportClearance? SpsImportClearance { get; set; }
     public User? ClaimedBy { get; set; }
     public User? AssignedDriver { get; set; }
     public OperatorVehicle? AssignedOperatorVehicle { get; set; }

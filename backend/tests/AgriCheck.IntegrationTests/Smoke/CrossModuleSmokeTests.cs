@@ -1,5 +1,6 @@
 using AgriCheck.Infrastructure.Services;
 using AgriCheck.IntegrationTests.Fixtures;
+using AgriCheck.IntegrationTests.Support;
 using Xunit;
 
 namespace AgriCheck.IntegrationTests.Smoke;
@@ -60,7 +61,7 @@ public class CrossModuleSmokeTests
         var (db, _, _, _, warehouse, _) = await CrossModuleTestData.CreateAsync();
         await using (db)
         {
-            var service = new WarehouseOpsService(db, new TestCurrentUserService(warehouse.Uuid, "ROLE_WAREHOUSE_STAFF"));
+            var service = IntegrationTestServices.CreateWarehouseOpsService(db, warehouse.Uuid, "ROLE_WAREHOUSE_STAFF");
             var result = await service.GetDashboardAsync();
             Assert.True(result.ActiveFacilities >= 0);
         }
@@ -72,7 +73,7 @@ public class CrossModuleSmokeTests
         var (db, _, _, _, _, driver) = await CrossModuleTestData.CreateAsync();
         await using (db)
         {
-            var service = new DriverOpsService(db, new TestCurrentUserService(driver.Uuid, "ROLE_DRIVER"));
+            var service = IntegrationTestServices.CreateDriverOpsService(db, driver.Uuid, "ROLE_DRIVER");
             var result = await service.GetDashboardAsync();
             Assert.Equal(1, result.AssignedContainers);
         }

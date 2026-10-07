@@ -1,10 +1,13 @@
+using AgriCheck.Application.AgencyPortal.Dtos;
 using AgriCheck.Application.ClientPortal;
 using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Application.Common;
+using AgriCheck.Application.Compliance;
 using AgriCheck.Application.DaPortal;
 using AgriCheck.Application.DaPortal.Dtos;
 using AgriCheck.Domain.Entities;
 using AgriCheck.Domain.Enums;
+using AgriCheck.Infrastructure.Helpers;
 using AgriCheck.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -346,6 +349,32 @@ public class DaOversightReportService : IDaOversightReportService
             await _db.AgencyBillings.CountAsync(b => b.Status == AgencyBillingStatus.Paid, cancellationToken));
     }
 
+    public async Task<DaStorageTallySummaryDto> GetStorageTallySummaryAsync(int? year, CancellationToken cancellationToken = default)
+    {
+        await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
+        var reportYear = year ?? DateTime.UtcNow.Year;
+        var sheets = await _db.StorageTallySheets
+            .AsNoTracking()
+            .Where(s => s.RecordedAt.Year == reportYear)
+            .ToListAsync(cancellationToken);
+
+        var monthly = Enumerable.Range(1, 12)
+            .Select(month =>
+            {
+                var inMonth = sheets.Where(s => s.RecordedAt.Month == month).ToList();
+                return new DaStorageTallyMonthRowDto(
+                    reportYear,
+                    month,
+                    inMonth.Count(s => s.Direction == "In"),
+                    inMonth.Count(s => s.Direction == "Out"),
+                    inMonth.Where(s => s.Direction == "In").Sum(s => s.VolumeKg ?? 0),
+                    inMonth.Where(s => s.Direction == "Out").Sum(s => s.VolumeKg ?? 0));
+            })
+            .ToList();
+
+        return new DaStorageTallySummaryDto(reportYear, monthly);
+    }
+
     public async Task<DaMavNationalReportDto> GetMavNationalReportAsync(int? mavYear, CancellationToken cancellationToken = default)
     {
         await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
@@ -548,6 +577,7 @@ public class DaOversightReportService : IDaOversightReportService
 
                 if (property.Name.Equals("hs_code", StringComparison.OrdinalIgnoreCase)
                     || property.Name.Equals("hsCode", StringComparison.OrdinalIgnoreCase)
+                    || property.Name.Equals("import_commodity_hs_code", StringComparison.OrdinalIgnoreCase)
                     || property.Name.EndsWith("_hs_code", StringComparison.OrdinalIgnoreCase))
                 {
                     var value = property.Value.GetString()?.Trim();
@@ -625,15 +655,40 @@ public class DaOversightReportService : IDaOversightReportService
             .ThenBy(r => r.CommodityName)
             .ToList();
 
+        var byRegion = filtered
+            .Where(l => IsReportableOversightCommodity(l.HsCode, l.CommodityName))
+            .GroupBy(l => (l.RegionId, Norm(l.RegionName), Norm(l.HsCode), Norm(l.CommodityName)))
+            .Select(g =>
+            {
+                var sample = g.First();
+                return new DaCommodityStockRegionRowDto(
+                    sample.RegionId,
+                    sample.RegionName,
+                    string.IsNullOrWhiteSpace(sample.HsCode) ? "—" : sample.HsCode,
+                    sample.CommodityName,
+                    g.Sum(l => l.VolumeKg),
+                    g.Count(),
+                    g.Select(l => l.FacilityId).Distinct().Count());
+            })
+            .OrderByDescending(r => r.StockKg)
+            .ThenBy(r => r.RegionName)
+            .ThenBy(r => r.CommodityName)
+            .ToList();
+
+        var reportableCommodities = commodities
+            .Where(c => IsReportableOversightCommodity(c.HsCode, c.CommodityName))
+            .ToList();
+
         return new DaCommodityStockReportDto(
-            filtered.Sum(l => l.VolumeKg),
-            filtered.Where(l => l.ImportTrack == EntryImportTrack.Mav).Sum(l => l.VolumeKg),
-            filtered.Where(l => l.ImportTrack == EntryImportTrack.Regular).Sum(l => l.VolumeKg),
-            commodities.Count,
+            reportableCommodities.Sum(c => c.StockKg),
+            reportableCommodities.Sum(c => c.MavStockKg),
+            reportableCommodities.Sum(c => c.RegularStockKg),
+            reportableCommodities.Count,
             filtered.Count,
             filtered.Select(l => l.FacilityId).Distinct().Count(),
-            commodities,
-            byAgency);
+            reportableCommodities,
+            byAgency.Where(a => IsReportableOversightCommodity(a.HsCode, a.CommodityName)).ToList(),
+            byRegion);
     }
 
     public async Task<DaImportPipelineReportDto> GetImportPipelineReportAsync(
@@ -654,12 +709,15 @@ public class DaOversightReportService : IDaOversightReportService
             .Where(l => MatchesCommodityFilter(l.HsCode, l.CommodityName, hsFilter, commodityFilter))
             .Where(l => string.IsNullOrWhiteSpace(agencyFilter)
                 || string.Equals(l.AgencyCode, agencyFilter, StringComparison.OrdinalIgnoreCase))
+            .Where(l => IsReportableOversightCommodity(l.HsCode, l.CommodityName))
+            .Where(l => l.DestinationFacilityId.HasValue)
             .ToList();
 
         var filteredActual = actualLines
             .Where(l => MatchesCommodityFilter(l.HsCode, l.CommodityName, hsFilter, commodityFilter))
             .Where(l => string.IsNullOrWhiteSpace(agencyFilter)
                 || string.Equals(l.AgencyCode, agencyFilter, StringComparison.OrdinalIgnoreCase))
+            .Where(l => IsReportableOversightCommodity(l.HsCode, l.CommodityName))
             .ToList();
 
         var byStage = new[] { "Processing", "InTransit", "AwaitingStorage" }
@@ -692,7 +750,12 @@ public class DaOversightReportService : IDaOversightReportService
                     .Concat(actualForKey.Select(l => l.ImporterUuid))
                     .Distinct()
                     .Count();
-                var warehouseCount = actualForKey.Select(l => l.FacilityId).Distinct().Count();
+                var warehouseCount = expectedForKey
+                    .Where(l => l.DestinationFacilityId.HasValue)
+                    .Select(l => l.DestinationFacilityId!.Value)
+                    .Concat(actualForKey.Select(l => l.FacilityId))
+                    .Distinct()
+                    .Count();
                 return new DaImportPipelineCommodityRowDto(
                     string.IsNullOrWhiteSpace(hsCode) ? "—" : hsCode,
                     commodityName,
@@ -768,31 +831,45 @@ public class DaOversightReportService : IDaOversightReportService
         var byCommodityWarehouse = commodityKeys
             .SelectMany(key =>
             {
-                var actualForKey = filteredActual.Where(l => Norm(l.HsCode) == key.Item1 && Norm(l.CommodityName) == key.Item2).ToList();
-                if (actualForKey.Count == 0)
+                var expectedForKey = filteredExpected
+                    .Where(l => Norm(l.HsCode) == key.Item1 && Norm(l.CommodityName) == key.Item2)
+                    .ToList();
+                var actualForKey = filteredActual
+                    .Where(l => Norm(l.HsCode) == key.Item1 && Norm(l.CommodityName) == key.Item2)
+                    .ToList();
+                if (expectedForKey.Count == 0 && actualForKey.Count == 0)
                 {
                     return Array.Empty<DaImportPipelineCommodityWarehouseRowDto>();
                 }
 
-                var hsCode = actualForKey.First().HsCode;
-                var commodityName = actualForKey.First().CommodityName;
-                return actualForKey
-                    .GroupBy(l => l.FacilityId)
-                    .Select(g =>
-                    {
-                        var sample = g.First();
-                        return new DaImportPipelineCommodityWarehouseRowDto(
-                            string.IsNullOrWhiteSpace(hsCode) ? "—" : hsCode,
-                            commodityName,
-                            sample.FacilityId,
-                            sample.FacilityCode,
-                            sample.FacilityName,
-                            sample.RegionName,
-                            g.Sum(l => l.VolumeKg),
-                            g.Count());
-                    });
+                var hsCode = expectedForKey.FirstOrDefault()?.HsCode ?? actualForKey.First().HsCode;
+                var commodityName = expectedForKey.FirstOrDefault()?.CommodityName ?? actualForKey.First().CommodityName;
+                var facilityIds = expectedForKey
+                    .Where(l => l.DestinationFacilityId.HasValue)
+                    .Select(l => l.DestinationFacilityId!.Value)
+                    .Concat(actualForKey.Select(l => l.FacilityId))
+                    .Distinct();
+
+                return facilityIds.Select(facilityId =>
+                {
+                    var expectedAt = expectedForKey.Where(l => l.DestinationFacilityId == facilityId).ToList();
+                    var actualAt = actualForKey.Where(l => l.FacilityId == facilityId).ToList();
+                    var sampleExpected = expectedAt.FirstOrDefault();
+                    var sampleActual = actualAt.FirstOrDefault();
+                    return new DaImportPipelineCommodityWarehouseRowDto(
+                        string.IsNullOrWhiteSpace(hsCode) ? "—" : hsCode,
+                        commodityName,
+                        facilityId,
+                        sampleExpected?.DestinationFacilityCode ?? sampleActual?.FacilityCode ?? string.Empty,
+                        sampleExpected?.DestinationFacilityName ?? sampleActual?.FacilityName ?? string.Empty,
+                        sampleExpected?.DestinationRegionName ?? sampleActual?.RegionName,
+                        expectedAt.Sum(l => l.VolumeKg),
+                        actualAt.Sum(l => l.VolumeKg),
+                        expectedAt.Select(l => l.EntryId).Distinct().Count(),
+                        actualAt.Count);
+                });
             })
-            .OrderByDescending(r => r.ActualKg)
+            .OrderByDescending(r => r.ExpectedKg + r.ActualKg)
             .ThenBy(r => r.CommodityName)
             .ThenBy(r => r.WarehouseName)
             .ToList();
@@ -801,7 +878,7 @@ public class DaOversightReportService : IDaOversightReportService
             .GroupBy(l => l.EntryId)
             .ToDictionary(g => g.Key, g => g.Count());
 
-        var entries = filteredExpected
+        var entryRows = filteredExpected
             .GroupBy(l => l.EntryId)
             .Select(g =>
             {
@@ -830,19 +907,25 @@ public class DaOversightReportService : IDaOversightReportService
                     sample.SubmittedAt,
                     sample.ImporterUuid,
                     sample.ImporterName,
-                    sample.CompanyName);
+                    sample.CompanyName,
+                    sample.DestinationFacilityId,
+                    sample.DestinationFacilityCode,
+                    sample.DestinationFacilityName);
             })
             .OrderByDescending(e => e.ExpectedKg)
             .ThenByDescending(e => e.SubmittedAt ?? DateTime.MinValue)
-            .Take(200)
             .ToList();
+
+        const int maxPipelineEntries = 1000;
+        var pipelineEntryCount = entryRows.Count;
+        var entries = entryRows.Take(maxPipelineEntries).ToList();
 
         return new DaImportPipelineReportDto(
             filteredExpected.Sum(l => l.VolumeKg),
             filteredActual.Sum(l => l.VolumeKg),
             filteredExpected.Count(l => l.ContainerCount > 0),
             filteredActual.Count,
-            entries.Count,
+            pipelineEntryCount,
             byStage,
             byCommodity,
             byImporter,
@@ -1127,6 +1210,31 @@ public class DaOversightReportService : IDaOversightReportService
             || commodityName.Contains(commodityFilter, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// National oversight: only classified commodities with a named product (excludes junk numeric-only labels).
+    /// </summary>
+    private static bool IsReportableOversightCommodity(string? hsCode, string? commodityName)
+    {
+        var name = (commodityName ?? string.Empty).Trim();
+        if (name.Length == 0)
+        {
+            return false;
+        }
+
+        if (string.Equals(name, "Unclassified", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (name.All(char.IsDigit))
+        {
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(hsCode) && hsCode != "—"
+               || name.Any(c => char.IsLetter(c));
+    }
+
     private static decimal ResolveEntryVolumeKg(Entry entry) => DaStockVolumeHelper.ToKilograms(entry);
 
     private static decimal UtilizationPercent(int stored, int capacity) =>
@@ -1148,6 +1256,18 @@ public class DaOversightReportService : IDaOversightReportService
         }
 
         return (user.Uuid, importerName, user.Profile?.CompanyName?.Trim());
+    }
+
+    private static (long? DestinationFacilityId, string? DestinationFacilityCode, string? DestinationFacilityName, string? DestinationRegionName)
+        ResolveDestinationWarehouse(Entry entry)
+    {
+        var facility = entry.FinalWarehouseFacility;
+        if (facility is null)
+        {
+            return (null, null, null, null);
+        }
+
+        return (facility.Id, facility.Code, facility.Name, facility.Region?.Name);
     }
 
     private static string ClassifyPipelineStage(Entry entry, Container? container)
@@ -1208,6 +1328,7 @@ public class DaOversightReportService : IDaOversightReportService
             .Include(e => e.Agency)
             .Include(e => e.User).ThenInclude(u => u.Profile)
             .Include(e => e.Detail)
+            .Include(e => e.FinalWarehouseFacility).ThenInclude(f => f.Region)
             .Include(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .Include(e => e.Containers)
             .Where(e => e.EntryType == EntryType.Import && activeStatuses.Contains(e.Status))
@@ -1223,6 +1344,7 @@ public class DaOversightReportService : IDaOversightReportService
             var agencyCode = entry.Agency?.Code ?? "Shared";
             var totalContainers = entry.Containers.Count;
             var (importerUuid, importerName, companyName) = ResolveImporter(entry.User);
+            var (destFacilityId, destFacilityCode, destFacilityName, destRegionName) = ResolveDestinationWarehouse(entry);
 
             var pendingContainers = entry.Containers
                 .Where(c => c.Status != ContainerStatus.Released && !storedContainerIds.Contains(c.Id))
@@ -1246,6 +1368,10 @@ public class DaOversightReportService : IDaOversightReportService
                         commodityName,
                         entryVolumeKg,
                         ClassifyPipelineStage(entry, null),
+                        destFacilityId,
+                        destFacilityCode,
+                        destFacilityName,
+                        destRegionName,
                         0,
                         totalContainers));
                 }
@@ -1270,6 +1396,10 @@ public class DaOversightReportService : IDaOversightReportService
                     commodityName,
                     perContainerKg,
                     ClassifyPipelineStage(entry, container),
+                    destFacilityId,
+                    destFacilityCode,
+                    destFacilityName,
+                    destRegionName,
                     1,
                     totalContainers));
             }
@@ -1291,9 +1421,12 @@ public class DaOversightReportService : IDaOversightReportService
             .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Agency)
             .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.User).ThenInclude(u => u.Profile)
             .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.PrimaryMic)
             .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .Where(i => i.Status == WarehouseInventoryStatus.Stored)
             .ToListAsync(cancellationToken);
+
+        var mavDetailsCache = await EntryMavCommodityResolver.LoadActiveMavHsDetailsAsync(_db, cancellationToken);
 
         var storedByEntry = inventories
             .GroupBy(i => i.Container.EntryId)
@@ -1305,8 +1438,16 @@ public class DaOversightReportService : IDaOversightReportService
             var facility = item.WarehouseFacility;
             var entry = item.Container.Entry;
             var mic = entry.MicUtilizations.OrderByDescending(u => u.UtilizedAt).Select(u => u.Mic).FirstOrDefault();
-            var hsCode = FirstNonEmpty(mic?.HsCode?.Trim(), ResolveEntryHsCode(entry, categories)) ?? string.Empty;
-            var commodityName = FirstNonEmpty(mic?.CommodityName, entry.Detail?.CommodityName) ?? "Unclassified";
+            var billing = await EntryMavCommodityResolver.ResolveBillingCommodityAsync(
+                _db, entry, cancellationToken, mavDetailsCache);
+            var hsCode = FirstNonEmpty(
+                billing?.HsCode,
+                mic?.HsCode?.Trim(),
+                ResolveEntryHsCode(entry, categories)) ?? string.Empty;
+            var commodityName = FirstNonEmpty(
+                billing?.CommodityName,
+                mic?.CommodityName,
+                entry.Detail?.CommodityName) ?? "Unclassified";
             var split = storedByEntry.GetValueOrDefault(entry.Id, 1);
             var volumeKg = DaStockVolumeHelper.ToKilograms(entry) / Math.Max(split, 1);
             var (importerUuid, importerName, companyName) = ResolveImporter(entry.User);
@@ -1350,6 +1491,10 @@ public class DaOversightReportService : IDaOversightReportService
         string CommodityName,
         decimal VolumeKg,
         string Stage,
+        long? DestinationFacilityId,
+        string? DestinationFacilityCode,
+        string? DestinationFacilityName,
+        string? DestinationRegionName,
         int ContainerCount,
         int TotalContainers);
 
@@ -1394,11 +1539,16 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
 {
     private readonly AgriCheckDbContext _db;
     private readonly ICurrentUserService _currentUser;
+    private readonly IFacilityComplianceService _facilityCompliance;
 
-    public DaWarehouseManagementService(AgriCheckDbContext db, ICurrentUserService currentUser)
+    public DaWarehouseManagementService(
+        AgriCheckDbContext db,
+        ICurrentUserService currentUser,
+        IFacilityComplianceService facilityCompliance)
     {
         _db = db;
         _currentUser = currentUser;
+        _facilityCompliance = facilityCompliance;
     }
 
     public async Task<IReadOnlyList<DaWarehouseListItemDto>> ListAsync(CancellationToken cancellationToken = default)
@@ -1418,7 +1568,16 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
             .ThenBy(x => x.Name)
             .ToListAsync(cancellationToken);
 
-        return facilities.Select(MapWarehouse).ToList();
+        var compliance = await _facilityCompliance.GetDestinationStatusesAsync(
+            facilities.Select(f => f.Id).ToList(),
+            cancellationToken);
+
+        var licenses = await LoadActiveLicensesByWarehouseAsync(cancellationToken);
+
+        return facilities.Select(f => MapWarehouse(
+            f,
+            compliance.GetValueOrDefault(f.Id),
+            licenses.GetValueOrDefault(f.Id))).ToList();
     }
 
     public async Task<DaWarehouseDetailDto> GetDetailAsync(long id, CancellationToken cancellationToken = default)
@@ -1446,9 +1605,13 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
                 && b.Status != WarehouseBookingStatus.Completed,
             cancellationToken);
 
+        var mavDetailsCache = await EntryMavCommodityResolver.LoadActiveMavHsDetailsAsync(_db, cancellationToken);
+        var billingByEntryId = new Dictionary<long, AgencyBillingCommodityDto?>();
+
         var inventoryEntities = await _db.WarehouseInventories
             .AsNoTracking()
             .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.PrimaryMic)
             .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .Include(i => i.ReceivedBy).ThenInclude(u => u.Profile)
             .Where(i => i.WarehouseFacilityId == id)
@@ -1460,6 +1623,7 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
         var storedForVolume = await _db.WarehouseInventories
             .AsNoTracking()
             .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.PrimaryMic)
             .Include(i => i.Container).ThenInclude(c => c.Entry).ThenInclude(e => e.MicUtilizations).ThenInclude(u => u.Mic)
             .Where(i => i.WarehouseFacilityId == id && i.Status == WarehouseInventoryStatus.Stored)
             .ToListAsync(cancellationToken);
@@ -1467,18 +1631,20 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
             .GroupBy(i => i.Container.EntryId)
             .ToDictionary(g => g.Key, g => g.Count());
 
-        var commodityLines = storedForVolume.Select(item =>
+        var commodityLines = new List<DaGeoStockCommodityRowDto>();
+        foreach (var item in storedForVolume)
         {
             var entry = item.Container.Entry;
-            var mic = entry.MicUtilizations.OrderByDescending(u => u.UtilizedAt).Select(u => u.Mic).FirstOrDefault();
             var split = storedByEntry.GetValueOrDefault(entry.Id, 1);
-            return new DaGeoStockCommodityRowDto(
-                string.IsNullOrWhiteSpace(mic?.HsCode) ? "—" : mic!.HsCode.Trim(),
-                string.IsNullOrWhiteSpace(mic?.CommodityName) ? (entry.Detail?.CommodityName ?? "Unclassified") : mic.CommodityName.Trim(),
+            var (hsCode, commodityName) = await ResolveStoredCommodityDisplayAsync(
+                entry, cancellationToken, mavDetailsCache, billingByEntryId);
+            commodityLines.Add(new DaGeoStockCommodityRowDto(
+                string.IsNullOrWhiteSpace(hsCode) ? "—" : hsCode,
+                commodityName,
                 DaStockVolumeHelper.ToKilograms(entry) / Math.Max(split, 1),
                 1,
-                1);
-        }).ToList();
+                1));
+        }
         var commodities = commodityLines
             .GroupBy(l => new { l.HsCode, l.CommodityName })
             .Select(g => new DaGeoStockCommodityRowDto(
@@ -1491,15 +1657,17 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
             .ThenBy(r => r.CommodityName)
             .ToList();
 
-        var inventory = inventoryEntities.Select(i =>
+        var inventory = new List<DaWarehouseInventoryItemDto>();
+        foreach (var i in inventoryEntities)
         {
             var entry = i.Container.Entry;
-            var mic = entry.MicUtilizations.OrderByDescending(u => u.UtilizedAt).Select(u => u.Mic).FirstOrDefault();
             var split = storedByEntry.GetValueOrDefault(entry.Id, 1);
             var volumeKg = i.Status == WarehouseInventoryStatus.Stored
                 ? DaStockVolumeHelper.ToKilograms(entry) / Math.Max(split, 1)
                 : (decimal?)null;
-            return new DaWarehouseInventoryItemDto(
+            var (hsCode, commodityName) = await ResolveStoredCommodityDisplayAsync(
+                entry, cancellationToken, mavDetailsCache, billingByEntryId);
+            inventory.Add(new DaWarehouseInventoryItemDto(
                 i.Uuid,
                 i.Container.ContainerNumber,
                 i.Container.ContainerType,
@@ -1510,18 +1678,26 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
                 i.ReceivedBy.Profile != null
                     ? (i.ReceivedBy.Profile.FirstName + " " + i.ReceivedBy.Profile.LastName).Trim()
                     : i.ReceivedBy.Email,
-                string.IsNullOrWhiteSpace(mic?.HsCode) ? null : mic.HsCode.Trim(),
-                string.IsNullOrWhiteSpace(mic?.CommodityName) ? entry.Detail?.CommodityName : mic.CommodityName.Trim(),
-                volumeKg);
-        }).ToList();
+                string.IsNullOrWhiteSpace(hsCode) ? null : hsCode,
+                commodityName,
+                volumeKg));
+        }
 
         var capacity = Math.Max(0, facility.Capacity);
         var utilizationPercent = capacity > 0
             ? Math.Round((decimal)storedCount / capacity * 100m, 1)
             : 0m;
 
+        var destinationStatus = await _facilityCompliance.GetDestinationStatusAsync(id, cancellationToken);
+        var activeLicense = await WarehouseOperatingLicenseHelper.GetCurrentLicenseAsync(_db, id, cancellationToken);
+        var licenseForMap = activeLicense is not null
+            && activeLicense.Status == WarehouseOperatingLicenseStatus.Active
+            && activeLicense.ExpiresAt > DateTime.UtcNow
+            ? activeLicense
+            : null;
+
         return new DaWarehouseDetailDto(
-            MapWarehouse(facility),
+            MapWarehouse(facility, destinationStatus, licenseForMap),
             storedCount,
             releasedCount,
             pendingBookings,
@@ -1576,7 +1752,9 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
         _db.WarehouseFacilities.Add(facility);
         await _db.SaveChangesAsync(cancellationToken);
 
-        return MapWarehouse(await LoadWarehouseAsync(facility.Id, cancellationToken));
+        var created = await LoadWarehouseAsync(facility.Id, cancellationToken);
+        var status = await _facilityCompliance.GetDestinationStatusAsync(created.Id, cancellationToken);
+        return MapWarehouse(created, status);
     }
 
     public async Task<DaWarehouseListItemDto> UpdateAsync(long id, SaveDaWarehouseRequest request, CancellationToken cancellationToken = default)
@@ -1621,8 +1799,101 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
             null);
 
         await _db.SaveChangesAsync(cancellationToken);
-        return MapWarehouse(await LoadWarehouseAsync(facility.Id, cancellationToken));
+        var updated = await LoadWarehouseAsync(facility.Id, cancellationToken);
+        var status = await _facilityCompliance.GetDestinationStatusAsync(updated.Id, cancellationToken);
+        var license = await WarehouseOperatingLicenseHelper.GetCurrentLicenseAsync(_db, updated.Id, cancellationToken);
+        return MapWarehouse(updated, status, license);
     }
+
+    public async Task<WarehouseOperatingLicenseDto?> GetOperatingLicenseAsync(
+        long warehouseFacilityId,
+        CancellationToken cancellationToken = default)
+    {
+        await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
+
+        _ = await _db.WarehouseFacilities.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == warehouseFacilityId, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Warehouse not found.");
+
+        var license = await WarehouseOperatingLicenseHelper.GetCurrentLicenseAsync(_db, warehouseFacilityId, cancellationToken);
+        return license is null ? null : MapOperatingLicense(license);
+    }
+
+    public async Task<WarehouseOperatingLicenseDto> IssueOperatingLicenseAsync(
+        long warehouseFacilityId,
+        IssueWarehouseOperatingLicenseRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
+
+        var facility = await _db.WarehouseFacilities
+            .FirstOrDefaultAsync(x => x.Id == warehouseFacilityId, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Warehouse not found.");
+
+        var licenseNumber = request.LicenseNumber.Trim();
+        if (licenseNumber.Length == 0)
+        {
+            throw new ClientPortalException("VALIDATION", "License number is required.");
+        }
+
+        if (request.ExpiresAt <= request.IssuedAt)
+        {
+            throw new ClientPortalException("VALIDATION", "Expiry must be after the issue date.");
+        }
+
+        var duplicate = await _db.WarehouseOperatingLicenses
+            .AnyAsync(l => l.LicenseNumber == licenseNumber, cancellationToken);
+
+        if (duplicate)
+        {
+            throw new ClientPortalException("DUPLICATE_LICENSE", "This warehouse LTO number is already recorded.");
+        }
+
+        var previousActive = await _db.WarehouseOperatingLicenses
+            .Where(l => l.WarehouseFacilityId == facility.Id && l.Status == WarehouseOperatingLicenseStatus.Active)
+            .ToListAsync(cancellationToken);
+
+        foreach (var prev in previousActive)
+        {
+            prev.Status = WarehouseOperatingLicenseStatus.Revoked;
+        }
+
+        var license = new WarehouseOperatingLicense
+        {
+            WarehouseFacilityId = facility.Id,
+            LicenseNumber = licenseNumber,
+            Status = WarehouseOperatingLicenseStatus.Active,
+            IssuedAt = request.IssuedAt.ToUniversalTime(),
+            ExpiresAt = request.ExpiresAt.ToUniversalTime(),
+            IssuedByUserId = user.Id,
+            Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+        };
+
+        _db.WarehouseOperatingLicenses.Add(license);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return MapOperatingLicense(license);
+    }
+
+    private async Task<Dictionary<long, WarehouseOperatingLicense>> LoadActiveLicensesByWarehouseAsync(CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var list = await _db.WarehouseOperatingLicenses.AsNoTracking()
+            .Where(l => l.Status == WarehouseOperatingLicenseStatus.Active && l.ExpiresAt > now)
+            .ToListAsync(cancellationToken);
+
+        return list
+            .GroupBy(l => l.WarehouseFacilityId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.IssuedAt).First());
+    }
+
+    private static WarehouseOperatingLicenseDto MapOperatingLicense(WarehouseOperatingLicense license) =>
+        new(
+            license.LicenseNumber,
+            license.Status.ToString(),
+            license.IssuedAt,
+            license.ExpiresAt,
+            license.Notes);
 
     private async Task<WarehouseFacility> LoadWarehouseAsync(long id, CancellationToken cancellationToken) =>
         await _db.WarehouseFacilities
@@ -1654,8 +1925,15 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
         return (barangay.City!.Province!.Region!, barangay.City.Province, barangay.City, barangay);
     }
 
-    private static DaWarehouseListItemDto MapWarehouse(WarehouseFacility facility)
+    private static DaWarehouseListItemDto MapWarehouse(
+        WarehouseFacility facility,
+        FacilityDestinationStatusDto? compliance = null,
+        WarehouseOperatingLicense? activeLicense = null)
     {
+        var hasActiveLto = activeLicense is not null
+            && activeLicense.Status == WarehouseOperatingLicenseStatus.Active
+            && activeLicense.ExpiresAt > DateTime.UtcNow;
+
         var formattedAddress = WarehouseAddressFormatter.Format(
             facility.StreetAddress,
             facility.Barangay?.Name,
@@ -1683,7 +1961,45 @@ public class DaWarehouseManagementService : IDaWarehouseManagementService
             facility.ZipCode ?? facility.Barangay?.ZipCode,
             formattedAddress,
             facility.Latitude,
-            facility.Longitude);
+            facility.Longitude,
+            compliance?.RsasStatus,
+            compliance?.CswStatus,
+            compliance?.HasRsasRegistration == true && compliance?.HasActiveCswAccreditation == true,
+            hasActiveLto,
+            hasActiveLto ? activeLicense!.LicenseNumber : null);
+    }
+
+    private async Task<(string? HsCode, string CommodityName)> ResolveStoredCommodityDisplayAsync(
+        Entry entry,
+        CancellationToken cancellationToken,
+        IReadOnlyList<MavHsDetail>? mavDetailsCache = null,
+        Dictionary<long, AgencyBillingCommodityDto?>? billingByEntryId = null)
+    {
+        AgencyBillingCommodityDto? billing;
+        if (billingByEntryId is not null)
+        {
+            if (!billingByEntryId.TryGetValue(entry.Id, out billing))
+            {
+                billing = await EntryMavCommodityResolver.ResolveBillingCommodityAsync(
+                    _db, entry, cancellationToken, mavDetailsCache);
+                billingByEntryId[entry.Id] = billing;
+            }
+        }
+        else
+        {
+            billing = await EntryMavCommodityResolver.ResolveBillingCommodityAsync(
+                _db, entry, cancellationToken, mavDetailsCache);
+        }
+        var mic = entry.MicUtilizations
+            .OrderByDescending(u => u.UtilizedAt)
+            .Select(u => u.Mic)
+            .FirstOrDefault();
+        var hsCode = WarehouseCommodityDisplayHelper.FirstNonEmpty(billing?.HsCode, mic?.HsCode?.Trim());
+        var commodityName = WarehouseCommodityDisplayHelper.FirstNonEmpty(
+            billing?.CommodityName,
+            mic?.CommodityName,
+            entry.Detail?.CommodityName) ?? "Unclassified";
+        return (hsCode, commodityName);
     }
 
     private static string? NormalizeOptional(string? value) =>
@@ -1842,6 +2158,21 @@ public class DaImporterProfileService : IDaImporterProfileService
             .AsNoTracking()
             .CountAsync(l => l.ImporterId == user.Id && l.Status == MavLicenseStatus.Active, cancellationToken);
 
+        var licenseNow = DateTime.UtcNow;
+        var activeAgencyLicenses = await _db.AgencyLicenses
+            .AsNoTracking()
+            .CountAsync(
+                l => l.UserId == user.Id
+                    && l.Status == AgencyLicenseStatus.Active
+                    && l.ExpiresAt > licenseNow,
+                cancellationToken);
+
+        var issuedSpsClearances = await _db.SpsImportClearances
+            .AsNoTracking()
+            .CountAsync(
+                c => c.Entry.UserId == user.Id && c.Status == SpsImportClearanceStatus.Issued,
+                cancellationToken);
+
         var pipelineStats = await BuildPipelineStatsAsync(user.Id, cancellationToken);
 
         var certificates = await _db.Certificates
@@ -1915,7 +2246,9 @@ public class DaImporterProfileService : IDaImporterProfileService
                 await openBills.CountAsync(cancellationToken),
                 await overdueBills.CountAsync(cancellationToken),
                 storedContainers,
-                activeMavLicenses),
+                activeMavLicenses,
+                activeAgencyLicenses,
+                issuedSpsClearances),
             pipelineStats,
             certificates,
             billRows);
@@ -2135,6 +2468,22 @@ public class DaImporterProfileService : IDaImporterProfileService
         {
             return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
+    }
+}
+
+internal static class WarehouseCommodityDisplayHelper
+{
+    public static string? FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return null;
     }
 }
 

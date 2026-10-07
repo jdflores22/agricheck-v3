@@ -3,6 +3,7 @@ using AgriCheck.Domain.Entities;
 using AgriCheck.Domain.Enums;
 using AgriCheck.Infrastructure.Services;
 using AgriCheck.IntegrationTests.Fixtures;
+using AgriCheck.IntegrationTests.Support;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -34,14 +35,24 @@ public class OpsReleaseFlowTests
                 Uuid = Guid.NewGuid(),
                 EntryId = entry.Id,
                 ContainerNumber = "CONT-REL-001",
-                Status = ContainerStatus.InTransit,
+                Status = ContainerStatus.Inspected,
                 AssignedDriverUserId = ctx.Driver.Id
             };
             ctx.Db.Containers.Add(container);
             await ctx.Db.SaveChangesAsync();
 
+            ctx.Db.ContainerDoctorInspections.Add(new ContainerDoctorInspection
+            {
+                Uuid = Guid.NewGuid(),
+                ContainerId = container.Id,
+                DoctorUserId = ctx.WarehouseStaff.Id,
+                Status = DoctorInspectionStatus.Approved,
+                CompletedAt = DateTime.UtcNow
+            });
+            await ctx.Db.SaveChangesAsync();
+
             var facility = await ctx.Db.WarehouseFacilities.FirstAsync();
-            var warehouse = new WarehouseOpsService(ctx.Db, new TestCurrentUserService(ctx.WarehouseStaff.Uuid, "ROLE_WAREHOUSE_STAFF"));
+            var warehouse = IntegrationTestServices.CreateWarehouseOpsService(ctx.Db, ctx.WarehouseStaff.Uuid, "ROLE_WAREHOUSE_STAFF");
 
             var inventory = await warehouse.ReceiveContainerAsync(new ReceiveContainerRequest(container.Uuid, facility.Id, "A-01"));
             Assert.Equal(WarehouseInventoryStatus.Stored.ToString(), inventory.Status);

@@ -61,5 +61,10 @@ public static class OperatorFleetSchemaSeeder
                 """,
                 cancellationToken);
         }
+
+        if (await SchemaIntrospectionHelper.TableExistsAsync(connection, "operator_vehicles", cancellationToken))
+        {
+            await MigrationHistoryBaselineHelper.EnsureRecordedAsync(db, "20260914130000_OperatorFleet", cancellationToken);
+        }
     }
 }

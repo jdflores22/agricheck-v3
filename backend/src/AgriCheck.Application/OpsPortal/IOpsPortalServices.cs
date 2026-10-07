@@ -6,6 +6,7 @@ namespace AgriCheck.Application.OpsPortal;
 public interface IWarehouseOpsService
 {
     Task<WarehouseDashboardDto> GetDashboardAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<WarehouseFacilityDto>> ListFacilitiesAsync(CancellationToken cancellationToken = default);
     Task<PagedResult<WarehouseInventoryListItemDto>> ListInventoryAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ContainerListItemDto>> ListReceivableContainersAsync(CancellationToken cancellationToken = default);
     Task<WarehouseInventoryListItemDto> ReceiveContainerAsync(ReceiveContainerRequest request, CancellationToken cancellationToken = default);
@@ -21,8 +22,10 @@ public interface IDriverOpsService
     Task<DriverProfileDto> UpdateProfileAsync(UpdateDriverProfileRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ContainerListItemDto>> ListAssignedContainersAsync(CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> UpdateContainerStatusAsync(Guid containerUuid, UpdateContainerStatusRequest request, CancellationToken cancellationToken = default);
+    Task<ContainerListItemDto> ConfirmContainerPickupAsync(Guid containerUuid, ConfirmContainerPickupRequest request, CancellationToken cancellationToken = default);
     Task RecordContainerLocationAsync(Guid containerUuid, RecordContainerLocationRequest request, CancellationToken cancellationToken = default);
     Task<ContainerTrackDto> GetContainerTrackAsync(Guid containerUuid, CancellationToken cancellationToken = default);
+    Task<DriverDeliveryHandoffQrDto> GetDeliveryHandoffQrAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<DriverTransportQrPreviewDto> PreviewTransportQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> AcceptDeliveryFromQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
     Task<DriverWarehouseCheckInResultDto> CheckInAtWarehouseAsync(Guid containerUuid, DriverWarehouseCheckInRequest request, CancellationToken cancellationToken = default);

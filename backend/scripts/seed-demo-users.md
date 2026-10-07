@@ -16,7 +16,7 @@ dotnet run
 | operator@agricheck.local | Operator@12345 | Operator |
 | driver@agricheck.local | Driver@12345 | Driver |
 | importer@agricheck.local | Importer@12345 | Importer |
-| warehouse@agricheck.local | Warehouse@12345 | Warehouse |
+| warehouse@agricheck.local | Warehouse@12345 | Warehouse (Manila Cold Storage / WH-MNL) |
 | doctor@agricheck.local | Doctor@12345 | Doctor |
 
 AgriTrack invite code: `AGRITRACK-DEMO`

@@ -42,6 +42,9 @@ public class DatabaseSeeder : IHostedService
 
         try
         {
+            await ProductionSchemaSeeder.EnsureAsync(db, _logger, cancellationToken);
+            await MigrationHistoryBaselineHelper.BaselineSchemaDriftBeforeMigrateAsync(db, cancellationToken);
+
             var pendingMigrations = await db.Database.GetPendingMigrationsAsync(cancellationToken);
             if (pendingMigrations.Any())
             {
@@ -82,7 +85,12 @@ public class DatabaseSeeder : IHostedService
             await SeedMavDemoDataAsync(db, cancellationToken);
             await SeedOpsStaffAsync(db, passwordService, cancellationToken);
             await OperatorInviteCodeSeeder.EnsureSeedDataAsync(db, _logger, cancellationToken);
+            await EntryComplianceBackfillSeeder.BackfillFinalWarehouseFacilityIdsAsync(db, _logger, cancellationToken);
+            await WarehouseLtoBackfillSeeder.BackfillAsync(db, _logger, cancellationToken);
+            await WarehouseStaffAssignmentSeeder.SeedAsync(db, _logger, cancellationToken);
+            await WarehouseImporterAllocationSeeder.SeedAsync(db, _logger, cancellationToken);
             await WorkflowDemoSeeder.SeedAsync(db, _logger, cancellationToken);
+            await FoodSecurityPipelineDemoSeeder.SeedAsync(db, _logger, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -301,6 +309,126 @@ public class DatabaseSeeder : IHostedService
             }
             agency.ParentId = da.Id;
             agency.IsActive = true;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        await SeedAgencyLicenseTypesAsync(db, cancellationToken);
+        await SeedSpsReferenceDataAsync(db, cancellationToken);
+    }
+
+    private static async Task SeedAgencyLicenseTypesAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
+    {
+        var agencyCodes = new[] { "BAI", "BPI", "BFAR" };
+        var agencies = await db.Agencies.Where(a => agencyCodes.Contains(a.Code)).ToListAsync(cancellationToken);
+        if (agencies.Count == 0)
+        {
+            return;
+        }
+
+        var typeDefs = new (string Code, string Name, AgencyLicenseKind Kind)[]
+        {
+            ("LTO", "License to Operate", AgencyLicenseKind.Lto),
+            ("LTI", "License to Import", AgencyLicenseKind.Lti),
+        };
+
+        foreach (var agency in agencies)
+        {
+            foreach (var (code, name, kind) in typeDefs)
+            {
+                var exists = await db.AgencyLicenseTypes.AnyAsync(
+                    t => t.AgencyId == agency.Id && t.Code == code,
+                    cancellationToken);
+                if (exists)
+                {
+                    continue;
+                }
+
+                db.AgencyLicenseTypes.Add(new AgencyLicenseType
+                {
+                    AgencyId = agency.Id,
+                    Code = code,
+                    Name = name,
+                    Kind = kind,
+                    IsRequiredForSpsic = true,
+                });
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task SeedSpsReferenceDataAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
+    {
+        var checklist = new (string Code, string Title, int Sort, bool Required)[]
+        {
+            ("A", "Pro-forma invoice", 1, true),
+            ("B", "Notarized affidavit of undertaking", 2, true),
+            ("C", "Non-GMO / GMO event certification (if applicable)", 3, false),
+            ("D", "LTO / product registration / LTI", 4, true),
+            ("E", "Port of entry to final destination warehouse", 5, true),
+            ("F", "Research / MTA / trial protocol (if applicable)", 6, false),
+            ("G", "Import commodity clearances from other agencies", 7, false),
+            ("H", "Other documents required by issuing agency", 8, false),
+        };
+
+        foreach (var (code, title, sort, required) in checklist)
+        {
+            if (await db.SpsDocumentChecklistTemplates.AnyAsync(t => t.Code == code, cancellationToken))
+            {
+                continue;
+            }
+
+            db.SpsDocumentChecklistTemplates.Add(new SpsDocumentChecklistTemplate
+            {
+                Code = code,
+                Title = title,
+                SortOrder = sort,
+                IsRequired = required,
+            });
+        }
+
+        if (!await db.SpsMustShipOutRules.AnyAsync(cancellationToken))
+        {
+            db.SpsMustShipOutRules.AddRange(
+                new SpsMustShipOutRule { HsCodePrefix = "03", CommodityKeyword = "fresh", ValidityDays = 30, Notes = "AC 06 §5 — fish fresh/chilled" },
+                new SpsMustShipOutRule { HsCodePrefix = "03", ValidityDays = 45, Notes = "AC 06 §5 — fish default" },
+                new SpsMustShipOutRule { HsCodePrefix = "07", CommodityKeyword = "fresh", ValidityDays = 20 },
+                new SpsMustShipOutRule { HsCodePrefix = "08", CommodityKeyword = "fresh", ValidityDays = 20 },
+                new SpsMustShipOutRule { HsCodePrefix = "02", ValidityDays = 90 },
+                new SpsMustShipOutRule { HsCodePrefix = "01", ValidityDays = 60 });
+        }
+
+        if (!await db.SpsIssuingRules.AnyAsync(cancellationToken))
+        {
+            var categories = await db.MavHsCategories
+                .AsNoTracking()
+                .Where(c => c.IsActive && c.AgencyId != null && c.HsCode.Length >= 2)
+                .ToListAsync(cancellationToken);
+
+            foreach (var category in categories)
+            {
+                var prefix = category.HsCode.Trim().Replace(".", "", StringComparison.Ordinal);
+                if (prefix.Length > 8)
+                {
+                    prefix = prefix[..8];
+                }
+
+                var exists = await db.SpsIssuingRules.AnyAsync(
+                    r => r.HsCodePrefix == prefix && r.IssuingAgencyId == category.AgencyId,
+                    cancellationToken);
+                if (exists)
+                {
+                    continue;
+                }
+
+                db.SpsIssuingRules.Add(new SpsIssuingRule
+                {
+                    HsCodePrefix = prefix,
+                    IssuingAgencyId = category.AgencyId!.Value,
+                    IsPrimaryIssuer = true,
+                    Notes = "Seeded from MAV HS category",
+                });
+            }
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -797,7 +925,7 @@ public class DatabaseSeeder : IHostedService
     {
         var staff = new (string Email, string Password, string RoleCode, string First, string Last)[]
         {
-            ("warehouse@agricheck.local", "Warehouse@12345", "ROLE_WAREHOUSE_STAFF", "Warehouse", "Staff"),
+            ("warehouse@agricheck.local", "Warehouse@12345", "ROLE_WAREHOUSE_STAFF", "Manila Cold Storage", "Operator"),
             ("driver@agricheck.local", "Driver@12345", "ROLE_DRIVER", "Demo", "Driver"),
             ("operator@agricheck.local", "Operator@12345", "ROLE_OPERATOR", "AgriTrack", "Operator"),
             ("doctor@agricheck.local", "Doctor@12345", "ROLE_DOCTOR", "Port", "Doctor")

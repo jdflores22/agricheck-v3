@@ -1,4 +1,5 @@
 using AgriCheck.Application.AgencyPortal;
+using AgriCheck.Application.Compliance;
 using AgriCheck.Application.AgencyPortal.Dtos;
 using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Application.Common;
@@ -28,8 +29,18 @@ public class AgencyDashboardController : AgencyPortalControllerBase
 public class EvaluatorController : AgencyPortalControllerBase
 {
     private readonly IEvaluatorService _service;
+    private readonly IComplianceChainService _complianceChain;
+    private readonly IAgencyPortInspectionService _portInspection;
 
-    public EvaluatorController(IEvaluatorService service) => _service = service;
+    public EvaluatorController(
+        IEvaluatorService service,
+        IComplianceChainService complianceChain,
+        IAgencyPortInspectionService portInspection)
+    {
+        _service = service;
+        _complianceChain = complianceChain;
+        _portInspection = portInspection;
+    }
 
     [HttpGet("queue")]
     public async Task<ActionResult<ApiResponse<PagedResult<AgencyEntryListItemDto>>>> Queue(
@@ -96,6 +107,25 @@ public class EvaluatorController : AgencyPortalControllerBase
             await _service.CompleteEvaluationAsync(uuid, request, cancellationToken);
             return (object)new { completed = true };
         });
+
+    [HttpGet("entries/{uuid:guid}/compliance-chain")]
+    public async Task<ActionResult<ApiResponse<EntryComplianceChainDto>>> GetComplianceChain(Guid uuid, CancellationToken cancellationToken)
+    {
+        var chain = await _complianceChain.GetForEntryAsAgencyAsync(uuid, cancellationToken);
+        if (chain is null)
+        {
+            return NotFound(ApiResponse<EntryComplianceChainDto>.Fail("ENTRY_NOT_FOUND", "Entry not found."));
+        }
+
+        return Ok(ApiResponse<EntryComplianceChainDto>.Ok(chain));
+    }
+
+    [HttpPost("entries/{uuid:guid}/port-dabi")]
+    public async Task<ActionResult<ApiResponse<PortDabiInspectionDto>>> RecordPortDabi(
+        Guid uuid,
+        [FromBody] RecordPortDabiInspectionRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _portInspection.RecordPortDabiAsync(uuid, request, cancellationToken));
 
     [HttpGet("entries/{entryUuid:guid}/files/{fileUuid:guid}/download")]
     public async Task<IActionResult> DownloadFile(Guid entryUuid, Guid fileUuid, CancellationToken cancellationToken)
@@ -258,6 +288,76 @@ public class AgencyBillingsController : AgencyPortalControllerBase
         [FromBody] VerifyDaBillingPaymentRequest request,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.VerifyPaymentAsync(uuid, request, cancellationToken));
+}
+
+[ApiController]
+[Route("api/v1/agency/license-applications")]
+[Authorize(Roles = "ROLE_EVALUATOR,ROLE_AGENCY_ADMIN,ROLE_ADMIN")]
+public class AgencyLicenseApplicationsController : AgencyPortalControllerBase
+{
+    private readonly IAgencyLicenseReviewService _service;
+
+    public AgencyLicenseApplicationsController(IAgencyLicenseReviewService service) => _service = service;
+
+    [HttpGet]
+    public async Task<ActionResult<ApiResponse<PagedResult<AgencyLicenseApplicationListItemDto>>>> List(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteAsync(() => _service.ListAsync(page, pageSize, cancellationToken));
+
+    [HttpGet("{uuid:guid}")]
+    public async Task<ActionResult<ApiResponse<AgencyLicenseApplicationDetailDto>>> Get(Guid uuid, CancellationToken cancellationToken)
+    {
+        var item = await _service.GetAsync(uuid, cancellationToken);
+        if (item is null) return NotFound(ApiResponse<AgencyLicenseApplicationDetailDto>.Fail("NOT_FOUND", "Application not found."));
+        return Ok(ApiResponse<AgencyLicenseApplicationDetailDto>.Ok(item));
+    }
+
+    [HttpPost("{uuid:guid}/approve")]
+    public async Task<ActionResult<ApiResponse<object>>> Approve(Guid uuid, [FromBody] ApproveAgencyLicenseApplicationRequest request, CancellationToken cancellationToken) =>
+        await ExecuteAsync(async () =>
+        {
+            await _service.ApproveAsync(uuid, request, cancellationToken);
+            return (object)new { approved = true };
+        });
+
+    [HttpPost("{uuid:guid}/reject")]
+    public async Task<ActionResult<ApiResponse<object>>> Reject(Guid uuid, [FromBody] RejectAgencyLicenseApplicationRequest request, CancellationToken cancellationToken) =>
+        await ExecuteAsync(async () =>
+        {
+            await _service.RejectAsync(uuid, request, cancellationToken);
+            return (object)new { rejected = true };
+        });
+}
+
+[ApiController]
+[Route("api/v1/agency/sps-applications")]
+[Authorize(Roles = "ROLE_EVALUATOR,ROLE_AGENCY_ADMIN,ROLE_ADMIN")]
+public class AgencySpsApplicationsController : AgencyPortalControllerBase
+{
+    private readonly IAgencySpsicReviewService _service;
+
+    public AgencySpsApplicationsController(IAgencySpsicReviewService service) => _service = service;
+
+    [HttpGet]
+    public async Task<ActionResult<ApiResponse<PagedResult<AgencySpsApplicationListItemDto>>>> List(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteAsync(() => _service.ListAsync(page, pageSize, cancellationToken));
+
+    [HttpGet("{uuid:guid}")]
+    public async Task<ActionResult<ApiResponse<EntrySpsApplicationDto>>> Get(Guid uuid, CancellationToken cancellationToken)
+    {
+        var item = await _service.GetAsync(uuid, cancellationToken);
+        if (item is null) return NotFound(ApiResponse<EntrySpsApplicationDto>.Fail("NOT_FOUND", "Application not found."));
+        return Ok(ApiResponse<EntrySpsApplicationDto>.Ok(item));
+    }
+
+    [HttpPost("{uuid:guid}/issue")]
+    public async Task<ActionResult<ApiResponse<EntrySpsClearanceDto>>> Issue(Guid uuid, [FromBody] IssueSpsClearanceRequest request, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.IssueClearanceAsync(uuid, request, cancellationToken));
 }
 
 [ApiController]

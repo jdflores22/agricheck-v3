@@ -1,4 +1,5 @@
 using AgriCheck.Application.AgencyPortal.Dtos;
+using AgriCheck.Application.Compliance;
 using AgriCheck.Application.ClientPortal;
 using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Application.Common;
@@ -50,8 +51,24 @@ public class CommoditiesController : ClientPortalControllerBase
 public class EntriesController : ClientPortalControllerBase
 {
     private readonly IEntryService _service;
+    private readonly IComplianceChainService _complianceChain;
+    private readonly IEntrySpsicService _spsic;
+    private readonly IEntryErfiService _erfi;
+    private readonly IEntryDestinationValidationService _destinationValidation;
 
-    public EntriesController(IEntryService service) => _service = service;
+    public EntriesController(
+        IEntryService service,
+        IComplianceChainService complianceChain,
+        IEntrySpsicService spsic,
+        IEntryErfiService erfi,
+        IEntryDestinationValidationService destinationValidation)
+    {
+        _service = service;
+        _complianceChain = complianceChain;
+        _spsic = spsic;
+        _erfi = erfi;
+        _destinationValidation = destinationValidation;
+    }
 
     [HttpGet]
     public async Task<ActionResult<ApiResponse<PagedResult<EntryListItemDto>>>> List([FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? status = null, CancellationToken cancellationToken = default) =>
@@ -64,6 +81,53 @@ public class EntriesController : ClientPortalControllerBase
         if (entry is null) return NotFound(ApiResponse<EntryDto>.Fail("ENTRY_NOT_FOUND", "Entry not found."));
         return Ok(ApiResponse<EntryDto>.Ok(entry));
     }
+
+    [HttpGet("{uuid:guid}/compliance-chain")]
+    public async Task<ActionResult<ApiResponse<EntryComplianceChainDto>>> GetComplianceChain(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(async () =>
+        {
+            var chain = await _complianceChain.GetForEntryAsync(uuid, cancellationToken);
+            return chain ?? throw new ClientPortalException("ENTRY_NOT_FOUND", "Entry not found.");
+        });
+
+    [HttpGet("{uuid:guid}/sps-application")]
+    public async Task<ActionResult<ApiResponse<EntrySpsApplicationDto?>>> GetSpsApplication(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _spsic.GetForEntryAsync(uuid, cancellationToken));
+
+    [HttpPost("{uuid:guid}/sps-application")]
+    public async Task<ActionResult<ApiResponse<EntrySpsApplicationDto>>> CreateSpsApplication(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _spsic.CreateApplicationAsync(uuid, cancellationToken));
+
+    [HttpPost("{uuid:guid}/sps-application/submit")]
+    public async Task<ActionResult<ApiResponse<EntrySpsApplicationDto>>> SubmitSpsApplication(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _spsic.SubmitApplicationAsync(uuid, cancellationToken));
+
+    [HttpGet("{uuid:guid}/sps-readiness")]
+    public async Task<ActionResult<ApiResponse<EntrySpsReadinessDto>>> GetSpsReadiness(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _spsic.GetReadinessAsync(uuid, cancellationToken));
+
+    [HttpPut("{uuid:guid}/sps-application/documents/{code}")]
+    public async Task<ActionResult<ApiResponse<EntrySpsReadinessDto>>> AttachSpsDocument(
+        Guid uuid,
+        string code,
+        [FromBody] AttachSpsDocumentRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _spsic.AttachDocumentAsync(uuid, code, request.EntryFileUuid, cancellationToken));
+
+    [HttpGet("{uuid:guid}/erfi")]
+    public async Task<ActionResult<ApiResponse<EntryErfiSubmissionDto?>>> GetErfi(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _erfi.GetForEntryAsync(uuid, cancellationToken));
+
+    [HttpPut("{uuid:guid}/erfi")]
+    public async Task<ActionResult<ApiResponse<EntryErfiSubmissionDto>>> UpsertErfi(
+        Guid uuid,
+        [FromBody] UpsertEntryErfiRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _erfi.UpsertDraftAsync(uuid, request, cancellationToken));
+
+    [HttpPost("{uuid:guid}/erfi/file")]
+    public async Task<ActionResult<ApiResponse<EntryErfiSubmissionDto>>> FileErfi(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _erfi.FileAsync(uuid, cancellationToken));
 
     [HttpPost]
     public async Task<ActionResult<ApiResponse<EntryDto>>> Create([FromBody] CreateEntryRequest request, CancellationToken cancellationToken) =>
@@ -99,6 +163,12 @@ public class EntriesController : ClientPortalControllerBase
     public async Task<ActionResult<ApiResponse<EntryDto>>> ResubmitCompliance(Guid uuid, CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.ResubmitComplianceAsync(uuid, cancellationToken));
 
+    [HttpPost("validate-destination")]
+    public async Task<ActionResult<ApiResponse<EntryDestinationValidationResultDto>>> ValidateDestination(
+        [FromBody] EntryDestinationValidationRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _destinationValidation.ValidateForCurrentUserAsync(request, cancellationToken));
+
     [HttpGet("check-mav-no")]
     public async Task<ActionResult<ApiResponse<CheckMavNoResultDto>>> CheckMavNo(
         [FromQuery] string mavNo,
@@ -131,6 +201,109 @@ public class EntriesController : ClientPortalControllerBase
             return BadRequest(ApiResponse<object>.Fail(ex.Code, ex.Message));
         }
     }
+}
+
+[ApiController]
+[Route("api/v1/client/facility-registrations")]
+[Authorize(Roles = "ROLE_IMPORTER,ROLE_EXPORTER,ROLE_BROKER,ROLE_ADMIN")]
+public class ClientFacilityRegistrationsController : ClientPortalControllerBase
+{
+    private readonly IClientFacilityRegistrationService _service;
+
+    public ClientFacilityRegistrationsController(IClientFacilityRegistrationService service) => _service = service;
+
+    [HttpGet]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<ClientFacilityRegistrationListItemDto>>>> List(
+        [FromQuery] long? entryAgencyId,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListAsync(entryAgencyId, cancellationToken));
+
+    [HttpGet("warehouses/{warehouseFacilityId:long}")]
+    public async Task<ActionResult<ApiResponse<ClientFacilityRegistrationDto>>> GetByWarehouse(long warehouseFacilityId, CancellationToken cancellationToken)
+    {
+        var item = await _service.GetByWarehouseAsync(warehouseFacilityId, cancellationToken);
+        if (item is null) return NotFound(ApiResponse<ClientFacilityRegistrationDto>.Fail("NOT_FOUND", "No registration for this warehouse."));
+        return Ok(ApiResponse<ClientFacilityRegistrationDto>.Ok(item));
+    }
+
+    [HttpPut]
+    public async Task<ActionResult<ApiResponse<ClientFacilityRegistrationDto>>> Upsert(
+        [FromBody] UpsertFacilityRegistrationRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.UpsertAsync(request, cancellationToken));
+
+    [HttpPost("{uuid:guid}/submit")]
+    public async Task<ActionResult<ApiResponse<ClientFacilityRegistrationDto>>> Submit(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.SubmitAsync(uuid, cancellationToken));
+
+    [HttpPost("csw")]
+    public async Task<ActionResult<ApiResponse<FacilityAccreditationSummaryDto>>> RegisterCsw(
+        [FromBody] RegisterFacilityCswRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.RegisterCswAsync(request, cancellationToken));
+
+    [HttpGet("licensed-warehouses/search")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<ClientFacilityRegistrationListItemDto>>>> SearchLicensedWarehouses(
+        [FromQuery] string? q,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.SearchLicensedWarehousesAsync(q, cancellationToken));
+
+    [HttpPost("warehouses/{warehouseFacilityId:long}/link")]
+    public async Task<ActionResult<ApiResponse<ClientFacilityRegistrationListItemDto>>> LinkWarehouse(
+        long warehouseFacilityId,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.LinkWarehouseAsync(warehouseFacilityId, cancellationToken));
+}
+
+[ApiController]
+[Route("api/v1/client/agency-licenses")]
+[Authorize(Roles = "ROLE_IMPORTER,ROLE_EXPORTER,ROLE_BROKER,ROLE_ADMIN")]
+public class ClientAgencyLicensesController : ClientPortalControllerBase
+{
+    private readonly IClientAgencyLicenseService _service;
+
+    public ClientAgencyLicensesController(IClientAgencyLicenseService service) => _service = service;
+
+    [HttpGet("types")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<AgencyLicenseTypeOptionDto>>>> ListTypes(
+        [FromQuery] long? agencyId,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListLicenseTypesAsync(agencyId, cancellationToken));
+
+    [HttpGet]
+    public async Task<ActionResult<ApiResponse<ClientAgencyLicenseOverviewDto>>> GetOverview(CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.GetOverviewAsync(cancellationToken));
+
+    [HttpGet("applications/{uuid:guid}")]
+    public async Task<ActionResult<ApiResponse<ClientAgencyLicenseApplicationDto>>> GetApplication(Guid uuid, CancellationToken cancellationToken)
+    {
+        var item = await _service.GetApplicationAsync(uuid, cancellationToken);
+        if (item is null) return NotFound(ApiResponse<ClientAgencyLicenseApplicationDto>.Fail("NOT_FOUND", "Application not found."));
+        return Ok(ApiResponse<ClientAgencyLicenseApplicationDto>.Ok(item));
+    }
+
+    [HttpPost("applications")]
+    public async Task<ActionResult<ApiResponse<ClientAgencyLicenseApplicationDto>>> CreateApplication(
+        [FromBody] CreateAgencyLicenseApplicationRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.CreateApplicationAsync(request, cancellationToken));
+
+    [HttpPut("applications/{uuid:guid}")]
+    public async Task<ActionResult<ApiResponse<ClientAgencyLicenseApplicationDto>>> UpdateApplication(
+        Guid uuid,
+        [FromBody] UpdateAgencyLicenseApplicationRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.UpdateApplicationAsync(uuid, request, cancellationToken));
+
+    [HttpPost("applications/{uuid:guid}/submit")]
+    public async Task<ActionResult<ApiResponse<ClientAgencyLicenseApplicationDto>>> SubmitApplication(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.SubmitApplicationAsync(uuid, cancellationToken));
+
+    [HttpPost("register")]
+    public async Task<ActionResult<ApiResponse<ClientAgencyLicenseListItemDto>>> RegisterExisting(
+        [FromBody] RegisterClientAgencyLicenseRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.RegisterExistingLicenseAsync(request, cancellationToken));
 }
 
 [ApiController]
@@ -268,7 +441,7 @@ public class CertificatesController : ClientPortalControllerBase
 
 [ApiController]
 [Route("api/v1/warehouse")]
-[Authorize(Roles = "ROLE_IMPORTER,ROLE_EXPORTER,ROLE_BROKER,ROLE_ADMIN")]
+[Authorize(Roles = "ROLE_IMPORTER,ROLE_EXPORTER,ROLE_BROKER,ROLE_WAREHOUSE_STAFF,ROLE_ADMIN")]
 public class WarehouseBookingsController : ClientPortalControllerBase
 {
     private readonly IWarehouseBookingService _service;

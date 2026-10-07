@@ -78,7 +78,7 @@ internal static class OpsTestData
             Uuid = Guid.NewGuid(),
             EntryId = entry.Id,
             ContainerNumber = "CONT-001",
-            Status = ContainerStatus.Assigned,
+            Status = ContainerStatus.Inspected,
             AssignedDriverUserId = driver.Id
         };
 
@@ -92,6 +92,16 @@ internal static class OpsTestData
         };
 
         db.Containers.AddRange(assignedContainer, otherContainer);
+        await db.SaveChangesAsync();
+
+        db.ContainerDoctorInspections.Add(new ContainerDoctorInspection
+        {
+            Uuid = Guid.NewGuid(),
+            ContainerId = assignedContainer.Id,
+            DoctorUserId = warehouseStaff.Id,
+            Status = DoctorInspectionStatus.Approved,
+            CompletedAt = DateTime.UtcNow,
+        });
         await db.SaveChangesAsync();
 
         return (db, warehouseStaff, driver, otherDriver, assignedContainer, otherContainer, entry, facility);
