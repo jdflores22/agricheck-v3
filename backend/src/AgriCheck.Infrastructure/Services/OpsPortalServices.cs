@@ -845,7 +845,12 @@ public class DriverOpsService : IDriverOpsService
             request.Longitude,
             destination.Latitude,
             destination.Longitude);
-        if (container.Status is not ContainerStatus.InTransit and not ContainerStatus.UnderInspection)
+        if (container.Status is ContainerStatus.AtWarehouse or ContainerStatus.Released or ContainerStatus.Inspected)
+        {
+            throw new ClientPortalException("INVALID_STATUS", "This delivery is already at the warehouse.");
+        }
+
+        if (container.Status is not ContainerStatus.InTransit and not ContainerStatus.PickedUp and not ContainerStatus.UnderInspection)
         {
             throw new ClientPortalException("INVALID_STATUS", "Check-in is only available while delivery is in progress.");
         }
@@ -859,8 +864,15 @@ public class DriverOpsService : IDriverOpsService
         });
 
         var withinGeofence = distance <= GeoDistanceHelper.DefaultWarehouseGeofenceMeters;
-        if (withinGeofence)
+        if (container.Status is ContainerStatus.InTransit or ContainerStatus.PickedUp)
         {
+            container.Status = ContainerStatus.AtWarehouse;
+            container.ArrivalTime ??= DateTime.UtcNow;
+            if (container.Entry.CompliancePhase < EntryCompliancePhase.AtWarehouse)
+            {
+                container.Entry.CompliancePhase = EntryCompliancePhase.AtWarehouse;
+            }
+
             await _push.NotifyWarehouseArrivalAsync(container.ContainerNumber, container.Uuid, destination.Name, cancellationToken);
         }
 

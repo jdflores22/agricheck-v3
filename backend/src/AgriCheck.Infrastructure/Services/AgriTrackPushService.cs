@@ -151,7 +151,10 @@ public class AgriTrackPushService : IAgriTrackPushService
         CancellationToken cancellationToken = default)
     {
         var doctorUserIds = await _db.UserRoles
-            .Where(ur => ur.Role.Code == "ROLE_DOCTOR")
+            .Where(ur =>
+                ur.Role.Code == "ROLE_DOCTOR"
+                || ur.Role.Code == "ROLE_INSPECTOR"
+                || ur.Role.Code == "ROLE_OPERATOR")
             .Select(ur => ur.UserId)
             .Distinct()
             .ToListAsync(cancellationToken);
