@@ -152,7 +152,7 @@ fun AgriMainBottomBar(
                     selected = selectedRoute == MainTab.News.route,
                     label = MainTab.News.label,
                     selectedIcon = Icons.AutoMirrored.Filled.Article,
-                    unselectedIcon = Icons.AutoMirrored.Outlined.Article,
+                    unselectedIcon = Icons.Outlined.Article,
                     onClick = onNews,
                     modifier = Modifier.weight(1f),
                 )
