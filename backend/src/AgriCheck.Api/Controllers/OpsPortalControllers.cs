@@ -360,6 +360,14 @@ public class MobileContainersController : OpsPortalControllerBase
         [FromBody] DriverWarehouseCheckInRequest request,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.CheckInAtWarehouseAsync(uuid, request, cancellationToken));
+
+    [HttpPost("{uuid:guid}/reset-delivery-test")]
+    [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> ResetDeliveryTest(
+        Guid uuid,
+        [FromBody] ResetDriverDeliveryTestRequest? request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ResetDeliveryTestAsync(uuid, request, cancellationToken));
 }
 
 [ApiController]

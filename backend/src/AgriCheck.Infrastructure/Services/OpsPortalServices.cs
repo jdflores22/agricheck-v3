@@ -880,6 +880,66 @@ public class DriverOpsService : IDriverOpsService
         return new DriverWarehouseCheckInResultDto(withinGeofence, distance, OpsDtoMapper.MapContainer(container));
     }
 
+    public async Task<ContainerListItemDto> ResetDeliveryTestAsync(
+        Guid containerUuid,
+        ResetDriverDeliveryTestRequest? request,
+        CancellationToken cancellationToken = default)
+    {
+        var allowReset = _configuration.GetValue("AgriTrack:AllowDeliveryTestReset", true);
+        if (!allowReset)
+        {
+            throw new ClientPortalException("FORBIDDEN", "Delivery test reset is disabled on this server.");
+        }
+
+        var user = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        var isAdmin = _currentUser.IsInRole("ROLE_ADMIN");
+
+        var query = _db.Containers
+            .Include(c => c.Entry)
+            .Include(c => c.Locations)
+            .Include(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(c => c.Entry).ThenInclude(e => e.FinalWarehouseFacility)
+            .AsQueryable();
+
+        if (!isAdmin)
+        {
+            query = query.Where(c => c.AssignedDriverUserId == user.Id);
+        }
+
+        var container = await query.FirstOrDefaultAsync(c => c.Uuid == containerUuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
+
+        if (container.AssignedDriverUserId is null && !isAdmin)
+        {
+            throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
+        }
+
+        var seedLat = request?.Latitude ?? DriverDeliveryTestReset.SeedLatitude;
+        var seedLng = request?.Longitude ?? DriverDeliveryTestReset.SeedLongitude;
+
+        _db.ContainerLocations.RemoveRange(container.Locations);
+        ContainerDeliveryPointHelper.ClearStoredPickup(container);
+
+        container.Status = ContainerStatus.Assigned;
+        container.DepartureTime = null;
+        container.ArrivalTime = null;
+        if (container.Entry.CompliancePhase is EntryCompliancePhase.AtWarehouse or EntryCompliancePhase.Released)
+        {
+            container.Entry.CompliancePhase = EntryCompliancePhase.PortCleared;
+        }
+
+        _db.ContainerLocations.Add(new ContainerLocation
+        {
+            ContainerId = container.Id,
+            Latitude = seedLat,
+            Longitude = seedLng,
+            RecordedAt = DateTime.UtcNow,
+        });
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return await MapDriverContainerAsync(container, cancellationToken);
+    }
+
     public async Task<DriverDocumentDto> UploadDocumentAsync(
         string documentType,
         Stream fileStream,

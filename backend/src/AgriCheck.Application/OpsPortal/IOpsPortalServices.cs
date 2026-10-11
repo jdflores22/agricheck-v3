@@ -29,6 +29,7 @@ public interface IDriverOpsService
     Task<DriverTransportQrPreviewDto> PreviewTransportQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> AcceptDeliveryFromQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
     Task<DriverWarehouseCheckInResultDto> CheckInAtWarehouseAsync(Guid containerUuid, DriverWarehouseCheckInRequest request, CancellationToken cancellationToken = default);
+    Task<ContainerListItemDto> ResetDeliveryTestAsync(Guid containerUuid, ResetDriverDeliveryTestRequest? request, CancellationToken cancellationToken = default);
     Task<DriverDocumentDto> UploadDocumentAsync(string documentType, Stream fileStream, string fileName, CancellationToken cancellationToken = default);
     Task<DriverProfileDto> SubmitFaceVerificationAsync(SubmitFaceVerificationRequest request, CancellationToken cancellationToken = default);
 }

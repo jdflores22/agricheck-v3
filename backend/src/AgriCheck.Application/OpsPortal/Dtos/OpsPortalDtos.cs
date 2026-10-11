@@ -240,6 +240,8 @@ public record RecordContainerLocationRequest(decimal Latitude, decimal Longitude
 
 public record ConfirmContainerPickupRequest(decimal Latitude, decimal Longitude, string? Label = null);
 
+public record ResetDriverDeliveryTestRequest(decimal? Latitude = null, decimal? Longitude = null);
+
 public record MobileSyncPushRequest(IReadOnlyList<MobileSyncItemRequest> Items);
 
 public record MobileSyncItemRequest(

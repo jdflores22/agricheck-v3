@@ -19,6 +19,15 @@ internal static class ContainerDeliveryPointHelper
         container.FormDataJson = JsonSerializer.Serialize(dict);
     }
 
+    public static void ClearStoredPickup(Container container)
+    {
+        var dict = ParseForm(container.FormDataJson);
+        dict.Remove(PickupLabelKey);
+        dict.Remove(PickupLatKey);
+        dict.Remove(PickupLngKey);
+        container.FormDataJson = dict.Count == 0 ? null : JsonSerializer.Serialize(dict);
+    }
+
     public static (string Label, decimal Latitude, decimal Longitude)? TryGetStoredPickup(Container container)
     {
         var dict = ParseForm(container.FormDataJson);
