@@ -4,8 +4,49 @@ import { baseQueryWithReauth } from '../../auth/api/baseQuery'
 import type {
   ClientContainerInspectionPhoto,
   ClientContainerInspectionStatus,
+  EntryComplianceChain,
   PagedResult,
 } from '../../client/api/clientApi'
+
+export interface AgencyNewsManageListItem {
+  uuid: string
+  title: string
+  category: string
+  isRegulatory: boolean
+  isPublished: boolean
+  publishedAt?: string | null
+  displayOrder: number
+  updatedAt: string
+}
+
+export interface AgencyNewsManageDetail {
+  uuid: string
+  title: string
+  summary?: string | null
+  body: string
+  imageUrl?: string | null
+  category: string
+  isRegulatory: boolean
+  isPublished: boolean
+  publishedAt?: string | null
+  displayOrder: number
+  agencyCode: string
+  agencyName: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateAgencyNewsRequest {
+  title: string
+  summary?: string
+  body: string
+  imageUrl?: string
+  category: string
+  isRegulatory: boolean
+  displayOrder?: number
+}
+
+export type UpdateAgencyNewsRequest = CreateAgencyNewsRequest
 
 export interface AgencyDashboard {
   queueCount: number
@@ -342,11 +383,45 @@ export const agencyApi = createApi({
     'AgencyPaymentConfig',
     'ContainerInspectionQueue',
     'TransportTags',
+    'AgencyLicenses',
+    'AgencySps',
+    'AgencyNews',
   ],
   endpoints: (builder) => ({
     getAgencyDashboard: builder.query<ApiEnvelope<AgencyDashboard>, void>({
       query: () => '/agency/dashboard',
       providesTags: ['AgencyDashboard'],
+    }),
+    getAgencyNewsPosts: builder.query<ApiEnvelope<AgencyNewsManageListItem[]>, void>({
+      query: () => '/agency/news',
+      providesTags: ['AgencyNews'],
+    }),
+    getAgencyNewsPost: builder.query<ApiEnvelope<AgencyNewsManageDetail>, string>({
+      query: (uuid) => `/agency/news/${uuid}`,
+      providesTags: (_r, _e, uuid) => [{ type: 'AgencyNews', id: uuid }],
+    }),
+    createAgencyNewsPost: builder.mutation<ApiEnvelope<AgencyNewsManageDetail>, CreateAgencyNewsRequest>({
+      query: (body) => ({ url: '/agency/news', method: 'POST', body }),
+      invalidatesTags: ['AgencyNews'],
+    }),
+    updateAgencyNewsPost: builder.mutation<
+      ApiEnvelope<AgencyNewsManageDetail>,
+      { uuid: string; body: UpdateAgencyNewsRequest }
+    >({
+      query: ({ uuid, body }) => ({ url: `/agency/news/${uuid}`, method: 'PUT', body }),
+      invalidatesTags: ['AgencyNews'],
+    }),
+    publishAgencyNewsPost: builder.mutation<ApiEnvelope<AgencyNewsManageDetail>, string>({
+      query: (uuid) => ({ url: `/agency/news/${uuid}/publish`, method: 'POST' }),
+      invalidatesTags: ['AgencyNews'],
+    }),
+    unpublishAgencyNewsPost: builder.mutation<ApiEnvelope<AgencyNewsManageDetail>, string>({
+      query: (uuid) => ({ url: `/agency/news/${uuid}/unpublish`, method: 'POST' }),
+      invalidatesTags: ['AgencyNews'],
+    }),
+    deleteAgencyNewsPost: builder.mutation<ApiEnvelope<{ deleted: boolean }>, string>({
+      query: (uuid) => ({ url: `/agency/news/${uuid}`, method: 'DELETE' }),
+      invalidatesTags: ['AgencyNews'],
     }),
     getEvaluatorQueue: builder.query<ApiEnvelope<PagedResult<AgencyEntryListItem>>, { page?: number }>({
       query: ({ page = 1 }) => `/agency/evaluator/queue?page=${page}`,
@@ -363,6 +438,21 @@ export const agencyApi = createApi({
     getAgencyEntry: builder.query<ApiEnvelope<AgencyEntryEvaluation>, string>({
       query: (uuid) => `/agency/evaluator/entries/${uuid}`,
       providesTags: (_r, _e, uuid) => [{ type: 'AgencyEntry', id: uuid }],
+    }),
+    getAgencyEntryComplianceChain: builder.query<ApiEnvelope<EntryComplianceChain>, string>({
+      query: (uuid) => `/agency/evaluator/entries/${uuid}/compliance-chain`,
+      providesTags: (_r, _e, uuid) => [{ type: 'AgencyEntry', id: `${uuid}-compliance` }],
+    }),
+    recordAgencyPortDabi: builder.mutation<
+      ApiEnvelope<{ inspectionUuid: string; entryUuid: string; status: string; spsUsedStampAt?: string; clearanceNumber?: string }>,
+      { entryUuid: string; findings?: string; stampSpsUsed: boolean; completedAt?: string }
+    >({
+      query: ({ entryUuid, findings, stampSpsUsed, completedAt }) => ({
+        url: `/agency/evaluator/entries/${entryUuid}/port-dabi`,
+        method: 'POST',
+        body: { findings, stampSpsUsed, completedAt },
+      }),
+      invalidatesTags: (_r, _e, { entryUuid }) => [{ type: 'AgencyEntry', id: `${entryUuid}-compliance` }],
     }),
     evaluateFile: builder.mutation<ApiEnvelope<{ saved: boolean }>, { fileUuid: string; decision: string; comment?: string }>({
       query: ({ fileUuid, decision, comment }) => ({
@@ -552,6 +642,42 @@ export const agencyApi = createApi({
       query: (tagUuid) => `/agency/workflow/transport-tags/${tagUuid}`,
       providesTags: (_r, _e, tagUuid) => [{ type: 'TransportTags', id: tagUuid }],
     }),
+    getAgencyLicenseApplications: builder.query<
+      ApiEnvelope<PagedResult<{ uuid: string; applicantName: string; licenseTypeCode: string; status: string; submittedAt?: string }>>,
+      { page?: number }
+    >({
+      query: ({ page = 1 }) => `/agency/license-applications?page=${page}`,
+      providesTags: ['AgencyLicenses'],
+    }),
+    approveAgencyLicenseApplication: builder.mutation<
+      ApiEnvelope<unknown>,
+      { uuid: string; licenseNumber: string; issuedAt: string; expiresAt: string; reviewComments?: string }
+    >({
+      query: ({ uuid, ...body }) => ({ url: `/agency/license-applications/${uuid}/approve`, method: 'POST', body }),
+      invalidatesTags: ['AgencyLicenses'],
+    }),
+    rejectAgencyLicenseApplication: builder.mutation<ApiEnvelope<unknown>, { uuid: string; reviewComments?: string }>({
+      query: ({ uuid, reviewComments }) => ({
+        url: `/agency/license-applications/${uuid}/reject`,
+        method: 'POST',
+        body: { reviewComments },
+      }),
+      invalidatesTags: ['AgencyLicenses'],
+    }),
+    getAgencySpsApplications: builder.query<
+      ApiEnvelope<PagedResult<{ uuid: string; entryUuid: string; referenceNo: string; importerName: string; status: string; submittedAt?: string }>>,
+      { page?: number }
+    >({
+      query: ({ page = 1 }) => `/agency/sps-applications?page=${page}`,
+      providesTags: ['AgencySps'],
+    }),
+    issueAgencySpsClearance: builder.mutation<
+      ApiEnvelope<unknown>,
+      { uuid: string; clearanceNumber: string; issuedAt: string; mustShipOutBy?: string; mustArriveBy?: string; daTradeReference?: string }
+    >({
+      query: ({ uuid, ...body }) => ({ url: `/agency/sps-applications/${uuid}/issue`, method: 'POST', body }),
+      invalidatesTags: ['AgencySps'],
+    }),
     getAgencyAccreditation: builder.query<ApiEnvelope<PagedResult<AgencyAccreditationItem>>, { page?: number; filter?: string }>({
       query: ({ page = 1, filter }) => {
         const params = new URLSearchParams({ page: String(page) })
@@ -684,6 +810,8 @@ export const {
   useGetMyAssignmentsQuery,
   useAssignEntryMutation,
   useGetAgencyEntryQuery,
+  useGetAgencyEntryComplianceChainQuery,
+  useRecordAgencyPortDabiMutation,
   useEvaluateFileMutation,
   useEvaluateEntryMavMutation,
   useUpdateComplianceMutation,
@@ -723,4 +851,17 @@ export const {
   useUpdateAgencyPaymentSettingsMutation,
   useGetPendingCashPaymentsQuery,
   useVerifyCashPaymentMutation,
+  useGetAgencyLicenseApplicationsQuery,
+  useApproveAgencyLicenseApplicationMutation,
+  useRejectAgencyLicenseApplicationMutation,
+  useGetAgencySpsApplicationsQuery,
+  useIssueAgencySpsClearanceMutation,
+  useGetAgencyNewsPostsQuery,
+  useGetAgencyNewsPostQuery,
+  useLazyGetAgencyNewsPostQuery,
+  useCreateAgencyNewsPostMutation,
+  useUpdateAgencyNewsPostMutation,
+  usePublishAgencyNewsPostMutation,
+  useUnpublishAgencyNewsPostMutation,
+  useDeleteAgencyNewsPostMutation,
 } = agencyApi

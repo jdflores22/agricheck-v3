@@ -30,6 +30,8 @@ import { EntryViewPage } from '../features/client/pages/EntryViewPage'
 import { EntryInspectionUploadPage } from '../features/client/pages/EntryInspectionUploadPage'
 
 import { AccreditationListPage } from '../features/client/pages/AccreditationListPage'
+import { AgencyLicensesPage } from '../features/client/pages/AgencyLicensesPage'
+import { MyFacilitiesPage } from '../features/client/pages/MyFacilitiesPage'
 import { AccreditationDetailPage } from '../features/client/pages/AccreditationDetailPage'
 
 import { CertificatesListPage } from '../features/client/pages/CertificatesListPage'
@@ -70,8 +72,11 @@ import { ContainerInspectionReviewPage } from '../features/agency/pages/Containe
 import { BillingPage } from '../features/agency/pages/BillingPage'
 import { CreateBillingPage } from '../features/agency/pages/CreateBillingPage'
 import { AgencyPaymentConfigPage } from '../features/agency/pages/AgencyPaymentConfigPage'
+import { AgencyNewsPage } from '../features/agency/pages/AgencyNewsPage'
 
 import { AccreditationReviewPage } from '../features/agency/pages/AccreditationReviewPage'
+import { AgencyLicenseReviewPage } from '../features/agency/pages/AgencyLicenseReviewPage'
+import { AgencySpsReviewPage } from '../features/agency/pages/AgencySpsReviewPage'
 
 import { SecretaryReportsPage } from '../features/agency/pages/SecretaryReportsPage'
 import { AgencyBillingReportsPage } from '../features/agency/pages/AgencyBillingReportsPage'
@@ -118,6 +123,9 @@ import { MavHsLibraryPage } from '../features/mav/pages/MavHsLibraryPage'
 import { MavAdminMicPage } from '../features/mav/pages/MavAdminMicPage'
 
 import { WarehouseDashboardPage } from '../features/ops/pages/WarehouseDashboardPage'
+import { WarehouseCompliancePage } from '../features/ops/pages/WarehouseCompliancePage'
+import { WarehouseImporterContractsPage } from '../features/ops/pages/WarehouseImporterContractsPage'
+import { DaWarehouseLtoApplicationsPage } from '../features/da/pages/DaWarehouseLtoApplicationsPage'
 import { WarehouseInventoryPage } from '../features/ops/pages/WarehouseInventoryPage'
 import { WarehouseReceivePage } from '../features/ops/pages/WarehouseReceivePage'
 import { WarehouseReleasesPage } from '../features/ops/pages/WarehouseReleasesPage'
@@ -235,6 +243,8 @@ export const router = createBrowserRouter([
               { path: 'entries/:uuid/compliance', element: <EntryCompliancePage /> },
               { path: 'entries/:uuid/inspection', element: <EntryInspectionUploadPage /> },
 
+              { path: 'licenses', element: <AgencyLicensesPage /> },
+              { path: 'facilities', element: <MyFacilitiesPage /> },
               { path: 'accreditation', element: <AccreditationListPage /> },
               { path: 'accreditation/status', element: <Navigate to="/client/accreditation" replace /> },
               { path: 'accreditation/:uuid/compliance', element: <AccreditationCompliancePage /> },
@@ -300,9 +310,20 @@ export const router = createBrowserRouter([
 
               { path: 'payment-config', element: <AgencyPaymentConfigPage /> },
 
+              {
+                element: (
+                  <RoleProtectedRoute
+                    roles={['ROLE_AGENCY_ADMIN', 'ROLE_ADMIN', 'ROLE_DA_SECRETARY', 'ROLE_DA_UNDERSECRETARY']}
+                  />
+                ),
+                children: [{ path: 'news', element: <AgencyNewsPage /> }],
+              },
+
               { path: 'transport-tags', element: <TransportTagPage /> },
               { path: 'transport-tags/:containerUuid', element: <TransportTagDetailPage /> },
 
+              { path: 'license-applications', element: <AgencyLicenseReviewPage /> },
+              { path: 'sps-applications', element: <AgencySpsReviewPage /> },
               { path: 'accreditation', element: <AccreditationReviewPage /> },
 
               { path: 'accreditation/:uuid', element: <AccreditationReviewDetailPage /> },
@@ -332,6 +353,7 @@ export const router = createBrowserRouter([
                   { path: 'agencies/:id', element: <DaAgencyOversightPage /> },
 
                   { path: 'warehouses', element: <DaWarehousesPage /> },
+                  { path: 'warehouse-lto-applications', element: <DaWarehouseLtoApplicationsPage /> },
 
                   { path: 'warehouses/:id', element: <DaWarehouseDetailPage /> },
 
@@ -516,6 +538,8 @@ export const router = createBrowserRouter([
 
             children: [
               { index: true, element: <WarehouseDashboardPage /> },
+              { path: 'compliance', element: <WarehouseCompliancePage /> },
+              { path: 'importer-contracts', element: <WarehouseImporterContractsPage /> },
               { path: 'inventory', element: <WarehouseInventoryPage /> },
               { path: 'receive', element: <WarehouseReceivePage /> },
               { path: 'releases', element: <WarehouseReleasesPage /> },

@@ -3,8 +3,6 @@ package com.agricheck.agritrack.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -13,7 +11,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -28,14 +25,26 @@ fun AgriAuthScreenLayout(content: @Composable ColumnScope.() -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(AgriColors.Primary, AgriColors.PrimaryDark))),
+            .background(AgriColors.Background),
     ) {
         Column(
-            Modifier.fillMaxSize().padding(24.dp),
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            content = content,
-        )
+        ) {
+            Spacer(Modifier.height(32.dp))
+            AgriBrandHero()
+            Spacer(Modifier.height(28.dp))
+            Column(
+                Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                content = content,
+            )
+            AgriAuthFooter()
+            Spacer(Modifier.height(20.dp))
+        }
     }
 }
 
@@ -48,8 +57,6 @@ fun AgriAuthCard(title: String, subtitle: String, content: @Composable ColumnSco
         shadowElevation = 6.dp,
     ) {
         Column(Modifier.padding(24.dp)) {
-            Text("AgriTrack", style = MaterialTheme.typography.labelLarge, color = AgriColors.Primary, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(4.dp))
             Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = AgriColors.OnSurface)
             Spacer(Modifier.height(6.dp))
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = AgriColors.TextSecondary)
@@ -78,8 +85,8 @@ fun AgriPrimaryButton(text: String, onClick: () -> Unit, enabled: Boolean = true
     Button(
         onClick = onClick,
         enabled = enabled && !loading,
-        modifier = Modifier.fillMaxWidth().height(48.dp),
-        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth().height(52.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(containerColor = AgriColors.Primary),
     ) {
         if (loading) {
@@ -99,6 +106,8 @@ fun AgriScreenScaffold(
     onLogout: (() -> Unit)? = null,
     refreshing: Boolean = false,
     onRefresh: (() -> Unit)? = null,
+    /** When true, only the main shell brand bar is shown (no second header). */
+    nestedInMainShell: Boolean = false,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
@@ -107,33 +116,14 @@ fun AgriScreenScaffold(
         containerColor = AgriColors.Background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(title, fontWeight = FontWeight.Bold)
-                        subtitle?.let {
-                            Text(it, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                },
-                navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                        }
-                    }
-                },
-                actions = {
-                    if (onLogout != null) {
-                        TextButton(onClick = onLogout) { Text("Log out", color = Color.White) }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = AgriColors.Primary,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                ),
-            )
+            if (!nestedInMainShell) {
+                AgriScreenTopBar(
+                    title = title,
+                    subtitle = subtitle?.takeIf { it.isNotBlank() },
+                    onBack = onBack,
+                    onLogout = onLogout,
+                )
+            }
         },
     ) { padding ->
         if (onRefresh != null) {
@@ -187,7 +177,9 @@ fun AgriListItemCard(title: String, subtitle: String, status: String, onClick: (
         onClick = onClick ?: {},
         enabled = onClick != null,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = Color.White),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp),
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(title, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = AgriColors.OnSurface)
@@ -245,10 +237,37 @@ fun EmptyState(message: String) {
 
 @Composable
 fun MetricCard(label: String, value: String, modifier: Modifier = Modifier) {
-    ElevatedCard(modifier = modifier, shape = RoundedCornerShape(16.dp)) {
+    Surface(modifier = modifier, shape = RoundedCornerShape(16.dp), color = Color.White, shadowElevation = 1.dp) {
         Column(Modifier.padding(16.dp)) {
             Text(label, color = AgriColors.TextSecondary, style = MaterialTheme.typography.labelMedium)
-            Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = AgriColors.Primary)
+            Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = AgriColors.PrimaryDark)
+        }
+    }
+}
+
+@Composable
+fun AgriMenuRow(
+    title: String,
+    subtitle: String? = null,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.SemiBold, color = AgriColors.OnSurface)
+                if (subtitle != null) {
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = AgriColors.TextSecondary)
+                }
+            }
+            Text("›", color = AgriColors.PrimaryDark, fontWeight = FontWeight.Bold)
         }
     }
 }

@@ -1,4 +1,5 @@
 using AgriCheck.Application.AgencyPortal;
+using AgriCheck.Application.OpsPortal;
 using AgriCheck.Application.Compliance;
 using AgriCheck.Application.AgencyPortal.Dtos;
 using AgriCheck.Application.ClientPortal.Dtos;
@@ -8,6 +9,69 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgriCheck.Api.Controllers;
+
+[ApiController]
+[Route("api/v1/agency/news")]
+[Authorize(Roles = "ROLE_AGENCY_ADMIN,ROLE_ADMIN,ROLE_DA_SECRETARY,ROLE_DA_UNDERSECRETARY")]
+public class AgencyNewsController : AgencyPortalControllerBase
+{
+    private readonly IAgencyNewsService _service;
+
+    public AgencyNewsController(IAgencyNewsService service) => _service = service;
+
+    [HttpGet]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<AgencyNewsManageListItemDto>>>> List(
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListForAgencyAsync(cancellationToken));
+
+    [HttpGet("{uuid:guid}")]
+    public async Task<ActionResult<ApiResponse<AgencyNewsManageDetailDto>>> Get(
+        Guid uuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(async () =>
+        {
+            var item = await _service.GetForAgencyAsync(uuid, cancellationToken);
+            if (item is null)
+            {
+                throw new ClientPortalException("NEWS_NOT_FOUND", "News post not found.");
+            }
+
+            return item;
+        });
+
+    [HttpPost]
+    public async Task<ActionResult<ApiResponse<AgencyNewsManageDetailDto>>> Create(
+        [FromBody] CreateAgencyNewsRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.CreateDraftAsync(request, cancellationToken));
+
+    [HttpPut("{uuid:guid}")]
+    public async Task<ActionResult<ApiResponse<AgencyNewsManageDetailDto>>> Update(
+        Guid uuid,
+        [FromBody] UpdateAgencyNewsRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.UpdateAsync(uuid, request, cancellationToken));
+
+    [HttpPost("{uuid:guid}/publish")]
+    public async Task<ActionResult<ApiResponse<AgencyNewsManageDetailDto>>> Publish(
+        Guid uuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.PublishAsync(uuid, cancellationToken));
+
+    [HttpPost("{uuid:guid}/unpublish")]
+    public async Task<ActionResult<ApiResponse<AgencyNewsManageDetailDto>>> Unpublish(
+        Guid uuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.UnpublishAsync(uuid, cancellationToken));
+
+    [HttpDelete("{uuid:guid}")]
+    public async Task<ActionResult<ApiResponse<object>>> Delete(Guid uuid, CancellationToken cancellationToken) =>
+        await ExecuteAsync(async () =>
+        {
+            await _service.DeleteAsync(uuid, cancellationToken);
+            return (object)new { deleted = true };
+        });
+}
 
 [ApiController]
 [Route("api/v1/agency/dashboard")]

@@ -59,6 +59,8 @@ const adminNavItems: PortalNavItem[] = [
 const clientNavItems: PortalNavItem[] = [
   { label: 'Dashboard', path: '/client', icon: <DashboardOutlinedIcon /> },
   { label: 'Accreditation Application', path: '/client/accreditation', icon: <PlaylistAddCheckOutlinedIcon />, section: 'Accreditation' },
+  { label: 'My Bureau Licenses', path: '/client/licenses', icon: <VerifiedOutlinedIcon />, section: 'Compliance' },
+  { label: 'My Facilities (destinations)', path: '/client/facilities', icon: <WarehouseOutlinedIcon />, section: 'Compliance' },
   { label: 'My Certificates', path: '/client/certificates', icon: <VerifiedOutlinedIcon /> },
   { label: 'Submit Entry', path: '/client/entries/agencies', icon: <ArticleOutlinedIcon />, section: 'Entries' },
   { label: 'My Entries', path: '/client/entries', icon: <AssignmentOutlinedIcon /> },
@@ -76,6 +78,8 @@ const agencyNavItems: PortalNavItem[] = [
   { label: 'Evaluation Queue', path: '/agency/evaluator/queue', icon: <AssignmentOutlinedIcon /> },
   { label: 'My Assignments', path: '/agency/evaluator/assignments', icon: <FactCheckOutlinedIcon /> },
   { label: 'Transport Tags', path: '/agency/transport-tags', icon: <LocalShippingOutlinedIcon /> },
+  { label: 'License applications', path: '/agency/license-applications', icon: <VerifiedOutlinedIcon /> },
+  { label: 'SPSIC queue', path: '/agency/sps-applications', icon: <ArticleOutlinedIcon /> },
   { label: 'Accreditation Review', path: '/agency/accreditation', icon: <VerifiedOutlinedIcon /> },
   { label: 'Reports', path: '/agency/reports', icon: <ReportOutlinedIcon /> },
   { label: 'My Profile', path: '/profile', icon: <PersonOutlineOutlinedIcon />, section: 'Account' },
@@ -89,8 +93,10 @@ const accreditationOfficerNavItems: PortalNavItem[] = [
 
 const daNavItems: PortalNavItem[] = [
   { label: 'Dashboard', path: '/da', icon: <DashboardOutlinedIcon /> },
+  { label: 'News & announcements', path: '/agency/news', icon: <ArticleOutlinedIcon /> },
   { label: 'Agencies', path: '/da/agencies', icon: <BusinessOutlinedIcon /> },
   { label: 'Warehouses', path: '/da/warehouses', icon: <WarehouseOutlinedIcon /> },
+  { label: 'Warehouse LTO queue', path: '/da/warehouse-lto-applications', icon: <VerifiedOutlinedIcon /> },
   { label: 'Importers', path: '/da/importers', icon: <PeopleOutlinedIcon /> },
   { label: 'Reports', path: '/da/reports', icon: <ReportOutlinedIcon /> },
   { label: 'MAV Utilization', path: '/da/reports/mav', icon: <Inventory2OutlinedIcon /> },
@@ -140,6 +146,7 @@ const agencyOperationalRoleCodes = [
 
 const agencyAdminNavItems: PortalNavItem[] = [
   { label: 'Dashboard', path: '/agency', icon: <DashboardOutlinedIcon /> },
+  { label: 'News & announcements', path: '/agency/news', icon: <ArticleOutlinedIcon /> },
   { label: 'Payment Config', path: '/agency/payment-config', icon: <PaymentsOutlinedIcon /> },
   { label: 'My Profile', path: '/profile', icon: <PersonOutlineOutlinedIcon />, section: 'Account' },
 ]
@@ -205,7 +212,13 @@ function buildAgencyNavItems(roles: string[]): PortalNavItem[] {
 
   if (roles.includes('ROLE_AGENCY_ADMIN') || roles.includes('ROLE_ADMIN')) {
     const profileIndex = items.findIndex((item) => item.path === '/profile')
-    items.splice(profileIndex >= 0 ? profileIndex : items.length, 0, {
+    const insertAt = profileIndex >= 0 ? profileIndex : items.length
+    items.splice(insertAt, 0, {
+      label: 'News & announcements',
+      path: '/agency/news',
+      icon: <ArticleOutlinedIcon />,
+    })
+    items.splice(insertAt + 1, 0, {
       label: 'Payment Config',
       path: '/agency/payment-config',
       icon: <PaymentsOutlinedIcon />,
@@ -223,6 +236,8 @@ const inspectorNavItems: PortalNavItem[] = [
 
 const warehouseNavItems: PortalNavItem[] = [
   { label: 'Dashboard', path: '/warehouse', icon: <DashboardOutlinedIcon /> },
+  { label: 'Compliance (LTO / RSAS)', path: '/warehouse/compliance', icon: <VerifiedOutlinedIcon /> },
+  { label: 'Importer contracts', path: '/warehouse/importer-contracts', icon: <AssignmentOutlinedIcon /> },
   { label: 'Inventory', path: '/warehouse/inventory', icon: <Inventory2OutlinedIcon /> },
   { label: 'Receive Container', path: '/warehouse/receive', icon: <LocalShippingOutlinedIcon /> },
   { label: 'Release Authorizations', path: '/warehouse/releases', icon: <VerifiedOutlinedIcon /> },
@@ -330,20 +345,7 @@ export function resolvePortalKey(
   if (matchesPrefix(pathname, '/operator')) return 'operator'
   if (matchesPrefix(pathname, '/doctor')) return 'doctor'
 
-  if (redirectPath) {
-    if (redirectPath.startsWith('/admin')) return 'admin'
-    if (redirectPath.startsWith('/client')) return 'client'
-    if (redirectPath.startsWith('/da')) return 'da'
-    if (redirectPath.startsWith('/accreditation-officer')) return 'accreditation-officer'
-    if (redirectPath.startsWith('/agency')) return 'agency'
-    if (redirectPath.startsWith('/inspector')) return 'inspector'
-    if (redirectPath.startsWith('/mav')) return 'mav'
-    if (redirectPath.startsWith('/warehouse')) return 'warehouse'
-    if (redirectPath.startsWith('/driver')) return 'driver'
-    if (redirectPath.startsWith('/operator')) return 'operator'
-    if (redirectPath.startsWith('/doctor')) return 'doctor'
-  }
-
+  // Shared routes (e.g. /profile): prefer live roles over stale post-login redirectPath.
   if (roles.includes('ROLE_ADMIN')) return 'admin'
   if (roles.some((role) => role.startsWith('ROLE_MAV_'))) return 'mav'
   if (roles.includes('ROLE_WAREHOUSE_STAFF')) return 'warehouse'
@@ -360,6 +362,21 @@ export function resolvePortalKey(
     return 'agency'
   }
   if (roles.includes('ROLE_INSPECTOR')) return 'inspector'
+
+  if (redirectPath) {
+    if (redirectPath.startsWith('/admin')) return 'admin'
+    if (redirectPath.startsWith('/client')) return 'client'
+    if (redirectPath.startsWith('/da')) return 'da'
+    if (redirectPath.startsWith('/accreditation-officer')) return 'accreditation-officer'
+    if (redirectPath.startsWith('/agency')) return 'agency'
+    if (redirectPath.startsWith('/inspector')) return 'inspector'
+    if (redirectPath.startsWith('/mav')) return 'mav'
+    if (redirectPath.startsWith('/warehouse')) return 'warehouse'
+    if (redirectPath.startsWith('/driver')) return 'driver'
+    if (redirectPath.startsWith('/operator')) return 'operator'
+    if (redirectPath.startsWith('/doctor')) return 'doctor'
+  }
+
   return 'client'
 }
 

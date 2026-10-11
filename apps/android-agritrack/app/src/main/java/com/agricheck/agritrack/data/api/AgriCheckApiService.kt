@@ -37,6 +37,15 @@ interface AgriCheckApiService {
         @Body request: UpdateContainerStatusRequest,
     ): ApiEnvelope<ContainerListItemDto>
 
+    @POST("api/mobile/containers/{uuid}/pickup")
+    suspend fun confirmPickup(
+        @Path("uuid") uuid: String,
+        @Body request: ConfirmContainerPickupRequest,
+    ): ApiEnvelope<ContainerListItemDto>
+
+    @GET("api/mobile/containers/{uuid}/delivery-qr")
+    suspend fun deliveryHandoffQr(@Path("uuid") uuid: String): ApiEnvelope<DriverDeliveryHandoffQrDto>
+
     @POST("api/mobile/containers/{uuid}/location")
     suspend fun recordLocation(
         @Path("uuid") uuid: String,
@@ -88,6 +97,15 @@ interface AgriCheckApiService {
 
     @GET("api/mobile/sync/pull")
     suspend fun syncPull(): ApiEnvelope<MobileSyncPullResultDto>
+
+    @GET("api/mobile/news")
+    suspend fun listNews(
+        @Query("category") category: String? = null,
+        @Query("search") search: String? = null,
+    ): ApiEnvelope<List<AgencyNewsListItemDto>>
+
+    @GET("api/mobile/news/{uuid}")
+    suspend fun getNews(@Path("uuid") uuid: String): ApiEnvelope<AgencyNewsDetailDto>
 
     @GET("api/mobile/operator/containers/claimable")
     suspend fun claimableContainers(): ApiEnvelope<List<ContainerListItemDto>>

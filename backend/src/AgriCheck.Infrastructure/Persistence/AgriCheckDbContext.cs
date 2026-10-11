@@ -14,6 +14,7 @@ public class AgriCheckDbContext : DbContext
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<Agency> Agencies => Set<Agency>();
+    public DbSet<AgencyNewsPost> AgencyNewsPosts => Set<AgencyNewsPost>();
     public DbSet<AgencyMembership> AgencyMemberships => Set<AgencyMembership>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();

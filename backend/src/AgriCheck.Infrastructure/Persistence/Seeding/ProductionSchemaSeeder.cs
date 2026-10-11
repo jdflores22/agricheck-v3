@@ -31,6 +31,9 @@ public static class ProductionSchemaSeeder
 
         await WarehouseProfilingSchemaSeeder.EnsureAsync(db, cancellationToken);
         logger?.LogInformation("Warehouse profiling schema ensured.");
+
+        await AgencyNewsSchemaSeeder.EnsureAsync(db, cancellationToken);
+        logger?.LogInformation("Agency news schema ensured.");
     }
 
     public static async Task<int> CountApplicationTablesAsync(AgriCheckDbContext db, CancellationToken cancellationToken = default)

@@ -9,15 +9,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 object AgriColors {
-    val Primary = Color(0xFF166534)
-    val PrimaryDark = Color(0xFF14532D)
-    val Background = Color(0xFFF5F7FA)
+    val Primary = Color(0xFF22C55E)
+    val PrimaryDark = Color(0xFF16A34A)
+    val Background = Color(0xFFF4FBF6)
     val Surface = Color(0xFFFFFFFF)
-    val SurfaceMuted = Color(0xFFEEF2F7)
-    val OnSurface = Color(0xFF0F172A)
-    val TextSecondary = Color(0xFF64748B)
-    val Divider = Color(0xFFE2E8F0)
-    val Success = Color(0xFF2E7D32)
+    val SurfaceMuted = Color(0xFFEEF8F1)
+    val OnSurface = Color(0xFF111827)
+    val TextSecondary = Color(0xFF6B7280)
+    val Divider = Color(0xFFE8EEEA)
+    val Success = Color(0xFF16A34A)
     val Warning = Color(0xFFED6C02)
     val Error = Color(0xFFC62828)
 }

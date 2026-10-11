@@ -78,6 +78,9 @@ class DriverRepository(private val container: AppContainer) {
     suspend fun syncPull() = api().syncPull().requireData()
     suspend fun updateStatus(uuid: String, status: String) =
         api().updateContainerStatus(uuid, UpdateContainerStatusRequest(status)).requireData()
+    suspend fun confirmPickup(uuid: String, latitude: Double, longitude: Double, label: String? = null) =
+        api().confirmPickup(uuid, ConfirmContainerPickupRequest(latitude, longitude, label)).requireData()
+    suspend fun deliveryHandoffQr(uuid: String) = api().deliveryHandoffQr(uuid).requireData()
     suspend fun recordLocation(uuid: String, latitude: Double, longitude: Double) =
         api().recordLocation(uuid, RecordContainerLocationRequest(latitude, longitude)).requireData()
     suspend fun track(uuid: String) = api().containerTrack(uuid).requireData()
@@ -117,6 +120,16 @@ class OperatorRepository(private val container: AppContainer) {
     suspend fun claimByQr(qrData: String) = api().claimContainerByQr(ScanTransportQrRequest(qrData)).requireData()
     suspend fun assignDriver(uuid: String, driverUserUuid: String) =
         api().assignDriver(uuid, AssignDriverRequest(driverUserUuid)).requireData()
+}
+
+class NewsRepository(private val container: AppContainer) {
+    private suspend fun api() = container.services().api
+
+    suspend fun list(category: String? = null, search: String? = null): List<AgencyNewsListItemDto> =
+        api().listNews(category, search).requireData()
+
+    suspend fun get(uuid: String): AgencyNewsDetailDto =
+        api().getNews(uuid).requireData()
 }
 
 class PushRepository(private val container: AppContainer) {

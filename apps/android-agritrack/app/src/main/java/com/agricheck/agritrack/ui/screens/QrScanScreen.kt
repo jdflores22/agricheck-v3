@@ -6,9 +6,11 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -18,14 +20,15 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.agricheck.agritrack.data.model.DriverTransportQrPreviewDto
 import com.agricheck.agritrack.data.repository.DriverRepository
 import com.agricheck.agritrack.ui.components.AgriPrimaryButton
+import com.agricheck.agritrack.ui.components.AgriScreenScaffold
 import com.agricheck.agritrack.ui.components.LoadingState
+import com.agricheck.agritrack.ui.strings.UiStrings
 import com.agricheck.agritrack.ui.theme.AgriColors
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QrScanScreen(
     repository: DriverRepository,
@@ -52,86 +55,107 @@ fun QrScanScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Scan transport QR") },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AgriColors.Primary, titleContentColor = androidx.compose.ui.graphics.Color.White),
-            )
-        },
-        containerColor = AgriColors.Background,
-    ) { padding ->
+    AgriScreenScaffold(title = UiStrings.ScanQr.title, nestedInMainShell = true) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            Text(
-                "Scan the QR shared by the importer or client to see the warehouse destination.",
-                modifier = Modifier.padding(16.dp),
-                color = AgriColors.TextSecondary,
-            )
             if (preview == null) {
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    AndroidView(
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.Black,
                         modifier = Modifier.fillMaxSize(),
-                        factory = { ctx ->
-                            PreviewView(ctx).also { previewView ->
-                                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                                cameraProviderFuture.addListener({
-                                    val cameraProvider = cameraProviderFuture.get()
-                                    val previewUseCase = Preview.Builder().build().also {
-                                        it.surfaceProvider = previewView.surfaceProvider
-                                    }
-                                    val scanner = BarcodeScanning.getClient()
-                                    val analysis = ImageAnalysis.Builder()
-                                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                        .build()
-                                    analysis.setAnalyzer(ContextCompat.getMainExecutor(ctx)) { imageProxy ->
-                                        if (scannedOnce.get()) {
-                                            imageProxy.close()
-                                            return@setAnalyzer
+                    ) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                PreviewView(ctx).also { previewView ->
+                                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                                    cameraProviderFuture.addListener({
+                                        val cameraProvider = cameraProviderFuture.get()
+                                        val previewUseCase = Preview.Builder().build().also {
+                                            it.surfaceProvider = previewView.surfaceProvider
                                         }
-                                        val mediaImage = imageProxy.image
-                                        if (mediaImage != null) {
-                                            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                                            scanner.process(image)
-                                                .addOnSuccessListener { barcodes ->
-                                                    val raw = barcodes.firstOrNull { it.rawValue != null }?.rawValue
-                                                    if (raw != null && scannedOnce.compareAndSet(false, true)) {
-                                                        loadPreview(raw)
+                                        val scanner = BarcodeScanning.getClient()
+                                        val analysis = ImageAnalysis.Builder()
+                                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                            .build()
+                                        analysis.setAnalyzer(ContextCompat.getMainExecutor(ctx)) { imageProxy ->
+                                            if (scannedOnce.get()) {
+                                                imageProxy.close()
+                                                return@setAnalyzer
+                                            }
+                                            val mediaImage = imageProxy.image
+                                            if (mediaImage != null) {
+                                                val image = InputImage.fromMediaImage(
+                                                    mediaImage,
+                                                    imageProxy.imageInfo.rotationDegrees,
+                                                )
+                                                scanner.process(image)
+                                                    .addOnSuccessListener { barcodes ->
+                                                        val raw = barcodes.firstOrNull { it.rawValue != null }?.rawValue
+                                                        if (raw != null && scannedOnce.compareAndSet(false, true)) {
+                                                            loadPreview(raw)
+                                                        }
                                                     }
-                                                }
-                                                .addOnCompleteListener { imageProxy.close() }
-                                        } else {
-                                            imageProxy.close()
+                                                    .addOnCompleteListener { imageProxy.close() }
+                                            } else {
+                                                imageProxy.close()
+                                            }
                                         }
-                                    }
-                                    cameraProvider.unbindAll()
-                                    cameraProvider.bindToLifecycle(
-                                        lifecycleOwner,
-                                        CameraSelector.DEFAULT_BACK_CAMERA,
-                                        previewUseCase,
-                                        analysis,
-                                    )
-                                }, ContextCompat.getMainExecutor(ctx))
-                            }
-                        },
-                    )
+                                        cameraProvider.unbindAll()
+                                        cameraProvider.bindToLifecycle(
+                                            lifecycleOwner,
+                                            CameraSelector.DEFAULT_BACK_CAMERA,
+                                            previewUseCase,
+                                            analysis,
+                                        )
+                                    }, ContextCompat.getMainExecutor(ctx))
+                                }
+                            },
+                        )
+                    }
                 }
             } else {
                 Column(
                     Modifier.weight(1f).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    ElevatedCard(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(preview!!.containerNumber, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
-                            Text("Entry ${preview!!.entryReference}", color = AgriColors.TextSecondary)
-                            Text("Deliver to: ${preview!!.warehouseName}", fontWeight = FontWeight.SemiBold, color = AgriColors.Primary)
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.White,
+                        shadowElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                preview!!.containerNumber,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = AgriColors.OnSurface,
+                            )
+                            Text(
+                                "${UiStrings.DeliveryQr.entryPrefix} ${preview!!.entryReference}",
+                                color = AgriColors.TextSecondary,
+                            )
+                            Text(
+                                "${UiStrings.ScanQr.deliverTo}: ${preview!!.warehouseName}",
+                                fontWeight = FontWeight.SemiBold,
+                                color = AgriColors.PrimaryDark,
+                            )
                             preview!!.warehouseAddress?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                             preview!!.scheduledWarehouseDate?.let {
-                                Text("Scheduled: $it", style = MaterialTheme.typography.bodySmall)
+                                Text("${UiStrings.ScanQr.scheduled}: $it", style = MaterialTheme.typography.bodySmall)
                             }
-                            Text("Status: ${preview!!.containerStatus}")
+                            Text("${UiStrings.ScanQr.status}: ${preview!!.containerStatus}")
                             if (!preview!!.canAccept) {
-                                Text(preview!!.blockReason ?: "Cannot accept this delivery.", color = AgriColors.Error)
+                                Text(
+                                    preview!!.blockReason ?: UiStrings.ScanQr.cannotAccept,
+                                    color = AgriColors.Error,
+                                )
                             }
                         }
                     }
@@ -139,14 +163,17 @@ fun QrScanScreen(
                     error?.let { Text(it, color = AgriColors.Error) }
                     message?.let { Text(it, color = AgriColors.Success, fontWeight = FontWeight.SemiBold) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {
-                            preview = null
-                            scannedQr = null
-                            scannedOnce.set(false)
-                            error = null
-                        }) { Text("Scan again") }
+                        OutlinedButton(
+                            onClick = {
+                                preview = null
+                                scannedQr = null
+                                scannedOnce.set(false)
+                                error = null
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                        ) { Text(UiStrings.ScanQr.scanAgain) }
                         AgriPrimaryButton(
-                            text = "Accept delivery",
+                            text = UiStrings.ScanQr.accept,
                             enabled = preview?.canAccept == true && !loading,
                             loading = loading,
                             onClick = {
@@ -155,7 +182,7 @@ fun QrScanScreen(
                                     loading = true
                                     runCatching { repository.acceptTransportQr(qr) }
                                         .onSuccess {
-                                            message = "Delivery accepted. Start driving when ready."
+                                            message = UiStrings.ScanQr.acceptSuccess
                                             onAccepted()
                                         }
                                         .onFailure { error = it.message }

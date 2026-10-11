@@ -25,12 +25,21 @@ android {
         applicationId = "com.agricheck.agritrack"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 26
+        versionName = "1.2.23"
 
         val apiBaseUrl = localProperties.getProperty("API_BASE_URL") ?: "https://agricheck-v3-production.up.railway.app"
+        val googleMapsApiKey = localProperties.getProperty("GOOGLE_MAPS_API_KEY") ?: ""
+        val enableGoogleMapTiles =
+            localProperties.getProperty("ENABLE_GOOGLE_MAP_TILES")?.equals("true", ignoreCase = true) == true
+        val useDemoMapStops =
+            localProperties.getProperty("USE_DEMO_MAP_STOPS")?.equals("true", ignoreCase = true) == true
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+        buildConfigField("String", "GOOGLE_MAPS_API_KEY", "\"$googleMapsApiKey\"")
+        buildConfigField("boolean", "ENABLE_GOOGLE_MAP_TILES", enableGoogleMapTiles.toString())
+        buildConfigField("boolean", "USE_DEMO_MAP_STOPS", useDemoMapStops.toString())
         buildConfigField("boolean", "FIREBASE_ENABLED", firebaseEnabled.toString())
+        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = googleMapsApiKey.ifBlank { "PLACEHOLDER_SET_IN_local_properties" }
     }
 
     buildFeatures {
@@ -77,6 +86,8 @@ dependencies {
     implementation("com.jakewharton.retrofit:retrofit2-kotlinx-serialization-converter:1.0.0")
 
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("com.google.android.gms:play-services-maps:19.0.0")
+    implementation("com.google.maps.android:maps-compose:6.2.1")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
 
     val cameraxVersion = "1.4.1"

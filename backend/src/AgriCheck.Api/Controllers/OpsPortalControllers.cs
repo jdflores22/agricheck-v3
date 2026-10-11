@@ -439,6 +439,38 @@ public class MobilePushController : OpsPortalControllerBase
 }
 
 [ApiController]
+[Route("api/mobile/news")]
+[Authorize]
+public class MobileNewsController : OpsPortalControllerBase
+{
+    private readonly IAgencyNewsService _service;
+
+    public MobileNewsController(IAgencyNewsService service) => _service = service;
+
+    [HttpGet]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<AgencyNewsListItemDto>>>> List(
+        [FromQuery] string? category,
+        [FromQuery] string? search,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListPublishedAsync(category, search, cancellationToken));
+
+    [HttpGet("{uuid:guid}")]
+    public async Task<ActionResult<ApiResponse<AgencyNewsDetailDto>>> Get(
+        Guid uuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(async () =>
+        {
+            var item = await _service.GetPublishedAsync(uuid, cancellationToken);
+            if (item is null)
+            {
+                throw new ClientPortalException("NOT_FOUND", "News post not found.");
+            }
+
+            return item;
+        });
+}
+
+[ApiController]
 [Route("api/mobile/sync")]
 [Authorize]
 public class MobileSyncController : OpsPortalControllerBase

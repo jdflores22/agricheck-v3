@@ -49,6 +49,13 @@ data class AuthResponseDto(
 )
 
 @Serializable
+data class ContainerDeliveryStopDto(
+    val name: String,
+    val latitude: Double,
+    val longitude: Double,
+)
+
+@Serializable
 data class ContainerListItemDto(
     val uuid: String,
     val containerNumber: String,
@@ -60,6 +67,52 @@ data class ContainerListItemDto(
     val lastLatitude: Double? = null,
     val lastLongitude: Double? = null,
     val lastLocationAt: String? = null,
+    val pickup: ContainerDeliveryStopDto? = null,
+    val destination: ContainerDeliveryStopDto? = null,
+)
+
+@Serializable
+data class AgencyNewsListItemDto(
+    val uuid: String,
+    val title: String,
+    val summary: String? = null,
+    val imageUrl: String? = null,
+    val category: String,
+    val isRegulatory: Boolean = false,
+    val agencyCode: String,
+    val agencyName: String,
+    val publishedAt: String,
+)
+
+@Serializable
+data class AgencyNewsDetailDto(
+    val uuid: String,
+    val title: String,
+    val summary: String? = null,
+    val body: String,
+    val imageUrl: String? = null,
+    val category: String,
+    val isRegulatory: Boolean = false,
+    val agencyCode: String,
+    val agencyName: String,
+    val publishedAt: String,
+)
+
+@Serializable
+data class ConfirmContainerPickupRequest(
+    val latitude: Double,
+    val longitude: Double,
+    val label: String? = null,
+)
+
+@Serializable
+data class DriverDeliveryHandoffQrDto(
+    val containerUuid: String,
+    val containerNumber: String,
+    val entryReference: String,
+    val qrPayload: String,
+    val qrCodeData: String? = null,
+    val handoffInstruction: String,
 )
 
 @Serializable
@@ -220,6 +273,7 @@ data class ContainerTrackDto(
     val status: String,
     val currentLatitude: Double? = null,
     val currentLongitude: Double? = null,
+    val pickup: ContainerTrackDestinationDto,
     val destination: ContainerTrackDestinationDto,
     val trail: List<ContainerLocationPointDto> = emptyList(),
 )

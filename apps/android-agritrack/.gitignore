@@ -1,7 +1,8 @@
 # Local Android SDK + API URL (do not commit secrets)
 local.properties
 *.iml
-.idea/
+.idea/*
+!.idea/gradle.xml
 .gradle/
 build/
 app/build/

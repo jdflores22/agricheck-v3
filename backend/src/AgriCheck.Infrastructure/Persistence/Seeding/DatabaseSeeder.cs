@@ -59,6 +59,7 @@ public class DatabaseSeeder : IHostedService
             await SeedRolesAsync(db, cancellationToken);
             await SeedSystemSettingsAsync(db, cancellationToken);
             await SeedAgenciesAsync(db, cancellationToken);
+            await SeedAgencyNewsPostsAsync(db, cancellationToken);
             await SeedAdminUserAsync(db, passwordService, cancellationToken);
             await SeedReferenceDataAsync(db, cancellationToken);
             await PhilippineAddressSeeder.SeedAsync(db, cancellationToken);
@@ -314,6 +315,99 @@ public class DatabaseSeeder : IHostedService
         await db.SaveChangesAsync(cancellationToken);
         await SeedAgencyLicenseTypesAsync(db, cancellationToken);
         await SeedSpsReferenceDataAsync(db, cancellationToken);
+    }
+
+    private static async Task SeedAgencyNewsPostsAsync(AgriCheckDbContext db, CancellationToken cancellationToken)
+    {
+        if (await db.AgencyNewsPosts.AnyAsync(cancellationToken))
+        {
+            return;
+        }
+
+        var agencies = await db.Agencies
+            .Where(a => a.IsActive && (a.Code == "DA" || a.Code == "BAI" || a.Code == "BFAR" || a.Code == "BPI"))
+            .ToDictionaryAsync(a => a.Code, a => a.Id, cancellationToken);
+
+        if (!agencies.TryGetValue("DA", out var daId))
+        {
+            return;
+        }
+
+        var published = DateTime.UtcNow.AddDays(-3);
+        var posts = new List<AgencyNewsPost>
+        {
+            new()
+            {
+                AgencyId = daId,
+                Title = "DA strengthens AgriCheck container tracking for food security",
+                Summary = "Department of Agriculture updates on digital traceability for agricultural imports.",
+                Body =
+                    "The Department of Agriculture (DA) reminds importers, warehouses, and drivers that container movements under AgriCheck must stay visible from pickup through warehouse handoff. " +
+                    "Regulatory agencies use this chain to protect food security and speed up inspections at NMIS-accredited facilities.",
+                Category = "Announcement",
+                IsRegulatory = true,
+                IsPublished = true,
+                PublishedAt = published,
+                DisplayOrder = 0,
+            },
+        };
+
+        if (agencies.TryGetValue("BAI", out var baiId))
+        {
+            posts.Add(new AgencyNewsPost
+            {
+                AgencyId = baiId,
+                Title = "BAI advisory: Livestock import documentation",
+                Summary = "Ensure MAV and animal health papers are complete before container departure.",
+                Body =
+                    "The Bureau of Animal Industry (BAI) advises clients to verify MAV certificates and animal health documents before containers leave the port. " +
+                    "Drivers should keep delivery QR codes ready for warehouse scanning.",
+                Category = "News",
+                IsRegulatory = true,
+                IsPublished = true,
+                PublishedAt = published.AddDays(-1),
+                DisplayOrder = 10,
+            });
+        }
+
+        if (agencies.TryGetValue("BFAR", out var bfarId))
+        {
+            posts.Add(new AgencyNewsPost
+            {
+                AgencyId = bfarId,
+                Title = "BFAR: Fisheries import clearance reminders",
+                Summary = "Aquatic product shipments require valid SPS clearance linked in AgriCheck.",
+                Body =
+                    "BFAR reminds stakeholders that fisheries imports must show active SPS import clearance in AgriCheck before warehouse intake. " +
+                    "Contact your accrediting officer if clearance status is pending.",
+                Category = "News",
+                IsRegulatory = true,
+                IsPublished = true,
+                PublishedAt = published.AddDays(-2),
+                DisplayOrder = 20,
+            });
+        }
+
+        if (agencies.TryGetValue("BPI", out var bpiId))
+        {
+            posts.Add(new AgencyNewsPost
+            {
+                AgencyId = bpiId,
+                Title = "BPI plant quarantine office hours",
+                Summary = "Updated scheduling for phytosanitary inspections at major ports.",
+                Body =
+                    "The Bureau of Plant Industry (BPI) published updated inspection windows for plant and plant-product containers. " +
+                    "Check AgriCheck entry timelines for your port of discharge.",
+                Category = "Article",
+                IsRegulatory = false,
+                IsPublished = true,
+                PublishedAt = published.AddDays(-4),
+                DisplayOrder = 30,
+            });
+        }
+
+        db.AgencyNewsPosts.AddRange(posts);
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private static async Task SeedAgencyLicenseTypesAsync(AgriCheckDbContext db, CancellationToken cancellationToken)

@@ -75,7 +75,9 @@ object PushNotificationManager {
     }
 
     const val EXTRA_OPEN_CONTAINERS = "open_containers"
+    const val EXTRA_OPEN_MAP = "open_map"
     const val EXTRA_CONTAINER_UUID = "container_uuid"
+    const val EXTRA_CONTAINER_NUMBER = "container_number"
 }
 
 object PushTokenRegistrar {

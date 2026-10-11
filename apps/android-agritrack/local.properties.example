@@ -6,3 +6,14 @@ API_BASE_URL=https://agricheck-v3-production.up.railway.app
 
 # Local API (emulator → host machine)
 # API_BASE_URL=http://10.0.2.2:5000
+
+# Google Maps — tingnan GOOGLE_MAPS_SETUP.md sa folder na ito
+# Package: com.agricheck.agritrack
+# GOOGLE_MAPS_API_KEY=AIzaSy...
+# In-app Google *tiles* (optional; needs SHA-1). Default = OSM map inside app + Google Directions.
+# ENABLE_GOOGLE_MAP_TILES=true
+
+# Demo map test — driver start malapit sa pickup (hindi warehouse), leg-1 status locally
+# USE_DEMO_MAP_STOPS=true
+# Pickup: 14.452722, 120.993092 | Warehouse: 14.459148, 120.987489
+# Driver start (auto): 14.451200, 120.995800 — i-rebuild pag binago

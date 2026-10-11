@@ -33,6 +33,26 @@ internal static class AgencyContextHelper
         return (user, membership.Agency);
     }
 
+    public static async Task<(User User, Agency Agency)> RequireAgencyNewsPublisherAsync(
+        AgriCheckDbContext db,
+        ICurrentUserService currentUser,
+        CancellationToken cancellationToken)
+    {
+        var (user, agency) = await RequireAgencyStaffAsync(db, currentUser, cancellationToken);
+        if (currentUser.IsInRole("ROLE_AGENCY_ADMIN") || currentUser.IsInRole("ROLE_ADMIN"))
+        {
+            return (user, agency);
+        }
+
+        var daLeadership = currentUser.IsInRole("ROLE_DA_SECRETARY") || currentUser.IsInRole("ROLE_DA_UNDERSECRETARY");
+        if (daLeadership && string.Equals(agency.Code, "DA", StringComparison.OrdinalIgnoreCase))
+        {
+            return (user, agency);
+        }
+
+        throw new ClientPortalException("AGENCY_NEWS_PUBLISHER_REQUIRED", "Agency administrator or DA publisher access required.");
+    }
+
     public static async Task<(User User, Agency Agency)> RequireAgencyAdminAsync(
         AgriCheckDbContext db,
         ICurrentUserService currentUser,

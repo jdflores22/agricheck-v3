@@ -136,6 +136,7 @@ public static class DependencyInjection
         services.AddScoped<IMobileDriverAuthService, MobileDriverAuthService>();
         services.AddScoped<IMobileSyncService, MobileSyncService>();
         services.AddScoped<IAgriTrackPushService, AgriTrackPushService>();
+        services.AddScoped<IAgencyNewsService, AgencyNewsService>();
         services.AddHttpClient("ExpoPush");
 
         services.AddSingleton<DatabaseSeeder>();

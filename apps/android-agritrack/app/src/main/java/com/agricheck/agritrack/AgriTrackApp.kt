@@ -3,13 +3,17 @@ package com.agricheck.agritrack
 import android.app.Application
 import com.agricheck.agritrack.data.api.NetworkModule
 import com.agricheck.agritrack.data.api.NetworkServices
+import com.agricheck.agritrack.data.local.MapNavigationSessionStore
 import com.agricheck.agritrack.data.local.SettingsStore
 import com.agricheck.agritrack.data.local.TokenStore
 import com.agricheck.agritrack.data.local.TrackingStore
 import com.agricheck.agritrack.data.repository.AuthRepository
 import com.agricheck.agritrack.data.repository.DriverRepository
 import com.agricheck.agritrack.data.repository.OperatorRepository
+import com.agricheck.agritrack.data.repository.NewsRepository
 import com.agricheck.agritrack.data.repository.PushRepository
+import com.agricheck.agritrack.location.AppLocationManager
+import com.google.android.gms.maps.MapsInitializer
 import org.osmdroid.config.Configuration
 
 class AgriTrackApp : Application() {
@@ -18,8 +22,15 @@ class AgriTrackApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        Configuration.getInstance().load(this, getSharedPreferences("osmdroid", MODE_PRIVATE))
-        Configuration.getInstance().userAgentValue = packageName
+        runCatching {
+            if (AppLocationManager.isGooglePlayServicesAvailable(this)) {
+                MapsInitializer.initialize(applicationContext)
+            }
+        }
+        runCatching {
+            Configuration.getInstance().load(this, getSharedPreferences("osmdroid", MODE_PRIVATE))
+            Configuration.getInstance().userAgentValue = packageName
+        }
         container = AppContainer(this)
     }
 }
@@ -28,6 +39,7 @@ class AppContainer(private val app: Application) {
     val tokenStore = TokenStore(app)
     val settingsStore = SettingsStore(app)
     val trackingStore = TrackingStore(app)
+    val mapNavigationSessionStore = MapNavigationSessionStore()
 
     @Volatile
     private var cachedServices: NetworkServices? = null
@@ -69,4 +81,5 @@ class AppContainer(private val app: Application) {
     val driverRepository = DriverRepository(this)
     val operatorRepository = OperatorRepository(this)
     val pushRepository = PushRepository(this)
+    val newsRepository = NewsRepository(this)
 }
