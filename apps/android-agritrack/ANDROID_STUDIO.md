@@ -38,6 +38,9 @@ GOOGLE_MAPS_API_KEY=your_key
 
 Google Maps: tingnan `GOOGLE_MAPS_SETUP.md` sa folder na ito.
 
+- **Traffic layer** (green/orange roads): kailangan `ENABLE_GOOGLE_MAP_TILES=true` + valid `GOOGLE_MAPS_API_KEY` — lalabas habang **Start navigation** (Google map tiles lang; OSM fallback walang Google traffic).
+- **Offline GPS trail**: coordinates naka-save sa phone (`pending_driver_locations.json`) kahit walang data; auto-sync sa API kapag may internet (~every **4 min** o **80 m** move). Foreground tracking service: **~5 s** habang nag-navigate.
+
 **Reference navigation test** (production API — `scripts/agritrack/reset-driver-delivery.ps1`):
 
 | Stop | Coordinates |

@@ -128,6 +128,7 @@ class MainActivity : ComponentActivity() {
                                     container.trackingStore,
                                     initial,
                                 )
+                                com.agricheck.agritrack.location.DriverLocationSync(context).flushPendingUploads()
                             }
                             initial = false
                             delay(60_000)

@@ -24,18 +24,12 @@ class LocationTrackingService : Service() {
     private var containerNumber: String? = null
     private var destinationLabel: String? = null
     private var navigationMode: Boolean = false
+    private val locationSync by lazy { DriverLocationSync(this) }
 
     private fun handleLocationUpdate(location: Location) {
         val uuid = containerUuid ?: return
         scope.launch {
-            runCatching {
-                val container = (application as AgriTrackApp).container
-                container.driverRepository.recordLocation(
-                    uuid,
-                    location.latitude,
-                    location.longitude,
-                )
-            }
+            locationSync.onLocationSample(uuid, location)
         }
     }
 
@@ -62,14 +56,12 @@ class LocationTrackingService : Service() {
                 navigationMode = intent.getBooleanExtra(EXTRA_NAVIGATION_MODE, false)
                 scope.launch {
                     (application as AgriTrackApp).container.trackingStore.setActiveContainerUuid(containerUuid)
+                    DriverLocationSync(this@LocationTrackingService).flushPendingUploads()
                 }
                 startForeground(NOTIFICATION_ID, buildTrackingNotification())
-                if (intent.action == ACTION_START) {
-                    startLocationUpdates()
-                } else {
-                    val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
-                    manager.notify(NOTIFICATION_ID, buildTrackingNotification())
-                }
+                startLocationUpdates()
+                val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+                manager.notify(NOTIFICATION_ID, buildTrackingNotification())
             }
         }
         return START_STICKY
@@ -91,12 +83,20 @@ class LocationTrackingService : Service() {
             return
         }
         locationSubscription?.cancel()
-        val highAccuracy = navigationMode
+        val nav = navigationMode
         locationSubscription = AppLocationManager.requestLocationUpdates(
             context = this,
-            intervalMs = if (highAccuracy) 15_000L else 60_000L,
-            minDistanceMeters = if (highAccuracy) 8f else 50f,
-            highAccuracy = highAccuracy,
+            intervalMs = if (nav) {
+                DriverTrackingPolicy.SERVICE_INTERVAL_NAV_MS
+            } else {
+                DriverTrackingPolicy.SERVICE_INTERVAL_IDLE_MS
+            },
+            minDistanceMeters = if (nav) {
+                DriverTrackingPolicy.SERVICE_MIN_DISTANCE_NAV_METERS
+            } else {
+                DriverTrackingPolicy.SERVICE_MIN_DISTANCE_IDLE_METERS
+            },
+            highAccuracy = true,
             onLocation = { location -> handleLocationUpdate(location) },
         )
     }

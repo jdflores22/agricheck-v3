@@ -7,6 +7,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.agricheck.agritrack.data.api.OsrmRouteResult
 import com.agricheck.agritrack.data.model.ContainerTrackDto
+import com.agricheck.agritrack.util.MapsConfig
+import androidx.compose.ui.platform.LocalContext
 import com.agricheck.agritrack.map.DriverLocationRadarOnMap
 import com.agricheck.agritrack.map.TruckMapIcons
 import com.agricheck.agritrack.ui.strings.UiStrings
@@ -122,11 +124,16 @@ fun DeliveryGoogleMap(
 
     val pickupIcon = remember { BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN) }
     val warehouseIcon = remember { BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_ORANGE) }
+    val mapContext = LocalContext.current
+    val showTraffic = drivingMode && MapsConfig.useGoogleMapTilesInApp(mapContext)
 
     GoogleMap(
         modifier = modifier,
         cameraPositionState = cameraPositionState,
-        properties = MapProperties(isMyLocationEnabled = false),
+        properties = MapProperties(
+            isMyLocationEnabled = false,
+            isTrafficEnabled = showTraffic,
+        ),
         uiSettings = MapUiSettings(
             zoomControlsEnabled = false,
             myLocationButtonEnabled = false,

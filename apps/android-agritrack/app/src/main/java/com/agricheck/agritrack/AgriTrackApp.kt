@@ -3,6 +3,7 @@ package com.agricheck.agritrack
 import android.app.Application
 import com.agricheck.agritrack.data.api.NetworkModule
 import com.agricheck.agritrack.data.api.NetworkServices
+import com.agricheck.agritrack.data.local.DriverLocationQueueStore
 import com.agricheck.agritrack.data.local.MapNavigationSessionStore
 import com.agricheck.agritrack.data.local.SettingsStore
 import com.agricheck.agritrack.data.local.TokenStore
@@ -39,6 +40,7 @@ class AppContainer(private val app: Application) {
     val tokenStore = TokenStore(app)
     val settingsStore = SettingsStore(app)
     val trackingStore = TrackingStore(app)
+    val driverLocationQueueStore = DriverLocationQueueStore(app)
     val mapNavigationSessionStore = MapNavigationSessionStore()
 
     @Volatile

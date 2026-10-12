@@ -42,6 +42,8 @@ import com.agricheck.agritrack.navigation.NavigationVoiceAnnouncer
 import com.agricheck.agritrack.ui.components.AgriScreenTopBar
 import com.agricheck.agritrack.ui.components.LoadingState
 import com.agricheck.agritrack.location.AppLocationManager
+import com.agricheck.agritrack.location.DriverLocationSync
+import com.agricheck.agritrack.location.DriverTrackingPolicy
 import com.agricheck.agritrack.location.LocationSubscription
 import com.agricheck.agritrack.location.LocationTrackingService
 import com.agricheck.agritrack.location.meetsNavigationAccuracy
@@ -119,6 +121,10 @@ fun MapScreen(
 
     LaunchedEffect(drivingMode, northUp, voiceEnabled, containerUuid) {
         navSessionStore.update(containerUuid, drivingMode, northUp, voiceEnabled)
+    }
+
+    LaunchedEffect(containerUuid) {
+        DriverLocationSync(context).flushPendingUploads()
     }
 
     LaunchedEffect(containerUuid) {
@@ -219,30 +225,6 @@ fun MapScreen(
         }
     }
 
-    /** Prefer a recent GPS fix (avoids stale last-known / server trail when navigation starts). */
-    suspend fun validateFreshGpsAtStop(
-        stopLat: Double,
-        stopLng: Double,
-        stopLabel: String,
-    ): Location? {
-        val loc = awaitFreshDeviceLocation()
-        if (loc == null) {
-            actionMessage = UiStrings.Loads.locationRequired
-            return null
-        }
-        if (!loc.meetsNavigationAccuracy()) {
-            actionMessage = UiStrings.Map.locationAccuracyPoor
-            return null
-        }
-        syncDriverPositionFrom(loc.latitude, loc.longitude, track)
-        val dist = GeoUtils.distanceMeters(loc.latitude, loc.longitude, stopLat, stopLng)
-        if (!isWithinDeliveryStopGeofence(dist)) {
-            actionMessage = UiStrings.Map.nearStopHint.format(stopLabel, OsrmClient.formatDistance(dist))
-            return null
-        }
-        return loc
-    }
-
     suspend fun awaitFreshDeviceLocation(
         maxAgeMs: Long = 25_000L,
         timeoutMs: Long = 15_000L,
@@ -269,6 +251,30 @@ fun MapScreen(
             currentLat = lat
             currentLng = lng
         }
+    }
+
+    /** Fresh GPS fix + accuracy + geofence for pickup / warehouse actions. */
+    suspend fun validateFreshGpsAtStop(
+        stopLat: Double,
+        stopLng: Double,
+        stopLabel: String,
+    ): Location? {
+        val loc = awaitFreshDeviceLocation()
+        if (loc == null) {
+            actionMessage = UiStrings.Loads.locationRequired
+            return null
+        }
+        if (!loc.meetsNavigationAccuracy()) {
+            actionMessage = UiStrings.Map.locationAccuracyPoor
+            return null
+        }
+        syncDriverPositionFrom(loc.latitude, loc.longitude, track)
+        val dist = GeoUtils.distanceMeters(loc.latitude, loc.longitude, stopLat, stopLng)
+        if (!isWithinDeliveryStopGeofence(dist)) {
+            actionMessage = UiStrings.Map.nearStopHint.format(stopLabel, OsrmClient.formatDistance(dist))
+            return null
+        }
+        return loc
     }
 
     /** @param forceDeviceGps When true (start navigation / resume), use fresh phone GPS only. */
@@ -538,8 +544,16 @@ fun MapScreen(
         )
         val subscription = AppLocationManager.requestLocationUpdates(
             context = context,
-            intervalMs = if (drivingMode) 2_000L else 8_000L,
-            minDistanceMeters = if (drivingMode) 4f else 12f,
+            intervalMs = if (drivingMode) {
+                DriverTrackingPolicy.SERVICE_INTERVAL_NAV_MS
+            } else {
+                8_000L
+            },
+            minDistanceMeters = if (drivingMode) {
+                DriverTrackingPolicy.SERVICE_MIN_DISTANCE_NAV_METERS
+            } else {
+                12f
+            },
             highAccuracy = true,
         ) { location ->
             syncDriverPositionFrom(location.latitude, location.longitude, track)
