@@ -204,7 +204,7 @@ public record ContainerListItemDto(
     ContainerDeliveryStopDto? Pickup = null,
     ContainerDeliveryStopDto? Destination = null);
 
-public record UpdateContainerStatusRequest(string Status);
+public record UpdateContainerStatusRequest(string Status, decimal? Latitude = null, decimal? Longitude = null);
 
 public record AssignDriverRequest(Guid DriverUserUuid, Guid? VehicleUuid = null);
 

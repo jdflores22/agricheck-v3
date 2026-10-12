@@ -565,6 +565,27 @@ public class DriverOpsService : IDriverOpsService
             throw new ClientPortalException("INVALID_STATUS", "Confirm pickup before starting in-transit delivery.");
         }
 
+        if (status == ContainerStatus.InTransit)
+        {
+            if (request.Latitude is null || request.Longitude is null)
+            {
+                throw new ClientPortalException("LOCATION_REQUIRED", "Current GPS is required to start warehouse navigation.");
+            }
+
+            var pickupTarget = ContainerDeliveryPointHelper.ResolvePickup(container, container.Entry);
+            var distanceToPickup = GeoDistanceHelper.DistanceMeters(
+                request.Latitude.Value,
+                request.Longitude.Value,
+                pickupTarget.Latitude,
+                pickupTarget.Longitude);
+            if (distanceToPickup > GeoDistanceHelper.DeliveryStopGeofenceMeters)
+            {
+                throw new ClientPortalException(
+                    "OUTSIDE_GEOFENCE",
+                    $"Move within {GeoDistanceHelper.DeliveryStopGeofenceMeters:0} m of the pickup point before navigating to the warehouse.");
+            }
+        }
+
         container.Status = status;
         if (container.DepartureTime is null)
         {
@@ -610,7 +631,8 @@ public class DriverOpsService : IDriverOpsService
             ? pickupTarget.Label
             : request.Label.Trim();
 
-        ContainerDeliveryPointHelper.SetPickup(container, label, request.Latitude, request.Longitude);
+        // Keep planned pickup coordinates; only record driver GPS in the trail.
+        ContainerDeliveryPointHelper.SetPickup(container, label, pickupTarget.Latitude, pickupTarget.Longitude);
         container.Status = ContainerStatus.PickedUp;
         _db.ContainerLocations.Add(new ContainerLocation
         {

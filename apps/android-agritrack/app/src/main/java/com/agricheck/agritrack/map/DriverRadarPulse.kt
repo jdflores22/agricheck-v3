@@ -20,9 +20,9 @@ import kotlin.math.sin
 
 object DriverRadarPulse {
     private const val RING_COUNT = 3
-    private const val PERIOD_MS = 2_800L
-    private const val MAX_RADIUS_PX = 58f
-    private const val MIN_RADIUS_PX = 14f
+    private const val PERIOD_MS = 2_600L
+    private const val MAX_RADIUS_PX = 102f
+    private const val MIN_RADIUS_PX = 26f
 
     fun drawOnCanvas(canvas: Canvas, centerX: Float, centerY: Float, nowMs: Long) {
         for (i in 0 until RING_COUNT) {
@@ -32,15 +32,15 @@ object DriverRadarPulse {
             val alpha = (1f - phase).coerceIn(0f, 1f)
 
             val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.argb((alpha * 55).toInt(), 34, 197, 94)
+                color = Color.argb((alpha * 110).toInt(), 34, 197, 94)
                 style = Paint.Style.FILL
             }
             canvas.drawCircle(centerX, centerY, radius, fill)
 
             val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.argb((alpha * 200).toInt(), 21, 128, 61)
+                color = Color.argb((alpha * 240).toInt(), 21, 128, 61)
                 style = Paint.Style.STROKE
-                strokeWidth = 2.5f
+                strokeWidth = 4f
             }
             canvas.drawCircle(centerX, centerY, radius, ring)
         }
@@ -48,7 +48,7 @@ object DriverRadarPulse {
         val sweepPhase = (nowMs % PERIOD_MS) / PERIOD_MS.toFloat()
         val sweepAngle = sweepPhase * 360f
         val sweep = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(70, 34, 197, 94)
+            color = Color.argb(120, 34, 197, 94)
             style = Paint.Style.FILL
         }
         val bounds = RectF(
@@ -62,9 +62,9 @@ object DriverRadarPulse {
         val beamEndX = centerX + cos(Math.toRadians(sweepAngle.toDouble() - 90.0)).toFloat() * MAX_RADIUS_PX * 0.92f
         val beamEndY = centerY + sin(Math.toRadians(sweepAngle.toDouble() - 90.0)).toFloat() * MAX_RADIUS_PX * 0.92f
         val beam = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(160, 21, 128, 61)
+            color = Color.argb(220, 21, 128, 61)
             style = Paint.Style.STROKE
-            strokeWidth = 3f
+            strokeWidth = 4.5f
         }
         canvas.drawLine(centerX, centerY, beamEndX, beamEndY, beam)
 
@@ -77,8 +77,8 @@ object DriverRadarPulse {
             style = Paint.Style.STROKE
             strokeWidth = 3f
         }
-        canvas.drawCircle(centerX, centerY, 10f, core)
-        canvas.drawCircle(centerX, centerY, 10f, coreRing)
+        canvas.drawCircle(centerX, centerY, 16f, core)
+        canvas.drawCircle(centerX, centerY, 16f, coreRing)
     }
 }
 
@@ -114,24 +114,24 @@ fun DriverLocationRadarOnMap(
     val fillGreen = AgriColors.Primary
 
     rings.forEachIndexed { index, phase ->
-        val radius = 12.0 + phase * 48.0
-        val alpha = (1f - phase).coerceIn(0.05f, 1f)
+        val radius = 22.0 + phase * 78.0
+        val alpha = (1f - phase).coerceIn(0.08f, 1f)
         Circle(
             center = center,
             radius = radius,
-            fillColor = fillGreen.copy(alpha = 0.08f * alpha),
-            strokeColor = strokeGreen.copy(alpha = 0.35f * alpha),
-            strokeWidth = 2f,
+            fillColor = fillGreen.copy(alpha = 0.22f * alpha),
+            strokeColor = strokeGreen.copy(alpha = 0.62f * alpha),
+            strokeWidth = 3.5f,
             zIndex = zIndexBase + index * 0.1f,
         )
     }
 
     Circle(
         center = center,
-        radius = 8.0 + sweep * 6.0,
-        fillColor = fillGreen.copy(alpha = 0.35f),
+        radius = 14.0 + sweep * 12.0,
+        fillColor = fillGreen.copy(alpha = 0.5f),
         strokeColor = strokeGreen,
-        strokeWidth = 3f,
+        strokeWidth = 4f,
         zIndex = zIndexBase + 3f,
     )
 }

@@ -116,7 +116,11 @@ data class DriverDeliveryHandoffQrDto(
 )
 
 @Serializable
-data class UpdateContainerStatusRequest(val status: String)
+data class UpdateContainerStatusRequest(
+    val status: String,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+)
 
 @Serializable
 data class RecordContainerLocationRequest(val latitude: Double, val longitude: Double)

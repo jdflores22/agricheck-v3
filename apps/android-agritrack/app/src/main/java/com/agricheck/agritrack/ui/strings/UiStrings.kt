@@ -63,6 +63,8 @@ object UiStrings {
         const val arrivedAtWarehouse = "Arrived at warehouse"
         const val arrivedAtWarehouseSub = ""
         const val nearStopHint = "Move closer to %s (%s) to enable."
+        const val locationAccuracyPoor = "Waiting for a more accurate GPS fix. Try outdoors or enable high accuracy location."
+        const val mustBeAtPickupForWarehouse = "You must be at the pickup point (accurate GPS) before navigating to the warehouse."
         const val waitingForQrScan = "Waiting for NMIS/Doctor to scan delivery QR."
         const val tripEndsWithQr = ""
         const val overviewHint = ""

@@ -76,8 +76,15 @@ class DriverRepository(private val container: AppContainer) {
     suspend fun profile() = api().driverProfile().requireData()
     suspend fun assignedContainers() = api().assignedContainers().requireData()
     suspend fun syncPull() = api().syncPull().requireData()
-    suspend fun updateStatus(uuid: String, status: String) =
-        api().updateContainerStatus(uuid, UpdateContainerStatusRequest(status)).requireData()
+    suspend fun updateStatus(
+        uuid: String,
+        status: String,
+        latitude: Double? = null,
+        longitude: Double? = null,
+    ) = api().updateContainerStatus(
+        uuid,
+        UpdateContainerStatusRequest(status, latitude, longitude),
+    ).requireData()
     suspend fun confirmPickup(uuid: String, latitude: Double, longitude: Double, label: String? = null) =
         api().confirmPickup(uuid, ConfirmContainerPickupRequest(latitude, longitude, label)).requireData()
     suspend fun deliveryHandoffQr(uuid: String) = api().deliveryHandoffQr(uuid).requireData()

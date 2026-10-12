@@ -57,8 +57,8 @@ object TruckMapIcons {
                 style = Paint.Style.STROKE
                 strokeWidth = 4f
             }
-            canvas.drawCircle(centerX, centerY, 11f, dot)
-            canvas.drawCircle(centerX, centerY, 11f, ring)
+            canvas.drawCircle(centerX, centerY, 16f, dot)
+            canvas.drawCircle(centerX, centerY, 16f, ring)
         }
     }
 
@@ -75,9 +75,9 @@ object TruckMapIcons {
             color = Color.parseColor("#9922C55E")
             style = Paint.Style.FILL
         }
-        canvas.drawCircle(cx, cy, 42f, outer)
-        canvas.drawCircle(cx, cy, 28f, mid)
-        canvas.drawCircle(cx, cy, 16f, inner)
+        canvas.drawCircle(cx, cy, 58f, outer)
+        canvas.drawCircle(cx, cy, 40f, mid)
+        canvas.drawCircle(cx, cy, 24f, inner)
     }
 
     private fun drawTruck(canvas: Canvas, cx: Float, cy: Float, bearing: Float, mapOrientation: Float) {

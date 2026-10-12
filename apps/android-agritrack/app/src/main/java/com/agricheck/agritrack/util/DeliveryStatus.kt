@@ -40,6 +40,10 @@ const val DELIVERY_STOP_GEOFENCE_METERS = 100.0
 fun isWithinDeliveryStopGeofence(distanceMeters: Double?): Boolean =
     distanceMeters != null && distanceMeters <= DELIVERY_STOP_GEOFENCE_METERS
 
+/** Leg 2: warehouse navigation may start only after a verified pickup at the planned stop. */
+fun requiresPickupGeofenceToStartWarehouseNavigation(phase: DeliveryPhase): Boolean =
+    phase == DeliveryPhase.PickedUp
+
 fun canShowDeliveryQr(phase: DeliveryPhase) =
     phase == DeliveryPhase.PickedUp ||
         phase == DeliveryPhase.InTransit ||

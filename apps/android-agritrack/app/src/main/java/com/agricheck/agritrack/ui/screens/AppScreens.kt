@@ -46,6 +46,7 @@ import com.agricheck.agritrack.ui.components.*
 import com.agricheck.agritrack.ui.strings.UiStrings
 import com.agricheck.agritrack.ui.theme.AgriColors
 import com.agricheck.agritrack.data.api.OsrmClient
+import com.agricheck.agritrack.location.meetsNavigationAccuracy
 import com.agricheck.agritrack.util.MapsConfig
 import com.agricheck.agritrack.util.*
 import kotlinx.coroutines.launch
@@ -422,6 +423,10 @@ fun ContainersScreen(
                                     actionMessage = UiStrings.Loads.locationRequired
                                     return@getCurrentLocation
                                 }
+                                if (!loc.meetsNavigationAccuracy()) {
+                                    actionMessage = UiStrings.Map.locationAccuracyPoor
+                                    return@getCurrentLocation
+                                }
                                 val pickup = container.pickup
                                 if (pickup != null) {
                                     val dist = GeoUtils.distanceMeters(
@@ -464,13 +469,44 @@ fun ContainersScreen(
                                     perms.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                                 }
                                 permissionLauncher.launch(perms.toTypedArray())
-                                scope.launch {
-                                    runCatching {
-                                        LocationTrackingService.start(context, container.uuid)
-                                        repository.updateStatus(container.uuid, "InTransit")
+                                AppLocationManager.getCurrentLocation(context) { loc ->
+                                    if (loc == null) {
+                                        actionMessage = UiStrings.Loads.locationRequired
+                                        return@getCurrentLocation
                                     }
-                                        .onSuccess { actionMessage = UiStrings.Loads.inTransitMessage(container.containerNumber); load() }
-                                        .onFailure { actionMessage = it.message }
+                                    if (!loc.meetsNavigationAccuracy()) {
+                                        actionMessage = UiStrings.Map.locationAccuracyPoor
+                                        return@getCurrentLocation
+                                    }
+                                    val pickup = container.pickup
+                                    if (pickup != null) {
+                                        val dist = GeoUtils.distanceMeters(
+                                            loc.latitude,
+                                            loc.longitude,
+                                            pickup.latitude,
+                                            pickup.longitude,
+                                        )
+                                        if (!isWithinDeliveryStopGeofence(dist)) {
+                                            actionMessage = UiStrings.Map.mustBeAtPickupForWarehouse
+                                            return@getCurrentLocation
+                                        }
+                                    }
+                                    scope.launch {
+                                        runCatching {
+                                            LocationTrackingService.start(context, container.uuid)
+                                            repository.updateStatus(
+                                                container.uuid,
+                                                "InTransit",
+                                                loc.latitude,
+                                                loc.longitude,
+                                            )
+                                        }
+                                            .onSuccess {
+                                                actionMessage = UiStrings.Loads.inTransitMessage(container.containerNumber)
+                                                load()
+                                            }
+                                            .onFailure { actionMessage = it.message }
+                                    }
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = AgriColors.Primary),

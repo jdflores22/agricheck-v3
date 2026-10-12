@@ -44,6 +44,7 @@ import com.agricheck.agritrack.ui.components.LoadingState
 import com.agricheck.agritrack.location.AppLocationManager
 import com.agricheck.agritrack.location.LocationSubscription
 import com.agricheck.agritrack.location.LocationTrackingService
+import com.agricheck.agritrack.location.meetsNavigationAccuracy
 import com.agricheck.agritrack.ui.strings.UiStrings
 import com.agricheck.agritrack.ui.theme.AgriColors
 import com.agricheck.agritrack.ui.theme.MapRouteColors
@@ -219,6 +220,29 @@ fun MapScreen(
     }
 
     /** Prefer a recent GPS fix (avoids stale last-known / server trail when navigation starts). */
+    suspend fun validateFreshGpsAtStop(
+        stopLat: Double,
+        stopLng: Double,
+        stopLabel: String,
+    ): Location? {
+        val loc = awaitFreshDeviceLocation()
+        if (loc == null) {
+            actionMessage = UiStrings.Loads.locationRequired
+            return null
+        }
+        if (!loc.meetsNavigationAccuracy()) {
+            actionMessage = UiStrings.Map.locationAccuracyPoor
+            return null
+        }
+        syncDriverPositionFrom(loc.latitude, loc.longitude, track)
+        val dist = GeoUtils.distanceMeters(loc.latitude, loc.longitude, stopLat, stopLng)
+        if (!isWithinDeliveryStopGeofence(dist)) {
+            actionMessage = UiStrings.Map.nearStopHint.format(stopLabel, OsrmClient.formatDistance(dist))
+            return null
+        }
+        return loc
+    }
+
     suspend fun awaitFreshDeviceLocation(
         maxAgeMs: Long = 25_000L,
         timeoutMs: Long = 15_000L,
@@ -632,6 +656,15 @@ fun MapScreen(
         if (isWithinDeliveryStopGeofence(meters)) return null
         return UiStrings.Map.nearStopHint.format(label, OsrmClient.formatDistance(meters))
     }
+    val warehouseNavNeedsPickup =
+        !drivingMode && phase != null && requiresPickupGeofenceToStartWarehouseNavigation(phase)
+    val startNavigationEnabled =
+        !waitingAtWarehouse && (!warehouseNavNeedsPickup || nearPickup)
+    val startNavigationHint = when {
+        warehouseNavNeedsPickup && !nearPickup ->
+            stopDistanceHint(UiStrings.Map.pickup, distanceToPickupM) ?: UiStrings.Map.mustBeAtPickupForWarehouse
+        else -> null
+    }
     val pickupDistanceHint = if (showPickupButton) stopDistanceHint(UiStrings.Map.pickup, distanceToPickupM) else null
     val arrivedDistanceHint = if (showArrivedButton) stopDistanceHint(UiStrings.Map.destination, distanceToDestinationM) else null
     val maneuverIcon = remember(activeStep) { maneuverIconFor(activeStep) }
@@ -832,6 +865,8 @@ fun MapScreen(
             pickupBusy = pickupBusy,
             arriveBusy = arriveBusy,
             startNavigationBusy = navigationBootstrapping,
+            startNavigationEnabled = startNavigationEnabled,
+            startNavigationHint = startNavigationHint,
             actionMessage = actionMessage,
             onBack = onBack,
             onStartNavigation = {
@@ -842,21 +877,32 @@ fun MapScreen(
                     actionMessage = null
                     try {
                         val phaseBefore = deliveryPhase(data.status)
-                        previewWarehouseRoute = null
-                        val routeReady = fetchNavigationRoute(data, forceDeviceGps = true)
-                        if (!routeReady) {
-                            actionMessage = UiStrings.Loads.locationRequired
-                            return@launch
-                        }
-                        if (tripNavLeg(phaseBefore) == TripNavLeg.ToDestination && canStartTransit(phaseBefore)) {
+                        if (requiresPickupGeofenceToStartWarehouseNavigation(phaseBefore)) {
+                            val pickup = data.pickup
+                            val loc = validateFreshGpsAtStop(
+                                pickup.latitude,
+                                pickup.longitude,
+                                UiStrings.Map.pickup,
+                            ) ?: return@launch
                             val result = runCatching {
-                                repository.updateStatus(containerUuid, "InTransit")
+                                repository.updateStatus(
+                                    containerUuid,
+                                    "InTransit",
+                                    loc.latitude,
+                                    loc.longitude,
+                                )
                                 loadTrack()
                             }
                             if (result.isFailure) {
                                 actionMessage = result.exceptionOrNull()?.message
                                 return@launch
                             }
+                        }
+                        previewWarehouseRoute = null
+                        val routeReady = fetchNavigationRoute(track ?: data, forceDeviceGps = true)
+                        if (!routeReady) {
+                            actionMessage = UiStrings.Loads.locationRequired
+                            return@launch
                         }
                         northUp = false
                         drivingMode = true
@@ -869,28 +915,30 @@ fun MapScreen(
                 }
             },
             onConfirmPickup = {
-                val lat = currentLat
-                val lng = currentLng
                 val pickup = track?.pickup
-                if (lat == null || lng == null) {
+                if (pickup == null) {
                     actionMessage = UiStrings.Loads.locationRequired
                     return@MapTripPanel
-                }
-                if (pickup != null) {
-                    val dist = GeoUtils.distanceMeters(lat, lng, pickup.latitude, pickup.longitude)
-                    if (!isWithinDeliveryStopGeofence(dist)) {
-                        actionMessage = UiStrings.Map.nearStopHint.format(
-                            UiStrings.Map.pickup,
-                            OsrmClient.formatDistance(dist),
-                        )
-                        return@MapTripPanel
-                    }
                 }
                 scope.launch {
                     pickupBusy = true
                     actionMessage = null
+                    val loc = validateFreshGpsAtStop(
+                        pickup.latitude,
+                        pickup.longitude,
+                        UiStrings.Map.pickup,
+                    )
+                    if (loc == null) {
+                        pickupBusy = false
+                        return@launch
+                    }
                     runCatching {
-                        repository.confirmPickup(containerUuid, lat, lng, track?.pickup?.name)
+                        repository.confirmPickup(
+                            containerUuid,
+                            loc.latitude,
+                            loc.longitude,
+                            track?.pickup?.name,
+                        )
                         navSessionStore.clear(containerUuid)
                         drivingMode = false
                         followCamera = false

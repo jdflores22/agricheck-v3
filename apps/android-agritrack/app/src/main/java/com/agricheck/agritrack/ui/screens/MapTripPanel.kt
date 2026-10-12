@@ -46,6 +46,8 @@ fun MapTripPanel(
     pickupBusy: Boolean,
     arriveBusy: Boolean,
     startNavigationBusy: Boolean,
+    startNavigationEnabled: Boolean,
+    startNavigationHint: String?,
     actionMessage: String?,
     onBack: () -> Unit,
     onStartNavigation: () -> Unit,
@@ -111,10 +113,14 @@ fun MapTripPanel(
                         color = AgriColors.Primary,
                     )
                 }
+                startNavigationHint?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = AgriColors.TextSecondary)
+                    Spacer(Modifier.height(6.dp))
+                }
                 Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = onStartNavigation,
-                    enabled = !startNavigationBusy && !waitingAtWarehouse,
+                    enabled = startNavigationEnabled && !startNavigationBusy && !waitingAtWarehouse,
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = AgriColors.Primary),
                 ) {
