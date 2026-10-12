@@ -34,12 +34,16 @@ Copy `local.properties.example` → `local.properties` kung wala pa.
 sdk.dir=...
 API_BASE_URL=https://agricheck-v3-production.up.railway.app
 GOOGLE_MAPS_API_KEY=your_key
-USE_DEMO_MAP_STOPS=true
 ```
 
-`USE_DEMO_MAP_STOPS=true` — demo pickup/warehouse pins, **driver start malapit sa pickup** (`14.451200, 120.995800`, hindi warehouse), clear ng server GPS trail sa app, leg-1 status locally. I-rebuild pag binago.
-
 Google Maps: tingnan `GOOGLE_MAPS_SETUP.md` sa folder na ito.
+
+**Reference navigation test** (production API — `scripts/agritrack/reset-driver-delivery.ps1`):
+
+| Stop | Coordinates |
+|------|-------------|
+| Pickup | 14.454427, 120.990610 |
+| Warehouse | 14.459128, 120.987523 |
 
 ## Run sa phone
 

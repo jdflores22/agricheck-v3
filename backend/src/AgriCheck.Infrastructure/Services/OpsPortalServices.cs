@@ -695,6 +695,15 @@ public class DriverOpsService : IDriverOpsService
 
     private async Task<ContainerTrackDestinationDto> ResolveTrackDestinationAsync(Container container, CancellationToken cancellationToken)
     {
+        var storedDestination = ContainerDeliveryPointHelper.TryGetStoredDestination(container);
+        if (storedDestination is not null)
+        {
+            return new ContainerTrackDestinationDto(
+                storedDestination.Value.Label,
+                storedDestination.Value.Latitude,
+                storedDestination.Value.Longitude);
+        }
+
         var finalFacility = container.Entry.FinalWarehouseFacility;
         if (finalFacility?.Latitude is not null && finalFacility.Longitude is not null)
         {
@@ -919,6 +928,17 @@ public class DriverOpsService : IDriverOpsService
 
         _db.ContainerLocations.RemoveRange(container.Locations);
         ContainerDeliveryPointHelper.ClearStoredPickup(container);
+        ContainerDeliveryPointHelper.ClearStoredDestination(container);
+        ContainerDeliveryPointHelper.SetPickup(
+            container,
+            DriverDeliveryTestReset.PickupLabel,
+            DriverDeliveryTestReset.PickupLatitude,
+            DriverDeliveryTestReset.PickupLongitude);
+        ContainerDeliveryPointHelper.SetDestination(
+            container,
+            DriverDeliveryTestReset.WarehouseLabel,
+            DriverDeliveryTestReset.WarehouseLatitude,
+            DriverDeliveryTestReset.WarehouseLongitude);
 
         container.Status = ContainerStatus.Assigned;
         container.DepartureTime = null;

@@ -34,7 +34,11 @@ fun canStartTransit(phase: DeliveryPhase) = phase == DeliveryPhase.PickedUp
 fun canConfirmWarehouseArrival(phase: DeliveryPhase) =
     phase == DeliveryPhase.InTransit || phase == DeliveryPhase.PickedUp
 
-const val DELIVERY_STOP_GEOFENCE_METERS = 500.0
+/** Driver must be within this radius of pickup / warehouse to confirm arrival actions. */
+const val DELIVERY_STOP_GEOFENCE_METERS = 200.0
+
+fun isWithinDeliveryStopGeofence(distanceMeters: Double?): Boolean =
+    distanceMeters != null && distanceMeters <= DELIVERY_STOP_GEOFENCE_METERS
 
 fun canShowDeliveryQr(phase: DeliveryPhase) =
     phase == DeliveryPhase.PickedUp ||

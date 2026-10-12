@@ -11,8 +11,8 @@ import com.agricheck.agritrack.map.DriverLocationRadarOnMap
 import com.agricheck.agritrack.map.TruckMapIcons
 import com.agricheck.agritrack.ui.strings.UiStrings
 import com.agricheck.agritrack.ui.theme.MapRouteColors
-import com.agricheck.agritrack.util.DemoMapStops
 import com.agricheck.agritrack.util.GeoUtils
+import com.agricheck.agritrack.util.resolveDriverLatLng
 import com.agricheck.agritrack.util.NavigationGuidance
 import com.agricheck.agritrack.util.deliveryPhase
 import com.agricheck.agritrack.util.shouldShowPickupToWarehousePreview
@@ -48,12 +48,12 @@ fun DeliveryGoogleMap(
     northUp: Boolean,
     onUserInteracted: () -> Unit,
 ) {
-    val (driverLat, driverLng) = DemoMapStops.resolveDriverLatLng(currentLat, currentLng, track)
+    val (driverLat, driverLng) = resolveDriverLatLng(currentLat, currentLng, track, drivingMode)
     val leg = tripNavLeg(deliveryPhase(track.status))
-    val showWarehousePreview = shouldShowPickupToWarehousePreview(deliveryPhase(track.status))
+    val showWarehousePreview = shouldShowPickupToWarehousePreview(deliveryPhase(track.status), drivingMode)
 
-    val initialLat = driverLat ?: track.pickup.latitude
-    val initialLng = driverLng ?: track.pickup.longitude
+    val initialLat = driverLat ?: track.currentLatitude ?: track.pickup.latitude
+    val initialLng = driverLng ?: track.currentLongitude ?: track.pickup.longitude
 
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(LatLng(initialLat, initialLng), 15f)

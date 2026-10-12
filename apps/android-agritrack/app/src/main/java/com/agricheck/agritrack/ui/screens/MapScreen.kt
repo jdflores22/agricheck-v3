@@ -218,29 +218,45 @@ fun MapScreen(
         }
     }
 
-    fun syncDriverPositionFrom(deviceLat: Double?, deviceLng: Double?, data: ContainerTrackDto?) {
-        val (lat, lng) = DemoMapStops.resolveDriverLatLng(deviceLat, deviceLng, data)
-        currentLat = lat
-        currentLng = lng
+    /** Prefer a recent GPS fix (avoids stale last-known / server trail when navigation starts). */
+    suspend fun awaitFreshDeviceLocation(
+        maxAgeMs: Long = 25_000L,
+        timeoutMs: Long = 15_000L,
+    ): Location? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val loc = awaitDeviceLocation()
+            if (loc != null && System.currentTimeMillis() - loc.time <= maxAgeMs) {
+                return loc
+            }
+            delay(450)
+        }
+        return awaitDeviceLocation()
     }
 
-    /** @param forceDeviceGps When true (start navigation / resume), prefer fresh phone GPS over server trail. */
+    fun syncDriverPositionFrom(deviceLat: Double?, deviceLng: Double?, data: ContainerTrackDto?) {
+        if (deviceLat != null && deviceLng != null) {
+            currentLat = deviceLat
+            currentLng = deviceLng
+            return
+        }
+        if (!drivingMode) {
+            val (lat, lng) = resolveDriverLatLng(null, null, data)
+            currentLat = lat
+            currentLng = lng
+        }
+    }
+
+    /** @param forceDeviceGps When true (start navigation / resume), use fresh phone GPS only. */
     suspend fun fetchNavigationRoute(data: ContainerTrackDto, forceDeviceGps: Boolean = false): Boolean {
-        val origin: Pair<Double, Double>? = if (DemoMapStops.isEnabled()) {
-            DemoMapStops.driverStart().also { (lat, lng) ->
-                currentLat = lat
-                currentLng = lng
-            }
-        } else if (forceDeviceGps) {
-            val loc = awaitDeviceLocation()
+        val origin: Pair<Double, Double>? = if (forceDeviceGps) {
+            val loc = awaitFreshDeviceLocation()
             if (loc != null) {
                 syncDriverPositionFrom(loc.latitude, loc.longitude, data)
                 if (loc.hasBearing()) bearing = loc.bearing
                 loc.latitude to loc.longitude
             } else {
-                val lat = currentLat
-                val lng = currentLng
-                if (lat != null && lng != null) lat to lng else null
+                null
             }
         } else {
             val lat = currentLat
@@ -292,7 +308,7 @@ fun MapScreen(
 
     suspend fun loadPickupToWarehousePreview(data: ContainerTrackDto) {
         val phase = deliveryPhase(data.status)
-        if (!shouldShowPickupToWarehousePreview(phase)) {
+        if (!shouldShowPickupToWarehousePreview(phase, drivingMode)) {
             previewWarehouseRoute = null
             return
         }
@@ -306,12 +322,20 @@ fun MapScreen(
 
     suspend fun refreshPreviewRoutes(data: ContainerTrackDto) {
         fetchNavigationRoute(data, forceDeviceGps = false)
-        loadPickupToWarehousePreview(data)
+        if (drivingMode) {
+            previewWarehouseRoute = null
+        } else {
+            loadPickupToWarehousePreview(data)
+        }
     }
 
     suspend fun refreshRoute(data: ContainerTrackDto) {
         fetchNavigationRoute(data, forceDeviceGps = false)
-        loadPickupToWarehousePreview(data)
+        if (drivingMode) {
+            previewWarehouseRoute = null
+        } else {
+            loadPickupToWarehousePreview(data)
+        }
     }
 
     fun combinedRoutePointsForOverview(): List<Pair<Double, Double>> {
@@ -324,9 +348,11 @@ fun MapScreen(
         if (track == null) loading = true
         error = null
         try {
-            val data = DemoMapStops.applyIfEnabled(repository.track(containerUuid))
+            val data = repository.track(containerUuid)
             track = data
-            syncDriverPositionFrom(currentLat, currentLng, data)
+            if (!drivingMode) {
+                syncDriverPositionFrom(currentLat, currentLng, data)
+            }
             refreshPreviewRoutes(data)
         } catch (e: Exception) {
             error = e.message
@@ -405,7 +431,7 @@ fun MapScreen(
     fun updateMapOverlays(map: MapView, data: ContainerTrackDto) {
         map.overlays.clear()
         val phase = deliveryPhase(data.status)
-        if (shouldShowPickupToWarehousePreview(phase)) {
+        if (shouldShowPickupToWarehousePreview(phase, drivingMode)) {
             previewWarehouseRoute?.points?.let { addOsmRouteLine(map, it, primary = false) }
         }
         route?.points?.let { addOsmRouteLine(map, it, primary = true) }
@@ -453,8 +479,8 @@ fun MapScreen(
             )
         }
 
-        val driverLat = currentLat ?: data.currentLatitude
-        val driverLng = currentLng ?: data.currentLongitude
+        val driverLat = if (drivingMode) currentLat else currentLat ?: data.currentLatitude
+        val driverLng = if (drivingMode) currentLng else currentLng ?: data.currentLongitude
         if (driverLat != null && driverLng != null) {
             val lookAhead = points.dropWhile { (lat, lng) ->
                 GeoUtils.distanceMeters(driverLat, driverLng, lat, lng) > 80
@@ -493,7 +519,7 @@ fun MapScreen(
             highAccuracy = true,
         ) { location ->
             syncDriverPositionFrom(location.latitude, location.longitude, track)
-            if (!DemoMapStops.isEnabled() && location.hasBearing() && location.bearing > 0f) {
+            if (location.hasBearing() && location.bearing > 0f) {
                 bearing = location.bearing
             }
             val announceLat = currentLat
@@ -513,7 +539,7 @@ fun MapScreen(
         AppLocationManager.getCurrentLocation(context) { loc ->
             if (loc != null) {
                 syncDriverPositionFrom(loc.latitude, loc.longitude, track)
-                if (!DemoMapStops.isEnabled() && loc.hasBearing()) bearing = loc.bearing
+                if (loc.hasBearing()) bearing = loc.bearing
             }
         }
         loadTrack()
@@ -538,7 +564,18 @@ fun MapScreen(
     }
 
     LaunchedEffect(drivingMode, track?.containerUuid, track?.status) {
+        if (drivingMode) previewWarehouseRoute = null
         track?.let { refreshPreviewRoutes(it) }
+    }
+
+    LaunchedEffect(drivingMode) {
+        if (!drivingMode) return@LaunchedEffect
+        val loc = awaitFreshDeviceLocation()
+        if (loc != null) {
+            syncDriverPositionFrom(loc.latitude, loc.longitude, track)
+            if (loc.hasBearing()) bearing = loc.bearing
+            track?.let { data -> mapRef.value?.let { updateMapOverlays(it, data) } }
+        }
     }
 
     LaunchedEffect(drivingMode) {
@@ -588,14 +625,11 @@ fun MapScreen(
         if (lat == null || lng == null || stop == null) null
         else GeoUtils.distanceMeters(lat, lng, stop.latitude, stop.longitude)
     }
-    val relaxGeofence = MapsConfig.relaxStopGeofenceForTesting()
-    val nearPickup = distanceToPickupM != null &&
-        (distanceToPickupM <= DELIVERY_STOP_GEOFENCE_METERS || relaxGeofence)
-    val nearDestination = distanceToDestinationM != null &&
-        (distanceToDestinationM <= DELIVERY_STOP_GEOFENCE_METERS || relaxGeofence)
+    val nearPickup = isWithinDeliveryStopGeofence(distanceToPickupM)
+    val nearDestination = isWithinDeliveryStopGeofence(distanceToDestinationM)
     fun stopDistanceHint(label: String, meters: Double?): String? {
         if (meters == null) return UiStrings.Loads.locationRequired
-        if (meters <= DELIVERY_STOP_GEOFENCE_METERS) return null
+        if (isWithinDeliveryStopGeofence(meters)) return null
         return UiStrings.Map.nearStopHint.format(label, OsrmClient.formatDistance(meters))
     }
     val pickupDistanceHint = if (showPickupButton) stopDistanceHint(UiStrings.Map.pickup, distanceToPickupM) else null
@@ -808,12 +842,12 @@ fun MapScreen(
                     actionMessage = null
                     try {
                         val phaseBefore = deliveryPhase(data.status)
+                        previewWarehouseRoute = null
                         val routeReady = fetchNavigationRoute(data, forceDeviceGps = true)
                         if (!routeReady) {
-                            actionMessage = UiStrings.Map.routeLoadFailed
+                            actionMessage = UiStrings.Loads.locationRequired
                             return@launch
                         }
-                        loadPickupToWarehousePreview(data)
                         if (tripNavLeg(phaseBefore) == TripNavLeg.ToDestination && canStartTransit(phaseBefore)) {
                             val result = runCatching {
                                 repository.updateStatus(containerUuid, "InTransit")
@@ -837,9 +871,20 @@ fun MapScreen(
             onConfirmPickup = {
                 val lat = currentLat
                 val lng = currentLng
+                val pickup = track?.pickup
                 if (lat == null || lng == null) {
                     actionMessage = UiStrings.Loads.locationRequired
                     return@MapTripPanel
+                }
+                if (pickup != null) {
+                    val dist = GeoUtils.distanceMeters(lat, lng, pickup.latitude, pickup.longitude)
+                    if (!isWithinDeliveryStopGeofence(dist)) {
+                        actionMessage = UiStrings.Map.nearStopHint.format(
+                            UiStrings.Map.pickup,
+                            OsrmClient.formatDistance(dist),
+                        )
+                        return@MapTripPanel
+                    }
                 }
                 scope.launch {
                     pickupBusy = true
@@ -862,9 +907,20 @@ fun MapScreen(
             onArrivedAtWarehouse = {
                 val lat = currentLat
                 val lng = currentLng
+                val destination = track?.destination
                 if (lat == null || lng == null) {
                     actionMessage = UiStrings.Loads.locationRequired
                     return@MapTripPanel
+                }
+                if (destination != null) {
+                    val dist = GeoUtils.distanceMeters(lat, lng, destination.latitude, destination.longitude)
+                    if (!isWithinDeliveryStopGeofence(dist)) {
+                        actionMessage = UiStrings.Map.nearStopHint.format(
+                            UiStrings.Map.destination,
+                            OsrmClient.formatDistance(dist),
+                        )
+                        return@MapTripPanel
+                    }
                 }
                 scope.launch {
                     arriveBusy = true

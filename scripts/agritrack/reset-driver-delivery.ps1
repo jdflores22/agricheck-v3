@@ -1,4 +1,5 @@
-# Reset assigned container on API: status Assigned, GPS trail cleared, seed near demo pickup.
+# Reset assigned container: Assigned status, reference pickup/warehouse coords, seed GPS near pickup.
+# Pickup: 14.454427, 120.990610 | Warehouse: 14.459128, 120.987523
 param(
     [string]$ApiBaseUrl = "https://agricheck-v3-production.up.railway.app",
     [string]$Email = "driver@agricheck.local",

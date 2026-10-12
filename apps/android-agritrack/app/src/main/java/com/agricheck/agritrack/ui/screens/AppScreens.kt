@@ -45,6 +45,7 @@ import com.agricheck.agritrack.location.LocationTrackingService
 import com.agricheck.agritrack.ui.components.*
 import com.agricheck.agritrack.ui.strings.UiStrings
 import com.agricheck.agritrack.ui.theme.AgriColors
+import com.agricheck.agritrack.data.api.OsrmClient
 import com.agricheck.agritrack.util.MapsConfig
 import com.agricheck.agritrack.util.*
 import kotlinx.coroutines.launch
@@ -420,6 +421,22 @@ fun ContainersScreen(
                                 if (loc == null) {
                                     actionMessage = UiStrings.Loads.locationRequired
                                     return@getCurrentLocation
+                                }
+                                val pickup = container.pickup
+                                if (pickup != null) {
+                                    val dist = GeoUtils.distanceMeters(
+                                        loc.latitude,
+                                        loc.longitude,
+                                        pickup.latitude,
+                                        pickup.longitude,
+                                    )
+                                    if (!isWithinDeliveryStopGeofence(dist)) {
+                                        actionMessage = UiStrings.Map.nearStopHint.format(
+                                            UiStrings.Map.pickup,
+                                            OsrmClient.formatDistance(dist),
+                                        )
+                                        return@getCurrentLocation
+                                    }
                                 }
                                 scope.launch {
                                     runCatching {

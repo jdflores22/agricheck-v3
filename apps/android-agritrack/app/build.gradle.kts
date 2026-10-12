@@ -25,19 +25,16 @@ android {
         applicationId = "com.agricheck.agritrack"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "1.2.23"
+        versionCode = 28
+        versionName = "1.2.25"
 
         val apiBaseUrl = localProperties.getProperty("API_BASE_URL") ?: "https://agricheck-v3-production.up.railway.app"
         val googleMapsApiKey = localProperties.getProperty("GOOGLE_MAPS_API_KEY") ?: ""
         val enableGoogleMapTiles =
             localProperties.getProperty("ENABLE_GOOGLE_MAP_TILES")?.equals("true", ignoreCase = true) == true
-        val useDemoMapStops =
-            localProperties.getProperty("USE_DEMO_MAP_STOPS")?.equals("true", ignoreCase = true) == true
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "GOOGLE_MAPS_API_KEY", "\"$googleMapsApiKey\"")
         buildConfigField("boolean", "ENABLE_GOOGLE_MAP_TILES", enableGoogleMapTiles.toString())
-        buildConfigField("boolean", "USE_DEMO_MAP_STOPS", useDemoMapStops.toString())
         buildConfigField("boolean", "FIREBASE_ENABLED", firebaseEnabled.toString())
         manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = googleMapsApiKey.ifBlank { "PLACEHOLDER_SET_IN_local_properties" }
     }

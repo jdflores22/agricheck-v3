@@ -5,8 +5,6 @@ import com.agricheck.agritrack.BuildConfig
 import com.agricheck.agritrack.location.AppLocationManager
 
 object MapsConfig {
-    /** When demo map stops are enabled, allow pickup/arrived buttons without strict geofence (for local testing). */
-    fun relaxStopGeofenceForTesting(): Boolean = BuildConfig.USE_DEMO_MAP_STOPS
     fun googleMapsApiKey(): String = BuildConfig.GOOGLE_MAPS_API_KEY.trim()
 
     fun isGoogleMapsConfigured(): Boolean {

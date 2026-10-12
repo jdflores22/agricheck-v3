@@ -10,6 +10,10 @@ internal static class ContainerDeliveryPointHelper
     public const string PickupLatKey = "delivery_pickup_latitude";
     public const string PickupLngKey = "delivery_pickup_longitude";
 
+    public const string DestinationLabelKey = "delivery_destination_label";
+    public const string DestinationLatKey = "delivery_destination_latitude";
+    public const string DestinationLngKey = "delivery_destination_longitude";
+
     public static void SetPickup(Container container, string label, decimal latitude, decimal longitude)
     {
         var dict = ParseForm(container.FormDataJson);
@@ -26,6 +30,42 @@ internal static class ContainerDeliveryPointHelper
         dict.Remove(PickupLatKey);
         dict.Remove(PickupLngKey);
         container.FormDataJson = dict.Count == 0 ? null : JsonSerializer.Serialize(dict);
+    }
+
+    public static void SetDestination(Container container, string label, decimal latitude, decimal longitude)
+    {
+        var dict = ParseForm(container.FormDataJson);
+        dict[DestinationLabelKey] = label.Trim();
+        dict[DestinationLatKey] = latitude.ToString(CultureInfo.InvariantCulture);
+        dict[DestinationLngKey] = longitude.ToString(CultureInfo.InvariantCulture);
+        container.FormDataJson = JsonSerializer.Serialize(dict);
+    }
+
+    public static void ClearStoredDestination(Container container)
+    {
+        var dict = ParseForm(container.FormDataJson);
+        dict.Remove(DestinationLabelKey);
+        dict.Remove(DestinationLatKey);
+        dict.Remove(DestinationLngKey);
+        container.FormDataJson = dict.Count == 0 ? null : JsonSerializer.Serialize(dict);
+    }
+
+    public static (string Label, decimal Latitude, decimal Longitude)? TryGetStoredDestination(Container container)
+    {
+        var dict = ParseForm(container.FormDataJson);
+        if (!dict.TryGetValue(DestinationLatKey, out var latRaw) || !dict.TryGetValue(DestinationLngKey, out var lngRaw))
+        {
+            return null;
+        }
+
+        if (!decimal.TryParse(latRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var lat)
+            || !decimal.TryParse(lngRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var lng))
+        {
+            return null;
+        }
+
+        var label = dict.GetValueOrDefault(DestinationLabelKey) ?? "Warehouse";
+        return (label, lat, lng);
     }
 
     public static (string Label, decimal Latitude, decimal Longitude)? TryGetStoredPickup(Container container)

@@ -26,6 +26,20 @@ fun ContainerTrackDto.primaryRouteTarget(): ContainerTrackDestinationDto {
     return if (tripNavLeg(phase) == TripNavLeg.ToPickup) pickup else destination
 }
 
-/** Light route pickup → warehouse; shown until leg 2 (warehouse) navigation. */
-fun shouldShowPickupToWarehousePreview(phase: DeliveryPhase): Boolean =
-    tripNavLeg(phase) == TripNavLeg.ToPickup
+/** Light route pickup → warehouse — overview only (hidden during turn-by-turn navigation). */
+fun shouldShowPickupToWarehousePreview(phase: DeliveryPhase, drivingMode: Boolean): Boolean =
+    !drivingMode && tripNavLeg(phase) == TripNavLeg.ToPickup
+
+/** Device GPS when available; otherwise server last known (overview map only — not for geofence while navigating). */
+fun resolveDriverLatLng(
+    deviceLat: Double?,
+    deviceLng: Double?,
+    track: ContainerTrackDto?,
+    drivingMode: Boolean = false,
+): Pair<Double?, Double?> {
+    if (deviceLat != null && deviceLng != null) return deviceLat to deviceLng
+    if (drivingMode) return null to null
+    val lat = track?.currentLatitude
+    val lng = track?.currentLongitude
+    return lat to lng
+}
