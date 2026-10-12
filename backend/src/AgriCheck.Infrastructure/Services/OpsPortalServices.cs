@@ -593,8 +593,21 @@ public class DriverOpsService : IDriverOpsService
             throw new ClientPortalException("INVALID_STATUS", "This delivery is already completed.");
         }
 
+        var pickupTarget = ContainerDeliveryPointHelper.ResolvePickup(container, container.Entry);
+        var distanceToPickup = GeoDistanceHelper.DistanceMeters(
+            request.Latitude,
+            request.Longitude,
+            pickupTarget.Latitude,
+            pickupTarget.Longitude);
+        if (distanceToPickup > GeoDistanceHelper.DeliveryStopGeofenceMeters)
+        {
+            throw new ClientPortalException(
+                "OUTSIDE_GEOFENCE",
+                $"Move within {GeoDistanceHelper.DeliveryStopGeofenceMeters:0} m of the pickup point to confirm.");
+        }
+
         var label = string.IsNullOrWhiteSpace(request.Label)
-            ? ContainerDeliveryPointHelper.ResolvePlannedPickup(container.Entry).Label
+            ? pickupTarget.Label
             : request.Label.Trim();
 
         ContainerDeliveryPointHelper.SetPickup(container, label, request.Latitude, request.Longitude);
@@ -864,6 +877,13 @@ public class DriverOpsService : IDriverOpsService
             throw new ClientPortalException("INVALID_STATUS", "Check-in is only available while delivery is in progress.");
         }
 
+        if (distance > GeoDistanceHelper.DeliveryStopGeofenceMeters)
+        {
+            throw new ClientPortalException(
+                "OUTSIDE_GEOFENCE",
+                $"Move within {GeoDistanceHelper.DeliveryStopGeofenceMeters:0} m of the warehouse to confirm arrival.");
+        }
+
         _db.ContainerLocations.Add(new ContainerLocation
         {
             ContainerId = container.Id,
@@ -872,7 +892,7 @@ public class DriverOpsService : IDriverOpsService
             RecordedAt = DateTime.UtcNow
         });
 
-        var withinGeofence = distance <= GeoDistanceHelper.DefaultWarehouseGeofenceMeters;
+        var withinGeofence = distance <= GeoDistanceHelper.DeliveryStopGeofenceMeters;
         if (container.Status is ContainerStatus.InTransit or ContainerStatus.PickedUp)
         {
             container.Status = ContainerStatus.AtWarehouse;

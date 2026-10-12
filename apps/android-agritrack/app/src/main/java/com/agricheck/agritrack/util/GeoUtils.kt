@@ -6,7 +6,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 object GeoUtils {
-    const val DEFAULT_WAREHOUSE_GEOFENCE_METERS = 500.0
+    const val DEFAULT_WAREHOUSE_GEOFENCE_METERS = DELIVERY_STOP_GEOFENCE_METERS
 
     fun distanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
         val earthRadius = 6371000.0

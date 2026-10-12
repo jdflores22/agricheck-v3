@@ -2,7 +2,10 @@ namespace AgriCheck.Infrastructure.Helpers;
 
 public static class GeoDistanceHelper
 {
-    public const double DefaultWarehouseGeofenceMeters = 500;
+    /// <summary>Pickup confirm and warehouse check-in radius (AgriTrack <c>DELIVERY_STOP_GEOFENCE_METERS</c>).</summary>
+    public const double DeliveryStopGeofenceMeters = 100;
+
+    public const double DefaultWarehouseGeofenceMeters = DeliveryStopGeofenceMeters;
 
     public static double DistanceMeters(decimal lat1, decimal lon1, decimal lat2, decimal lon2)
     {

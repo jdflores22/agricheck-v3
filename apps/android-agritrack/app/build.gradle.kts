@@ -25,8 +25,8 @@ android {
         applicationId = "com.agricheck.agritrack"
         minSdk = 26
         targetSdk = 35
-        versionCode = 28
-        versionName = "1.2.25"
+        versionCode = 29
+        versionName = "1.2.26"
 
         val apiBaseUrl = localProperties.getProperty("API_BASE_URL") ?: "https://agricheck-v3-production.up.railway.app"
         val googleMapsApiKey = localProperties.getProperty("GOOGLE_MAPS_API_KEY") ?: ""
