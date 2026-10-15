@@ -2,5 +2,8 @@
   "ftpHost": "ftp.dimgrey-hummingbird-677957.hostingersite.com",
   "ftpUser": "YOUR_HOSTINGER_FTP_USERNAME",
   "ftpPassword": "YOUR_HOSTINGER_FTP_PASSWORD",
-  "remotePath": "/domains/dimgrey-hummingbird-677957.hostingersite.com/public_html"
+  "remotePath": "/home/u910121167/websites/cVDFfe0wZ/public_html",
+  "sshHost": "82.25.100.95",
+  "sshPort": 65002,
+  "sshUser": "YOUR_SSH_USERNAME"
 }
