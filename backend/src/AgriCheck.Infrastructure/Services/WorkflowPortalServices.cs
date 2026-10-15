@@ -1354,7 +1354,16 @@ public class OperatorOpsService : IOperatorOpsService
 
         var user = await RequireOperatorAsync(cancellationToken);
         var container = await RequireOperatorContainerAsync(containerUuid, cancellationToken);
-        if (container.ClaimedByUserId != user.Id && !_currentUser.IsInRole("ROLE_ADMIN"))
+        if (container.ClaimedByUserId is null)
+        {
+            if (container.Status != ContainerStatus.AwaitingConfirmation)
+            {
+                throw new ClientPortalException("INVALID_STATUS", "Container is not available for route booking.");
+            }
+
+            container.ClaimedByUserId = user.Id;
+        }
+        else if (container.ClaimedByUserId != user.Id && !_currentUser.IsInRole("ROLE_ADMIN"))
         {
             throw new ClientPortalException("FORBIDDEN", "Only the claiming operator can book delivery stops.");
         }
