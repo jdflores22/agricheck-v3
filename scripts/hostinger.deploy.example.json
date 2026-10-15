@@ -1,0 +1,6 @@
+{
+  "ftpHost": "ftp.dimgrey-hummingbird-677957.hostingersite.com",
+  "ftpUser": "YOUR_HOSTINGER_FTP_USERNAME",
+  "ftpPassword": "YOUR_HOSTINGER_FTP_PASSWORD",
+  "remotePath": "/domains/dimgrey-hummingbird-677957.hostingersite.com/public_html"
+}

@@ -24,6 +24,7 @@ Thumbs.db
 .env
 *.pfx
 *.pem
+scripts/hostinger.deploy.local.json
 
 # Local dumps / scratch files
 tmp_*.json
@@ -31,3 +32,6 @@ tmp_*.json
 
 # Mobile
 apps/**/node_modules/
+
+# Docs tooling
+docs/scripts/node_modules/
