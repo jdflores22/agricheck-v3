@@ -85,7 +85,13 @@ public record DriverProfileDto(
     int CompletionPercentage,
     bool FaceVerified,
     DateTime? SubmittedAt,
-    DateTime? ApprovedAt);
+    DateTime? ApprovedAt,
+    string? ProfilePhotoUrl = null);
+
+public record DriverDocumentFileDto(
+    Stream Content,
+    string ContentType,
+    string DownloadName);
 
 public record DriverDocumentDto(
     string DocumentType,

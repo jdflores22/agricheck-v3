@@ -1094,6 +1094,35 @@ public class DriverOpsService : IDriverOpsService
         return new DriverDocumentDto(parsedType.ToString(), fileName, existing.CreatedAt);
     }
 
+    public async Task<DriverDocumentFileDto> DownloadDocumentAsync(
+        string documentType,
+        CancellationToken cancellationToken = default)
+    {
+        var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        if (!Enum.TryParse<DriverDocumentType>(documentType, true, out var parsedType))
+        {
+            throw new ClientPortalException("INVALID_DOCUMENT", "Unsupported document type.");
+        }
+
+        var profile = await _db.DriverProfiles
+            .Include(p => p.Documents)
+            .FirstOrDefaultAsync(p => p.UserId == driver.Id, cancellationToken)
+            ?? throw new ClientPortalException("PROFILE_REQUIRED", "Driver profile not found.");
+
+        var document = profile.Documents.FirstOrDefault(d => d.DocumentType == parsedType)
+            ?? throw new ClientPortalException("NOT_FOUND", "Document not uploaded yet.");
+
+        var folder = $"driver-documents/{driver.Uuid}";
+        var path = _fileStorage.GetPhysicalPath(folder, document.StoredFileName);
+        if (!File.Exists(path))
+        {
+            throw new ClientPortalException("NOT_FOUND", "Document file not found.");
+        }
+
+        var contentType = ResolveDriverDocumentContentType(document.OriginalFileName);
+        return new DriverDocumentFileDto(File.OpenRead(path), contentType, document.OriginalFileName);
+    }
+
     public async Task<DriverProfileDto> SubmitFaceVerificationAsync(
         SubmitFaceVerificationRequest request,
         CancellationToken cancellationToken = default)
@@ -1221,6 +1250,12 @@ public class DriverOpsService : IDriverOpsService
             .Select(d => new DriverDocumentDto(d.DocumentType.ToString(), d.OriginalFileName, d.CreatedAt))
             .ToList();
 
+        string? profilePhotoUrl = null;
+        if (profile.Documents.Any(d => d.DocumentType == DriverDocumentType.Selfie))
+        {
+            profilePhotoUrl = "/api/v1/ops/driver/profile/photo";
+        }
+
         return Task.FromResult(new DriverProfileDto(
             fullName,
             profile.BirthDate,
@@ -1243,7 +1278,21 @@ public class DriverOpsService : IDriverOpsService
             profile.CompletionPercentage,
             profile.FaceVerified,
             profile.SubmittedAt,
-            profile.ApprovedAt));
+            profile.ApprovedAt,
+            profilePhotoUrl));
+    }
+
+    private static string ResolveDriverDocumentContentType(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            ".pdf" => "application/pdf",
+            _ => "application/octet-stream",
+        };
     }
 
     private bool RequireGeotagProof() =>

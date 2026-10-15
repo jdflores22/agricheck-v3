@@ -191,7 +191,7 @@ public class DriverProfileController : OpsPortalControllerBase
     public async Task<ActionResult<ApiResponse<DriverProfileDto>>> Get(CancellationToken cancellationToken)
     {
         var profile = await _service.GetProfileAsync(cancellationToken);
-        if (profile is null) return Ok(ApiResponse<DriverProfileDto>.Ok(new DriverProfileDto(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, Array.Empty<DriverDocumentDto>(), 0, false, null, null)));
+        if (profile is null) return Ok(ApiResponse<DriverProfileDto>.Ok(new DriverProfileDto(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, Array.Empty<DriverDocumentDto>(), 0, false, null, null, null)));
         return Ok(ApiResponse<DriverProfileDto>.Ok(profile));
     }
 
@@ -200,6 +200,21 @@ public class DriverProfileController : OpsPortalControllerBase
         [FromBody] UpdateDriverProfileRequest request,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.UpdateProfileAsync(request, cancellationToken));
+
+    /// <summary>Face-verification selfie captured during driver registration (document type Selfie).</summary>
+    [HttpGet("photo")]
+    public async Task<IActionResult> GetProfilePhoto(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var file = await _service.DownloadDocumentAsync("Selfie", cancellationToken);
+            return File(file.Content, file.ContentType, file.DownloadName);
+        }
+        catch (ClientPortalException ex)
+        {
+            return NotFound(ApiResponse<object>.Fail(ex.Code, ex.Message));
+        }
+    }
 }
 
 [ApiController]
@@ -463,6 +478,20 @@ public class MobileDriverController : OpsPortalControllerBase
         catch (ClientPortalException ex)
         {
             return BadRequest(ApiResponse<DriverDocumentDto>.Fail(ex.Code, ex.Message));
+        }
+    }
+
+    [HttpGet("documents/{documentType}/download")]
+    public async Task<IActionResult> DownloadDocument(string documentType, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var file = await _service.DownloadDocumentAsync(documentType, cancellationToken);
+            return File(file.Content, file.ContentType, file.DownloadName);
+        }
+        catch (ClientPortalException ex)
+        {
+            return NotFound(ApiResponse<object>.Fail(ex.Code, ex.Message));
         }
     }
 
