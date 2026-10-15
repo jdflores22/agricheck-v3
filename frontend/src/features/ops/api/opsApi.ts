@@ -377,6 +377,10 @@ export const opsApi = createApi({
       query: (uuid) => ({ url: `/ops/operator/containers/${uuid}/claim`, method: 'POST' }),
       invalidatesTags: ['OperatorContainers'],
     }),
+    provisionRouteTestContainer: builder.mutation<ApiEnvelope<OpsContainerListItem>, void>({
+      query: () => ({ url: '/ops/operator/containers/route-test-provision', method: 'POST' }),
+      invalidatesTags: ['OperatorContainers'],
+    }),
     scanAndClaimOperatorContainer: builder.mutation<ApiEnvelope<OpsContainerListItem>, { qrData: string }>({
       query: (body) => ({ url: '/ops/operator/containers/scan', method: 'POST', body }),
       invalidatesTags: ['OperatorContainers'],
@@ -481,6 +485,7 @@ export const {
   useGetOperatorInviteCodesQuery,
   useCreateOperatorInviteCodeMutation,
   useClaimOperatorContainerMutation,
+  useProvisionRouteTestContainerMutation,
   useScanAndClaimOperatorContainerMutation,
   useAssignDriverToContainerMutation,
   useGetOperatorDeliveryStopsQuery,

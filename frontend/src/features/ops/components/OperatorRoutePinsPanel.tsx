@@ -6,6 +6,7 @@ import {
   type BookOperatorDeliveryStopsBody,
 } from '../api/opsApi'
 import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
+import { isContainerUuid } from '../utils/containerUuid'
 import { OperatorDeliveryPinMap, type DeliveryPinCoords, type RouteWizardStep } from './OperatorDeliveryPinMap'
 
 const DEFAULT_PICKUP: DeliveryPinCoords = { lat: 14.5862, lng: 120.9681 }
@@ -14,13 +15,21 @@ const DEFAULT_WAREHOUSE: DeliveryPinCoords = { lat: 14.5547, lng: 120.9872 }
 const STEP_LABELS = ['Pickup point', 'Warehouse', 'Overview']
 
 interface OperatorRoutePinsPanelProps {
-  containerUuid: string
-  containerNumber: string
+  containerUuid?: string
+  containerNumber?: string
   onSaved?: () => void
 }
 
-export function OperatorRoutePinsPanel({ containerUuid, containerNumber, onSaved }: OperatorRoutePinsPanelProps) {
-  const { data, isLoading, isError, refetch } = useGetOperatorDeliveryStopsQuery(containerUuid)
+export function OperatorRoutePinsPanel({
+  containerUuid,
+  containerNumber,
+  onSaved,
+}: OperatorRoutePinsPanelProps) {
+  const loadUuid = containerUuid?.trim() || ''
+  const uuidValid = isContainerUuid(loadUuid)
+  const { data, isLoading, isError, refetch } = useGetOperatorDeliveryStopsQuery(loadUuid, {
+    skip: !uuidValid,
+  })
   const [bookStops, { isLoading: saving }] = useBookOperatorDeliveryStopsMutation()
 
   const [wizardStep, setWizardStep] = useState<RouteWizardStep>(0)
@@ -32,6 +41,8 @@ export function OperatorRoutePinsPanel({ containerUuid, containerNumber, onSaved
   const [warehousePlaced, setWarehousePlaced] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+
+  const saveLabel = containerNumber?.trim() || data?.data?.containerNumber || 'Container'
 
   useEffect(() => {
     const stops = data?.data
@@ -78,6 +89,16 @@ export function OperatorRoutePinsPanel({ containerUuid, containerNumber, onSaved
   const handleSave = async () => {
     setError('')
     setMessage('')
+    if (!loadUuid) {
+      setError('Enter the container UUID in step 1 above before saving.')
+      return
+    }
+    if (!uuidValid) {
+      setError(
+        'Container UUID must be a real GUID (e.g. a1b2c3d4-e5f6-7890-abcd-ef1234567890), not the container number or a label.',
+      )
+      return
+    }
     const body: BookOperatorDeliveryStopsBody = {
       pickupLabel: pickupLabel.trim(),
       pickupLatitude: pickup.lat,
@@ -87,12 +108,14 @@ export function OperatorRoutePinsPanel({ containerUuid, containerNumber, onSaved
       destinationLongitude: warehouse.lng,
     }
     try {
-      await bookStops({ uuid: containerUuid, body }).unwrap()
-      setMessage(`Saved route pins for ${containerNumber}. Assign a driver so AgriTrack map uses these coordinates.`)
+      await bookStops({ uuid: loadUuid, body }).unwrap()
+      setMessage(`Route pins saved for ${saveLabel}. Assign a driver below so AgriTrack can navigate this load.`)
       onSaved?.()
       void refetch()
     } catch {
-      setError('Could not save pins. Container may be in a status that blocks changes, or you may need operator access.')
+      setError(
+        'Could not save pins. Use a valid container UUID, ensure status is awaiting confirmation (or already claimed by you), and try again.',
+      )
     }
   }
 
@@ -103,10 +126,25 @@ export function OperatorRoutePinsPanel({ containerUuid, containerNumber, onSaved
         ? 'Step 2: Pickup is shown in green. Click the map to place the warehouse pin (orange).'
         : 'Step 3: Review both pins and the driving route, then save.'
 
+  const canSave =
+    uuidValid && pickupLabel.trim() && warehouseLabel.trim() && pickupPlaced && warehousePlaced
+
   return (
     <Stack spacing={2}>
       <Typography variant="body2" color="text.secondary">
-        Container <strong>{containerNumber}</strong> — wizard booking for driver map testing.
+        {loadUuid ? (
+          uuidValid ? (
+            <>
+              Saving route for container <strong>{saveLabel}</strong>
+            </>
+          ) : (
+            <>
+              Fix the container UUID above — <strong>{loadUuid}</strong> is not a valid GUID.
+            </>
+          )
+        ) : (
+          'Enter or pick a container UUID above, then place pins and save.'
+        )}
       </Typography>
 
       <Stepper activeStep={wizardStep} alternativeLabel>
@@ -117,7 +155,7 @@ export function OperatorRoutePinsPanel({ containerUuid, containerNumber, onSaved
         ))}
       </Stepper>
 
-      {isError && (
+      {isError && uuidValid && (
         <Alert severity="warning">Could not load existing pins. You can still place new ones and save.</Alert>
       )}
 
@@ -152,7 +190,7 @@ export function OperatorRoutePinsPanel({ containerUuid, containerNumber, onSaved
         />
       )}
       {wizardStep === 2 && (
-        <Stack spacing={1}>
+        <Stack spacing={1.5}>
           <Typography variant="body2">
             <strong>Pickup:</strong> {pickupLabel} ({pickup.lat.toFixed(5)}, {pickup.lng.toFixed(5)})
           </Typography>
@@ -181,7 +219,7 @@ export function OperatorRoutePinsPanel({ containerUuid, containerNumber, onSaved
             variant="contained"
             sx={portalPrimaryButtonSx}
             onClick={handleSave}
-            disabled={saving || isLoading || !pickupLabel.trim() || !warehouseLabel.trim()}
+            disabled={saving || isLoading || !canSave}
           >
             {saving ? 'Saving…' : 'Save route pins'}
           </Button>

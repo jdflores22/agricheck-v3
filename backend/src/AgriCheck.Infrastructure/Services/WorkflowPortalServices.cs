@@ -1228,6 +1228,69 @@ public class OperatorOpsService : IOperatorOpsService
         return await ClaimContainerInternalAsync(user, containerUuid, cancellationToken);
     }
 
+    public async Task<ContainerListItemDto> ProvisionRouteTestContainerAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_configuration.GetValue("AgriTrack:AllowOperatorRouteTestProvisioning", true))
+        {
+            throw new ClientPortalException("FORBIDDEN", "Route test provisioning is disabled on this server.");
+        }
+
+        await RequireOperatorAsync(cancellationToken);
+
+        var templateEntry = await _db.Entries
+            .AsNoTracking()
+            .OrderByDescending(e => e.SubmittedAt ?? e.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new ClientPortalException("ROUTE_TEST_UNAVAILABLE", "No import entry found to create a test container.");
+
+        var now = DateTime.UtcNow;
+        var prefixes = new[] { "AXEU", "TCLU", "MSKU", "HLXU", "CGMU", "FCIU" };
+        string containerNumber;
+        do
+        {
+            var prefix = prefixes[Random.Shared.Next(prefixes.Length)];
+            var suffix = Random.Shared.Next(1_000_000, 9_999_999);
+            containerNumber = $"{prefix}{suffix}";
+        }
+        while (await _db.Containers.AnyAsync(c => c.ContainerNumber == containerNumber, cancellationToken));
+
+        var referenceSuffix = Random.Shared.Next(1000, 9999);
+        var entry = new Entry
+        {
+            Uuid = Guid.NewGuid(),
+            ReferenceNo = $"RT-{now:yyyyMMddHHmmss}-{referenceSuffix}",
+            UserId = templateEntry.UserId,
+            AgencyId = templateEntry.AgencyId,
+            EntryType = templateEntry.EntryType,
+            Status = EntryStatus.AwaitingTransport,
+            SubmittedAt = now,
+            PaymentStatus = PaymentStatus.Paid,
+            PaymentAmount = 0m,
+            FormDataJson = """{"source":"operator-route-test","note":"Auto provisioned for AgriTrack map test"}""",
+        };
+        _db.Entries.Add(entry);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var container = new Container
+        {
+            Uuid = Guid.NewGuid(),
+            EntryId = entry.Id,
+            SequenceNumber = 1,
+            ContainerNumber = containerNumber,
+            ContainerType = "40FT",
+            Status = ContainerStatus.AwaitingConfirmation,
+        };
+        _db.Containers.Add(container);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        container = await _db.Containers
+            .Include(c => c.Entry)
+            .Include(c => c.Locations)
+            .FirstAsync(c => c.Id == container.Id, cancellationToken);
+
+        return OpsDtoMapper.MapContainer(container);
+    }
+
     public async Task<ContainerListItemDto> ClaimContainerByQrAsync(
         ScanTransportQrRequest request,
         CancellationToken cancellationToken = default)
