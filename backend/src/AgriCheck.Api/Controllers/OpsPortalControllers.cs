@@ -609,7 +609,7 @@ public abstract class OpsPortalControllerBase : ControllerBase
 
         return DateTime.TryParse(
             capturedAt,
-            culture: null,
+            provider: null,
             System.Globalization.DateTimeStyles.RoundtripKind,
             out var parsed)
             ? parsed.ToUniversalTime()
