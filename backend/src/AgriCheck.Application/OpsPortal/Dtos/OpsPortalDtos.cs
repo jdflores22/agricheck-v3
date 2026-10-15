@@ -208,6 +208,20 @@ public record UpdateContainerStatusRequest(string Status, decimal? Latitude = nu
 
 public record AssignDriverRequest(Guid DriverUserUuid, Guid? VehicleUuid = null);
 
+public record BookOperatorDeliveryStopsRequest(
+    string PickupLabel,
+    decimal PickupLatitude,
+    decimal PickupLongitude,
+    string DestinationLabel,
+    decimal DestinationLatitude,
+    decimal DestinationLongitude);
+
+public record OperatorDeliveryStopsDto(
+    Guid ContainerUuid,
+    string ContainerNumber,
+    ContainerDeliveryStopDto Pickup,
+    ContainerDeliveryStopDto Destination);
+
 public record OperatorDriverListItemDto(
     Guid UserUuid,
     string FullName,

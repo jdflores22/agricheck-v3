@@ -1334,6 +1334,57 @@ public class OperatorOpsService : IOperatorOpsService
         return OpsDtoMapper.MapContainer(container, includeAssignment: true);
     }
 
+    public async Task<OperatorDeliveryStopsDto> GetDeliveryStopsAsync(
+        Guid containerUuid,
+        CancellationToken cancellationToken = default)
+    {
+        var container = await RequireOperatorContainerAsync(containerUuid, cancellationToken);
+        return await MapDeliveryStopsAsync(container, cancellationToken);
+    }
+
+    public async Task<OperatorDeliveryStopsDto> BookDeliveryStopsAsync(
+        Guid containerUuid,
+        BookOperatorDeliveryStopsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_configuration.GetValue("AgriTrack:AllowOperatorDeliveryStopBooking", true))
+        {
+            throw new ClientPortalException("FORBIDDEN", "Operator route booking is disabled on this server.");
+        }
+
+        var user = await RequireOperatorAsync(cancellationToken);
+        var container = await RequireOperatorContainerAsync(containerUuid, cancellationToken);
+        if (container.ClaimedByUserId != user.Id && !_currentUser.IsInRole("ROLE_ADMIN"))
+        {
+            throw new ClientPortalException("FORBIDDEN", "Only the claiming operator can book delivery stops.");
+        }
+
+        if (!AllowsOperatorStopBooking(container.Status))
+        {
+            throw new ClientPortalException("INVALID_STATUS", "Delivery stops cannot be changed for this container status.");
+        }
+
+        var pickupLabel = request.PickupLabel?.Trim();
+        var destinationLabel = request.DestinationLabel?.Trim();
+        if (string.IsNullOrWhiteSpace(pickupLabel) || string.IsNullOrWhiteSpace(destinationLabel))
+        {
+            throw new ClientPortalException("VALIDATION", "Pickup and warehouse labels are required.");
+        }
+
+        ValidateCoordinates(request.PickupLatitude, request.PickupLongitude, "Pickup");
+        ValidateCoordinates(request.DestinationLatitude, request.DestinationLongitude, "Warehouse");
+
+        ContainerDeliveryPointHelper.SetPickup(container, pickupLabel, request.PickupLatitude, request.PickupLongitude);
+        ContainerDeliveryPointHelper.SetDestination(
+            container,
+            destinationLabel,
+            request.DestinationLatitude,
+            request.DestinationLongitude);
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return await MapDeliveryStopsAsync(container, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<OperatorDriverListItemDto>> ListDriversAsync(CancellationToken cancellationToken = default)
     {
         var user = await RequireOperatorAsync(cancellationToken);
@@ -1477,6 +1528,80 @@ public class OperatorOpsService : IOperatorOpsService
 
     private static OperatorInviteCodeListItemDto MapInviteCode(OperatorInviteCode invite) =>
         new(invite.Code, invite.Label, invite.MaxUses, invite.UsedCount, invite.ExpiresAt, invite.IsActive, invite.CreatedAt);
+
+    private async Task<Container> RequireOperatorContainerAsync(Guid containerUuid, CancellationToken cancellationToken)
+    {
+        await RequireOperatorAsync(cancellationToken);
+        return await OperatorContainerQuery(_db.Containers)
+            .Include(c => c.Entry).ThenInclude(e => e.Detail)
+            .Include(c => c.Entry).ThenInclude(e => e.FinalWarehouseFacility)
+            .FirstOrDefaultAsync(c => c.Uuid == containerUuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Container not found.");
+    }
+
+    private async Task<OperatorDeliveryStopsDto> MapDeliveryStopsAsync(
+        Container container,
+        CancellationToken cancellationToken)
+    {
+        var pickup = ContainerDeliveryPointHelper.ResolvePickup(container, container.Entry);
+        var destination = await ResolveOperatorDestinationAsync(container, cancellationToken);
+        return new OperatorDeliveryStopsDto(
+            container.Uuid,
+            container.ContainerNumber,
+            new ContainerDeliveryStopDto(pickup.Label, pickup.Latitude, pickup.Longitude),
+            new ContainerDeliveryStopDto(destination.Label, destination.Latitude, destination.Longitude));
+    }
+
+    private async Task<(string Label, decimal Latitude, decimal Longitude)> ResolveOperatorDestinationAsync(
+        Container container,
+        CancellationToken cancellationToken)
+    {
+        var stored = ContainerDeliveryPointHelper.TryGetStoredDestination(container);
+        if (stored is not null)
+        {
+            return stored.Value;
+        }
+
+        var finalFacility = container.Entry.FinalWarehouseFacility;
+        if (finalFacility?.Latitude is not null && finalFacility.Longitude is not null)
+        {
+            return (finalFacility.Name, finalFacility.Latitude.Value, finalFacility.Longitude.Value);
+        }
+
+        var booking = await _db.WarehouseBookings
+            .Include(b => b.WarehouseFacility)
+            .Where(b => b.UserId == container.Entry.UserId)
+            .Where(b => b.ContainerReference == container.ContainerNumber || b.ContainerReference == string.Empty)
+            .OrderByDescending(b => b.ScheduledDate)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var facility = booking?.WarehouseFacility;
+        if (facility?.Latitude is null || facility.Longitude is null)
+        {
+            facility = await _db.WarehouseFacilities
+                .Where(w => w.IsActive && w.Latitude != null && w.Longitude != null)
+                .OrderBy(w => w.Code == "WH-MNL" ? 0 : 1)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        if (facility?.Latitude is null || facility.Longitude is null)
+        {
+            return ("Warehouse (tap map)", 14.5547m, 120.9872m);
+        }
+
+        return (facility.Name, facility.Latitude.Value, facility.Longitude.Value);
+    }
+
+    private static bool AllowsOperatorStopBooking(ContainerStatus status) =>
+        status is not ContainerStatus.Inspected and not ContainerStatus.Released;
+
+    private static void ValidateCoordinates(decimal latitude, decimal longitude, string label)
+    {
+        if (latitude is < -90m or > 90m || longitude is < -180m or > 180m)
+        {
+            throw new ClientPortalException("VALIDATION", $"{label} coordinates are out of range.");
+        }
+    }
 
     private static IQueryable<Container> OperatorContainerQuery(IQueryable<Container> query) =>
         query

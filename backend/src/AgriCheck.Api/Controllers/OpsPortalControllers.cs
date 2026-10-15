@@ -586,6 +586,24 @@ public class MobileOperatorContainersController : OpsPortalControllerBase
         [FromBody] AssignDriverRequest request,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.AssignDriverAsync(uuid, request, cancellationToken));
+
+    [HttpGet("claimed")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<ContainerListItemDto>>>> ListClaimed(
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ListClaimedContainersAsync(cancellationToken));
+
+    [HttpGet("{uuid:guid}/delivery-stops")]
+    public async Task<ActionResult<ApiResponse<OperatorDeliveryStopsDto>>> GetDeliveryStops(
+        Guid uuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.GetDeliveryStopsAsync(uuid, cancellationToken));
+
+    [HttpPut("{uuid:guid}/delivery-stops")]
+    public async Task<ActionResult<ApiResponse<OperatorDeliveryStopsDto>>> BookDeliveryStops(
+        Guid uuid,
+        [FromBody] BookOperatorDeliveryStopsRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.BookDeliveryStopsAsync(uuid, request, cancellationToken));
 }
 
 [ApiController]

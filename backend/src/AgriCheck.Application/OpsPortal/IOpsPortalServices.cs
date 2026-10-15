@@ -65,6 +65,11 @@ public interface IOperatorOpsService
     Task<ContainerListItemDto> ClaimContainerAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> ClaimContainerByQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> AssignDriverAsync(Guid containerUuid, AssignDriverRequest request, CancellationToken cancellationToken = default);
+    Task<OperatorDeliveryStopsDto> GetDeliveryStopsAsync(Guid containerUuid, CancellationToken cancellationToken = default);
+    Task<OperatorDeliveryStopsDto> BookDeliveryStopsAsync(
+        Guid containerUuid,
+        BookOperatorDeliveryStopsRequest request,
+        CancellationToken cancellationToken = default);
     Task<IReadOnlyList<OperatorDriverListItemDto>> ListDriversAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<OperatorVehicleListItemDto>> ListVehiclesAsync(CancellationToken cancellationToken = default);
     Task<OperatorVehicleListItemDto> CreateVehicleAsync(CreateOperatorVehicleRequest request, CancellationToken cancellationToken = default);
