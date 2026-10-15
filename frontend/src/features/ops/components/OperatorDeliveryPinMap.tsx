@@ -1,4 +1,4 @@
-import { Box, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material'
+import { Box, Typography } from '@mui/material'
 import L from 'leaflet'
 import { useEffect, useMemo, useState } from 'react'
 import { MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet'
@@ -11,6 +11,8 @@ export interface DeliveryPinCoords {
   lat: number
   lng: number
 }
+
+export type RouteWizardStep = 0 | 1 | 2
 
 function pinIcon(color: string) {
   return L.divIcon({
@@ -33,10 +35,10 @@ function pinIcon(color: string) {
 const pickupIcon = pinIcon('#15803D')
 const warehouseIcon = pinIcon('#F97316')
 
-function MapClickHandler({ onClick }: { onClick: (lat: number, lng: number) => void }) {
+function MapClickHandler({ onClick, enabled }: { onClick: (lat: number, lng: number) => void; enabled: boolean }) {
   useMapEvents({
     click(e) {
-      onClick(e.latlng.lat, e.latlng.lng)
+      if (enabled) onClick(e.latlng.lat, e.latlng.lng)
     },
   })
   return null
@@ -45,15 +47,21 @@ function MapClickHandler({ onClick }: { onClick: (lat: number, lng: number) => v
 function FitBounds({
   pickup,
   warehouse,
+  wizardStep,
 }: {
   pickup: DeliveryPinCoords
   warehouse: DeliveryPinCoords
+  wizardStep: RouteWizardStep
 }) {
   const map = useMap()
   useEffect(() => {
+    if (wizardStep === 0) {
+      map.setView([pickup.lat, pickup.lng], 14)
+      return
+    }
     const bounds = L.latLngBounds([pickup.lat, pickup.lng], [warehouse.lat, warehouse.lng])
     map.fitBounds(bounds.pad(0.2), { maxZoom: 14 })
-  }, [pickup.lat, pickup.lng, warehouse.lat, warehouse.lng, map])
+  }, [pickup.lat, pickup.lng, warehouse.lat, warehouse.lng, wizardStep, map])
   return null
 }
 
@@ -81,25 +89,33 @@ async function fetchRouteLine(
 interface OperatorDeliveryPinMapProps {
   pickup: DeliveryPinCoords
   warehouse: DeliveryPinCoords
-  activePin: DeliveryPinRole
-  onActivePinChange: (role: DeliveryPinRole) => void
+  wizardStep: RouteWizardStep
+  pickupPlaced: boolean
+  warehousePlaced: boolean
   onPickupChange: (coords: DeliveryPinCoords) => void
   onWarehouseChange: (coords: DeliveryPinCoords) => void
+  hint: string
   height?: number
 }
 
 export function OperatorDeliveryPinMap({
   pickup,
   warehouse,
-  activePin,
-  onActivePinChange,
+  wizardStep,
+  pickupPlaced,
+  warehousePlaced,
   onPickupChange,
   onWarehouseChange,
+  hint,
   height = 360,
 }: OperatorDeliveryPinMapProps) {
   const [routeLine, setRouteLine] = useState<[number, number][] | null>(null)
 
   useEffect(() => {
+    if (wizardStep !== 2) {
+      setRouteLine(null)
+      return
+    }
     let cancelled = false
     void fetchRouteLine(pickup, warehouse).then((line) => {
       if (!cancelled) setRouteLine(line)
@@ -107,30 +123,24 @@ export function OperatorDeliveryPinMap({
     return () => {
       cancelled = true
     }
-  }, [pickup.lat, pickup.lng, warehouse.lat, warehouse.lng])
+  }, [wizardStep, pickup.lat, pickup.lng, warehouse.lat, warehouse.lng])
 
   const fallbackLine = useMemo(
     () => [[pickup.lat, pickup.lng], [warehouse.lat, warehouse.lng]] as [number, number][],
     [pickup, warehouse],
   )
 
-  const centerLat = (pickup.lat + warehouse.lat) / 2
-  const centerLng = (pickup.lng + warehouse.lng) / 2
+  const centerLat = wizardStep === 0 ? pickup.lat : (pickup.lat + warehouse.lat) / 2
+  const centerLng = wizardStep === 0 ? pickup.lng : (pickup.lng + warehouse.lng) / 2
+
+  const showPickup = pickupPlaced || wizardStep >= 1
+  const showWarehouse = wizardStep >= 1 && (warehousePlaced || wizardStep === 2)
+  const mapClickEnabled = wizardStep === 0 || wizardStep === 1
 
   return (
     <Box>
-      <ToggleButtonGroup
-        exclusive
-        size="small"
-        value={activePin}
-        onChange={(_, value: DeliveryPinRole | null) => value && onActivePinChange(value)}
-        sx={{ mb: 1.5 }}
-      >
-        <ToggleButton value="pickup">Tap map: pickup</ToggleButton>
-        <ToggleButton value="warehouse">Tap map: warehouse</ToggleButton>
-      </ToggleButtonGroup>
       <Typography variant="caption" sx={{ display: 'block', mb: 1, color: portalColors.textMuted }}>
-        Click the map to move the selected pin. Route preview uses OpenStreetMap routing (approximate).
+        {hint}
       </Typography>
       <Box
         sx={{
@@ -142,7 +152,7 @@ export function OperatorDeliveryPinMap({
       >
         <MapContainer
           center={[centerLat, centerLng]}
-          zoom={11}
+          zoom={wizardStep === 0 ? 14 : 11}
           style={{ height: '100%', width: '100%' }}
           scrollWheelZoom
         >
@@ -150,19 +160,22 @@ export function OperatorDeliveryPinMap({
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <FitBounds pickup={pickup} warehouse={warehouse} />
+          <FitBounds pickup={pickup} warehouse={warehouse} wizardStep={wizardStep} />
           <MapClickHandler
+            enabled={mapClickEnabled}
             onClick={(lat, lng) => {
-              if (activePin === 'pickup') onPickupChange({ lat, lng })
-              else onWarehouseChange({ lat, lng })
+              if (wizardStep === 0) onPickupChange({ lat, lng })
+              else if (wizardStep === 1) onWarehouseChange({ lat, lng })
             }}
           />
-          <Marker position={[pickup.lat, pickup.lng]} icon={pickupIcon} />
-          <Marker position={[warehouse.lat, warehouse.lng]} icon={warehouseIcon} />
-          <Polyline
-            positions={routeLine ?? fallbackLine}
-            pathOptions={{ color: '#2563EB', weight: 5, opacity: 0.85 }}
-          />
+          {showPickup && <Marker position={[pickup.lat, pickup.lng]} icon={pickupIcon} />}
+          {showWarehouse && <Marker position={[warehouse.lat, warehouse.lng]} icon={warehouseIcon} />}
+          {wizardStep === 2 && (
+            <Polyline
+              positions={routeLine ?? fallbackLine}
+              pathOptions={{ color: '#2563EB', weight: 5, opacity: 0.85 }}
+            />
+          )}
         </MapContainer>
       </Box>
     </Box>
