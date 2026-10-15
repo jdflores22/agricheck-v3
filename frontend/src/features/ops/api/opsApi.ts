@@ -11,12 +11,19 @@ export interface WarehouseDashboard {
 
 export interface WarehouseInventoryItem {
   uuid: string
+  entryUuid: string
   containerNumber: string
   entryReference: string
   facilityName: string
   locationCode?: string
   status: string
   receivedAt: string
+  mavLibraryLinked: boolean
+  mavHsCode?: string | null
+  mavCommodityName?: string | null
+  mavHsLabel?: string | null
+  mavCategoryName?: string | null
+  volumeKg?: number | null
 }
 
 export interface ReleaseAuthorizationItem {
@@ -26,6 +33,10 @@ export interface ReleaseAuthorizationItem {
   recipientIdNumber: string
   authorizedAt: string
   releaseCount: number
+  mavLibraryLinked: boolean
+  mavHsCode?: string | null
+  mavCommodityName?: string | null
+  mavHsLabel?: string | null
 }
 
 export interface ContainerItem {
@@ -42,6 +53,12 @@ export interface ContainerItem {
   assignedDriverUuid?: string
   assignedDriverName?: string
   assignedVehiclePlate?: string
+  mavLibraryLinked?: boolean
+  mavHsCode?: string | null
+  mavCommodityName?: string | null
+  mavHsLabel?: string | null
+  mavCategoryName?: string | null
+  volumeKg?: number | null
 }
 
 export interface OperatorDriver {
@@ -65,6 +82,28 @@ export interface OperatorVehicle {
 }
 
 export type OpsContainerListItem = ContainerItem
+
+export interface ContainerDeliveryStop {
+  name: string
+  latitude: number
+  longitude: number
+}
+
+export interface OperatorDeliveryStops {
+  containerUuid: string
+  containerNumber: string
+  pickup: ContainerDeliveryStop
+  destination: ContainerDeliveryStop
+}
+
+export interface BookOperatorDeliveryStopsBody {
+  pickupLabel: string
+  pickupLatitude: number
+  pickupLongitude: number
+  destinationLabel: string
+  destinationLatitude: number
+  destinationLongitude: number
+}
 
 export interface DriverDashboard {
   assignedContainers: number
@@ -113,10 +152,93 @@ export interface WarehouseFacility {
   capacity?: number
 }
 
+export interface WarehouseImporterContractListItem {
+  allocationUuid?: string | null
+  warehouseFacilityId: number
+  warehouseCode: string
+  warehouseName: string
+  importerUserUuid: string
+  importerEmail: string
+  importerDisplayName: string
+  isLinkedImporter: boolean
+  contractReference?: string | null
+  allocatedCapacityKg?: number | null
+  committedKg: number
+  headroomKg?: number | null
+  allowedCommodityClasses: string[]
+  allocationStatus?: string | null
+  validFrom?: string | null
+  validTo?: string | null
+  facilityAllowedCommodityClasses: string[]
+  facilityScopeHint?: string | null
+  cswLeadAgencyCode?: string | null
+}
+
+export interface WarehouseComplianceFacilityListItem {
+  warehouseFacilityId: number
+  warehouseCode: string
+  warehouseName: string
+  warehouseLocation?: string | null
+  hasActiveWarehouseLto: boolean
+  warehouseLtoNumber?: string | null
+  warehouseLtoExpiresAt?: string | null
+  ltoApplicationStatus: string
+  rsasStatus: string
+  cswStatus?: string | null
+  destinationReady: boolean
+}
+
+export interface WarehouseOperatingLicenseSummary {
+  licenseNumber: string
+  status: string
+  issuedAt: string
+  expiresAt: string
+  notes?: string | null
+}
+
+export interface WarehouseLtoApplication {
+  uuid: string
+  warehouseFacilityId: number
+  warehouseCode: string
+  warehouseName: string
+  operatorLegalName: string
+  contactEmail?: string | null
+  contactPhone?: string | null
+  notes?: string | null
+  status: string
+  submittedAt: string
+  reviewComments?: string | null
+  reviewedAt?: string | null
+}
+
+export interface WarehouseComplianceDetail {
+  warehouseFacilityId: number
+  warehouseCode: string
+  warehouseName: string
+  warehouseLocation?: string | null
+  hasActiveWarehouseLto: boolean
+  activeLicense?: WarehouseOperatingLicenseSummary | null
+  pendingLtoApplication?: WarehouseLtoApplication | null
+  latestLtoApplication?: WarehouseLtoApplication | null
+  rsasRegistration?: {
+    uuid: string
+    warehouseFacilityId: number
+    status: string
+    ownerName: string
+    maxCapacityKg?: number | null
+    rsasExternalRef?: string | null
+    isBmbeExempt: boolean
+    productsJson?: string | null
+    cswAccreditation?: { leadAgencyCode?: string | null } | null
+  } | null
+  cswStatus: string
+  destinationReady: boolean
+}
+
 export const opsApi = createApi({
   reducerPath: 'opsApi',
   baseQuery: baseQueryWithReauth,
-  tagTypes: ['WarehouseDashboard', 'WarehouseInventory', 'ReleaseAuth', 'DriverDashboard', 'DriverProfile', 'DriverContainers', 'OperatorContainers', 'OperatorDrivers', 'OperatorVehicles', 'OperatorInviteCodes', 'DoctorContainers'],
+  tagTypes: ['WarehouseDashboard', 'WarehouseInventory', 'WarehouseCompliance', 'WarehouseImporterContracts', 'ReleaseAuth', 'DriverDashboard', 'DriverProfile', 'DriverContainers', 'OperatorContainers', 'OperatorDrivers', 'OperatorVehicles', 'OperatorInviteCodes', 'DoctorContainers'],
   endpoints: (builder) => ({
     getWarehouseDashboard: builder.query<ApiEnvelope<WarehouseDashboard>, void>({
       query: () => '/ops/warehouse/dashboard',
@@ -146,7 +268,71 @@ export const opsApi = createApi({
       invalidatesTags: ['WarehouseDashboard', 'WarehouseInventory', 'ReleaseAuth'],
     }),
     getWarehouseFacilities: builder.query<ApiEnvelope<WarehouseFacility[]>, void>({
-      query: () => '/warehouse/facilities',
+      query: () => '/ops/warehouse/facilities',
+    }),
+    getWarehouseComplianceFacilities: builder.query<ApiEnvelope<WarehouseComplianceFacilityListItem[]>, void>({
+      query: () => '/ops/warehouse/compliance/facilities',
+      providesTags: ['WarehouseCompliance'],
+    }),
+    getWarehouseComplianceDetail: builder.query<ApiEnvelope<WarehouseComplianceDetail>, number>({
+      query: (warehouseFacilityId) => `/ops/warehouse/compliance/facilities/${warehouseFacilityId}`,
+      providesTags: (_r, _e, id) => [{ type: 'WarehouseCompliance', id }],
+    }),
+    submitWarehouseLtoApplication: builder.mutation<
+      ApiEnvelope<WarehouseLtoApplication>,
+      {
+        warehouseFacilityId: number
+        operatorLegalName: string
+        contactEmail?: string
+        contactPhone?: string
+        notes?: string
+      }
+    >({
+      query: (body) => ({ url: '/ops/warehouse/compliance/lto-applications', method: 'POST', body }),
+      invalidatesTags: ['WarehouseCompliance'],
+    }),
+    upsertWarehouseRsas: builder.mutation<
+      ApiEnvelope<WarehouseComplianceDetail['rsasRegistration'] & { uuid: string }>,
+      {
+        warehouseFacilityId: number
+        ownerName: string
+        rsasExternalRef?: string
+        maxCapacityKg?: number
+        isBmbeExempt?: boolean
+        productsJson?: string
+      }
+    >({
+      query: (body) => ({ url: '/ops/warehouse/compliance/rsas', method: 'PUT', body }),
+      invalidatesTags: ['WarehouseCompliance'],
+    }),
+    submitWarehouseRsas: builder.mutation<ApiEnvelope<unknown>, string>({
+      query: (uuid) => ({ url: `/ops/warehouse/compliance/rsas/${uuid}/submit`, method: 'POST' }),
+      invalidatesTags: ['WarehouseCompliance'],
+    }),
+    getWarehouseImporterContracts: builder.query<
+      ApiEnvelope<WarehouseImporterContractListItem[]>,
+      number | void
+    >({
+      query: (warehouseFacilityId) => ({
+        url: '/ops/warehouse/importer-contracts',
+        params: warehouseFacilityId ? { warehouseFacilityId } : undefined,
+      }),
+      providesTags: ['WarehouseImporterContracts'],
+    }),
+    upsertWarehouseImporterContract: builder.mutation<
+      ApiEnvelope<WarehouseImporterContractListItem>,
+      {
+        allocationUuid?: string | null
+        warehouseFacilityId: number
+        importerUserUuid: string
+        contractReference: string
+        allocatedCapacityKg: number
+        allowedCommodityClasses: string[]
+        status?: string
+      }
+    >({
+      query: (body) => ({ url: '/ops/warehouse/importer-contracts', method: 'PUT', body }),
+      invalidatesTags: ['WarehouseImporterContracts'],
     }),
     getDriverDashboard: builder.query<ApiEnvelope<DriverDashboard>, void>({
       query: () => '/ops/driver/dashboard',
@@ -229,6 +415,20 @@ export const opsApi = createApi({
       }),
       invalidatesTags: ['OperatorContainers', 'DriverContainers'],
     }),
+    getOperatorDeliveryStops: builder.query<ApiEnvelope<OperatorDeliveryStops>, string>({
+      query: (uuid) => `/ops/operator/containers/${uuid}/delivery-stops`,
+    }),
+    bookOperatorDeliveryStops: builder.mutation<
+      ApiEnvelope<OperatorDeliveryStops>,
+      { uuid: string; body: BookOperatorDeliveryStopsBody }
+    >({
+      query: ({ uuid, body }) => ({
+        url: `/ops/operator/containers/${uuid}/delivery-stops`,
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: ['OperatorContainers'],
+    }),
     getDoctorContainers: builder.query<ApiEnvelope<OpsContainerListItem[]>, void>({
       query: () => '/ops/doctor/containers',
       providesTags: ['DoctorContainers'],
@@ -260,6 +460,13 @@ export const {
   useCreateReleaseAuthorizationMutation,
   useExecuteReleaseMutation,
   useGetWarehouseFacilitiesQuery,
+  useGetWarehouseComplianceFacilitiesQuery,
+  useGetWarehouseComplianceDetailQuery,
+  useSubmitWarehouseLtoApplicationMutation,
+  useUpsertWarehouseRsasMutation,
+  useSubmitWarehouseRsasMutation,
+  useGetWarehouseImporterContractsQuery,
+  useUpsertWarehouseImporterContractMutation,
   useGetDriverDashboardQuery,
   useGetDriverProfileQuery,
   useUpdateDriverProfileMutation,
@@ -276,6 +483,8 @@ export const {
   useClaimOperatorContainerMutation,
   useScanAndClaimOperatorContainerMutation,
   useAssignDriverToContainerMutation,
+  useGetOperatorDeliveryStopsQuery,
+  useBookOperatorDeliveryStopsMutation,
   useGetDoctorContainersQuery,
   useClaimDoctorContainerMutation,
   useCompleteDoctorInspectionMutation,

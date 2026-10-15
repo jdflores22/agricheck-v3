@@ -20,6 +20,9 @@ import {
   Typography,
 } from '@mui/material'
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner'
+import MapOutlinedIcon from '@mui/icons-material/MapOutlined'
+import { Link as RouterLink } from 'react-router-dom'
+import { OperatorRoutePinsPanel } from '../components/OperatorRoutePinsPanel'
 import {
   useAssignDriverToContainerMutation,
   useClaimOperatorContainerMutation,
@@ -43,6 +46,7 @@ export function OperatorContainersPage() {
   const [assignTarget, setAssignTarget] = useState<string | null>(null)
   const [driverUuid, setDriverUuid] = useState('')
   const [vehicleUuid, setVehicleUuid] = useState('')
+  const [routePinsTarget, setRoutePinsTarget] = useState<{ uuid: string; containerNumber: string } | null>(null)
 
   const { data: claimableData, isLoading: loadingClaimable } = useGetClaimableContainersQuery(search || undefined)
   const { data: claimedData, isLoading: loadingClaimed } = useGetClaimedContainersQuery()
@@ -132,6 +136,24 @@ export function OperatorContainersPage() {
         </Alert>
       )}
 
+      <PortalPanel title="AgriTrack route testing">
+        <Stack spacing={2} sx={{ p: 2.5 }}>
+          <Typography variant="body2" color="text.secondary">
+            Set pickup and warehouse coordinates on a map for driver navigation tests. No separate claim required when
+            saving pins on an awaiting-confirmation container.
+          </Typography>
+          <Button
+            component={RouterLink}
+            to="/operator/route-test"
+            variant="contained"
+            startIcon={<MapOutlinedIcon />}
+            sx={portalPrimaryButtonSx}
+          >
+            Open manual route test
+          </Button>
+        </Stack>
+      </PortalPanel>
+
       <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ mb: 2 }}>
         <Tab label={`Claim (${claimable.length})`} />
         <Tab label={`My loads (${claimed.length})`} />
@@ -187,15 +209,27 @@ export function OperatorContainersPage() {
                 <TableCell>{container.entryReference}</TableCell>
                 <TableCell>{container.status}</TableCell>
                 <TableCell>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    sx={portalPrimaryButtonSx}
-                    onClick={() => handleClaim(container.uuid)}
-                    disabled={claiming}
-                  >
-                    Claim
-                  </Button>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      sx={portalPrimaryButtonSx}
+                      onClick={() => handleClaim(container.uuid)}
+                      disabled={claiming}
+                    >
+                      Claim
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      sx={portalOutlinedButtonSx}
+                      onClick={() =>
+                        setRoutePinsTarget({ uuid: container.uuid, containerNumber: container.containerNumber })
+                      }
+                    >
+                      Route pins
+                    </Button>
+                  </Stack>
                 </TableCell>
               </TableRow>
             ))}
@@ -226,22 +260,60 @@ export function OperatorContainersPage() {
                 <TableCell>{container.assignedDriverName ?? '—'}</TableCell>
                 <TableCell>{container.assignedVehiclePlate ?? '—'}</TableCell>
                 <TableCell>
-                  {!container.assignedDriverUuid && (
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                     <Button
                       size="small"
                       variant="outlined"
                       sx={portalOutlinedButtonSx}
-                      onClick={() => openAssign(container.uuid)}
+                      onClick={() =>
+                        setRoutePinsTarget({ uuid: container.uuid, containerNumber: container.containerNumber })
+                      }
                     >
-                      Assign
+                      Route pins
                     </Button>
-                  )}
+                    {!container.assignedDriverUuid && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        sx={portalOutlinedButtonSx}
+                        onClick={() => openAssign(container.uuid)}
+                      >
+                        Assign
+                      </Button>
+                    )}
+                  </Stack>
                 </TableCell>
               </TableRow>
             ))}
           </PortalTablePanel>
         </>
       )}
+
+      <Dialog
+        open={Boolean(routePinsTarget)}
+        onClose={() => setRoutePinsTarget(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Route pins — {routePinsTarget?.containerNumber}</DialogTitle>
+        <DialogContent>
+          {routePinsTarget && (
+            <OperatorRoutePinsPanel
+              containerUuid={routePinsTarget.uuid}
+              containerNumber={routePinsTarget.containerNumber}
+              onSaved={() => {
+                setMessage(`Route pins saved for ${routePinsTarget.containerNumber}.`)
+                setRoutePinsTarget(null)
+              }}
+            />
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setRoutePinsTarget(null)} sx={portalOutlinedButtonSx}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(assignTarget)} onClose={() => !assigning && setAssignTarget(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Assign driver and vehicle</DialogTitle>

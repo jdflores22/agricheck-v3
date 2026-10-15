@@ -10,6 +10,7 @@ import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined'
+import MapOutlinedIcon from '@mui/icons-material/MapOutlined'
 import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined'
 import PeopleOutlinedIcon from '@mui/icons-material/PeopleOutlined'
 import PersonOutlineOutlinedIcon from '@mui/icons-material/PersonOutlineOutlined'
@@ -253,6 +254,7 @@ const driverNavItems: PortalNavItem[] = [
 
 const operatorNavItems: PortalNavItem[] = [
   { label: 'Containers', path: '/operator/containers', icon: <Inventory2OutlinedIcon /> },
+  { label: 'Route test', path: '/operator/route-test', icon: <MapOutlinedIcon /> },
   { label: 'Drivers', path: '/operator/drivers', icon: <LocalShippingOutlinedIcon /> },
   { label: 'Vehicles', path: '/operator/vehicles', icon: <LocalShippingOutlinedIcon /> },
   { label: 'Driver Invites', path: '/operator/invites', icon: <LocalShippingOutlinedIcon /> },

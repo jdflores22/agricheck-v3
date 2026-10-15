@@ -888,6 +888,19 @@ public class OperatorContainersController : OpsPortalControllerBase
         [FromBody] AssignDriverRequest request,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.AssignDriverAsync(uuid, request, cancellationToken));
+
+    [HttpGet("{uuid:guid}/delivery-stops")]
+    public async Task<ActionResult<ApiResponse<OperatorDeliveryStopsDto>>> GetDeliveryStops(
+        Guid uuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.GetDeliveryStopsAsync(uuid, cancellationToken));
+
+    [HttpPut("{uuid:guid}/delivery-stops")]
+    public async Task<ActionResult<ApiResponse<OperatorDeliveryStopsDto>>> BookDeliveryStops(
+        Guid uuid,
+        [FromBody] BookOperatorDeliveryStopsRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.BookDeliveryStopsAsync(uuid, request, cancellationToken));
 }
 
 [ApiController]
