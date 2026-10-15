@@ -47,7 +47,9 @@ public enum ContainerInspectionPhotoType
     XrayImage,
     ExaminationImage,
     ReportImage,
-    RequestForInspection
+    RequestForInspection,
+    DriverPickupGeotag,
+    DriverWarehouseGeotag,
 }
 
 public enum DoctorInspectionStatus

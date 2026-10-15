@@ -16,6 +16,9 @@ public class ContainerInspectionPhoto : BaseEntity
     public string? ReviewComment { get; set; }
     public long? ReviewedByUserId { get; set; }
     public DateTime? ReviewedAt { get; set; }
+    public decimal? CaptureLatitude { get; set; }
+    public decimal? CaptureLongitude { get; set; }
+    public DateTime? CapturedAtUtc { get; set; }
 
     public Container Container { get; set; } = null!;
     public Entry Entry { get; set; } = null!;

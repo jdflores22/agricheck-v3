@@ -599,6 +599,9 @@ public class DriverOpsService : IDriverOpsService
     public async Task<ContainerListItemDto> ConfirmContainerPickupAsync(
         Guid containerUuid,
         ConfirmContainerPickupRequest request,
+        Stream? geotagPhoto = null,
+        string? geotagFileName = null,
+        DateTime? capturedAtUtc = null,
         CancellationToken cancellationToken = default)
     {
         var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
@@ -627,9 +630,29 @@ public class DriverOpsService : IDriverOpsService
                 $"Move within {GeoDistanceHelper.DeliveryStopGeofenceMeters:0} m of the pickup point to confirm.");
         }
 
+        if (RequireGeotagProof() && geotagPhoto is null)
+        {
+            throw new ClientPortalException(
+                "GEOTAG_REQUIRED",
+                "Take a geotagged photo at the pickup point before confirming.");
+        }
+
         var label = string.IsNullOrWhiteSpace(request.Label)
             ? pickupTarget.Label
             : request.Label.Trim();
+
+        if (geotagPhoto is not null)
+        {
+            await SaveDriverGeotagProofAsync(
+                container,
+                ContainerInspectionPhotoType.DriverPickupGeotag,
+                geotagPhoto,
+                geotagFileName ?? "pickup-geotag.jpg",
+                request.Latitude,
+                request.Longitude,
+                capturedAtUtc ?? DateTime.UtcNow,
+                cancellationToken);
+        }
 
         // Keep planned pickup coordinates; only record driver GPS in the trail.
         ContainerDeliveryPointHelper.SetPickup(container, label, pickupTarget.Latitude, pickupTarget.Longitude);
@@ -874,6 +897,9 @@ public class DriverOpsService : IDriverOpsService
     public async Task<DriverWarehouseCheckInResultDto> CheckInAtWarehouseAsync(
         Guid containerUuid,
         DriverWarehouseCheckInRequest request,
+        Stream? geotagPhoto = null,
+        string? geotagFileName = null,
+        DateTime? capturedAtUtc = null,
         CancellationToken cancellationToken = default)
     {
         var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
@@ -904,6 +930,26 @@ public class DriverOpsService : IDriverOpsService
             throw new ClientPortalException(
                 "OUTSIDE_GEOFENCE",
                 $"Move within {GeoDistanceHelper.DeliveryStopGeofenceMeters:0} m of the warehouse to confirm arrival.");
+        }
+
+        if (RequireGeotagProof() && geotagPhoto is null)
+        {
+            throw new ClientPortalException(
+                "GEOTAG_REQUIRED",
+                "Take a geotagged photo at the warehouse before confirming arrival.");
+        }
+
+        if (geotagPhoto is not null)
+        {
+            await SaveDriverGeotagProofAsync(
+                container,
+                ContainerInspectionPhotoType.DriverWarehouseGeotag,
+                geotagPhoto,
+                geotagFileName ?? "warehouse-geotag.jpg",
+                request.Latitude,
+                request.Longitude,
+                capturedAtUtc ?? DateTime.UtcNow,
+                cancellationToken);
         }
 
         _db.ContainerLocations.Add(new ContainerLocation
@@ -1198,6 +1244,63 @@ public class DriverOpsService : IDriverOpsService
             profile.FaceVerified,
             profile.SubmittedAt,
             profile.ApprovedAt));
+    }
+
+    private bool RequireGeotagProof() =>
+        _configuration.GetValue("AgriTrack:RequireGeotagProof", true);
+
+    private async Task SaveDriverGeotagProofAsync(
+        Container container,
+        ContainerInspectionPhotoType photoType,
+        Stream photoStream,
+        string fileName,
+        decimal latitude,
+        decimal longitude,
+        DateTime capturedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        using var raw = new MemoryStream();
+        await photoStream.CopyToAsync(raw, cancellationToken);
+        var stamped = GeotagImageStamper.StampJpeg(raw.ToArray(), latitude, longitude, capturedAtUtc);
+        await using var stampedStream = new MemoryStream(stamped);
+        var safeName = string.IsNullOrWhiteSpace(fileName) ? "geotag.jpg" : fileName.Trim();
+        var (storedFileName, _) = await _fileStorage.SaveAsync(
+            stampedStream,
+            $"container-delivery-geotag/{container.Uuid}",
+            safeName,
+            cancellationToken);
+
+        var existing = await _db.ContainerInspectionPhotos
+            .FirstOrDefaultAsync(p => p.ContainerId == container.Id && p.PhotoType == photoType, cancellationToken);
+
+        if (existing is null)
+        {
+            existing = new ContainerInspectionPhoto
+            {
+                Uuid = Guid.NewGuid(),
+                ContainerId = container.Id,
+                EntryId = container.EntryId,
+                PhotoType = photoType,
+                OriginalFileName = safeName,
+                StoredFileName = storedFileName,
+                ContentType = "image/jpeg",
+                CaptureLatitude = latitude,
+                CaptureLongitude = longitude,
+                CapturedAtUtc = capturedAtUtc,
+                ReviewDecision = EvaluationDecision.Approved,
+            };
+            _db.ContainerInspectionPhotos.Add(existing);
+        }
+        else
+        {
+            existing.OriginalFileName = safeName;
+            existing.StoredFileName = storedFileName;
+            existing.ContentType = "image/jpeg";
+            existing.CaptureLatitude = latitude;
+            existing.CaptureLongitude = longitude;
+            existing.CapturedAtUtc = capturedAtUtc;
+            existing.ReviewDecision = EvaluationDecision.Approved;
+        }
     }
 
 }

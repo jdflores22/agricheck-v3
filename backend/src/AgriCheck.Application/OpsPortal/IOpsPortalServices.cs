@@ -22,13 +22,25 @@ public interface IDriverOpsService
     Task<DriverProfileDto> UpdateProfileAsync(UpdateDriverProfileRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ContainerListItemDto>> ListAssignedContainersAsync(CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> UpdateContainerStatusAsync(Guid containerUuid, UpdateContainerStatusRequest request, CancellationToken cancellationToken = default);
-    Task<ContainerListItemDto> ConfirmContainerPickupAsync(Guid containerUuid, ConfirmContainerPickupRequest request, CancellationToken cancellationToken = default);
+    Task<ContainerListItemDto> ConfirmContainerPickupAsync(
+        Guid containerUuid,
+        ConfirmContainerPickupRequest request,
+        Stream? geotagPhoto = null,
+        string? geotagFileName = null,
+        DateTime? capturedAtUtc = null,
+        CancellationToken cancellationToken = default);
     Task RecordContainerLocationAsync(Guid containerUuid, RecordContainerLocationRequest request, CancellationToken cancellationToken = default);
     Task<ContainerTrackDto> GetContainerTrackAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<DriverDeliveryHandoffQrDto> GetDeliveryHandoffQrAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<DriverTransportQrPreviewDto> PreviewTransportQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> AcceptDeliveryFromQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
-    Task<DriverWarehouseCheckInResultDto> CheckInAtWarehouseAsync(Guid containerUuid, DriverWarehouseCheckInRequest request, CancellationToken cancellationToken = default);
+    Task<DriverWarehouseCheckInResultDto> CheckInAtWarehouseAsync(
+        Guid containerUuid,
+        DriverWarehouseCheckInRequest request,
+        Stream? geotagPhoto = null,
+        string? geotagFileName = null,
+        DateTime? capturedAtUtc = null,
+        CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> ResetDeliveryTestAsync(Guid containerUuid, ResetDriverDeliveryTestRequest? request, CancellationToken cancellationToken = default);
     Task<DriverDocumentDto> UploadDocumentAsync(string documentType, Stream fileStream, string fileName, CancellationToken cancellationToken = default);
     Task<DriverProfileDto> SubmitFaceVerificationAsync(SubmitFaceVerificationRequest request, CancellationToken cancellationToken = default);

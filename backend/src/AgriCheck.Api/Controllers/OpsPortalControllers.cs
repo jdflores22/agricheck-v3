@@ -310,11 +310,43 @@ public class MobileContainersController : OpsPortalControllerBase
 
     [HttpPost("{uuid:guid}/pickup")]
     [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    [Consumes("application/json")]
     public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> ConfirmPickup(
         Guid uuid,
         [FromBody] ConfirmContainerPickupRequest request,
         CancellationToken cancellationToken) =>
-        await ExecuteAsync(() => _service.ConfirmContainerPickupAsync(uuid, request, cancellationToken));
+        await ExecuteAsync(() => _service.ConfirmContainerPickupAsync(uuid, request, cancellationToken: cancellationToken));
+
+    [HttpPost("{uuid:guid}/pickup")]
+    [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(12 * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> ConfirmPickupWithGeotag(
+        Guid uuid,
+        [FromForm] decimal latitude,
+        [FromForm] decimal longitude,
+        [FromForm] string? label,
+        [FromForm] string? capturedAt,
+        IFormFile photo,
+        CancellationToken cancellationToken)
+    {
+        if (photo is null || photo.Length == 0)
+        {
+            return BadRequest(ApiResponse<ContainerListItemDto>.Fail("FILE_REQUIRED", "Geotagged photo is required."));
+        }
+
+        var capturedUtc = ParseCapturedAtUtc(capturedAt);
+        await using var stream = photo.OpenReadStream();
+        var request = new ConfirmContainerPickupRequest(latitude, longitude, label);
+        return await ExecuteAsync(() =>
+            _service.ConfirmContainerPickupAsync(
+                uuid,
+                request,
+                stream,
+                photo.FileName,
+                capturedUtc,
+                cancellationToken));
+    }
 
     [HttpPost("{uuid:guid}/location")]
     public async Task<ActionResult<ApiResponse<object>>> RecordLocation(
@@ -355,11 +387,42 @@ public class MobileContainersController : OpsPortalControllerBase
 
     [HttpPost("{uuid:guid}/check-in")]
     [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    [Consumes("application/json")]
     public async Task<ActionResult<ApiResponse<DriverWarehouseCheckInResultDto>>> CheckInAtWarehouse(
         Guid uuid,
         [FromBody] DriverWarehouseCheckInRequest request,
         CancellationToken cancellationToken) =>
-        await ExecuteAsync(() => _service.CheckInAtWarehouseAsync(uuid, request, cancellationToken));
+        await ExecuteAsync(() => _service.CheckInAtWarehouseAsync(uuid, request, cancellationToken: cancellationToken));
+
+    [HttpPost("{uuid:guid}/check-in")]
+    [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(12 * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<DriverWarehouseCheckInResultDto>>> CheckInAtWarehouseWithGeotag(
+        Guid uuid,
+        [FromForm] decimal latitude,
+        [FromForm] decimal longitude,
+        [FromForm] string? capturedAt,
+        IFormFile photo,
+        CancellationToken cancellationToken)
+    {
+        if (photo is null || photo.Length == 0)
+        {
+            return BadRequest(ApiResponse<DriverWarehouseCheckInResultDto>.Fail("FILE_REQUIRED", "Geotagged photo is required."));
+        }
+
+        var capturedUtc = ParseCapturedAtUtc(capturedAt);
+        await using var stream = photo.OpenReadStream();
+        var request = new DriverWarehouseCheckInRequest(latitude, longitude);
+        return await ExecuteAsync(() =>
+            _service.CheckInAtWarehouseAsync(
+                uuid,
+                request,
+                stream,
+                photo.FileName,
+                capturedUtc,
+                cancellationToken));
+    }
 
     [HttpPost("{uuid:guid}/reset-delivery-test")]
     [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
@@ -537,6 +600,22 @@ public class MobileHealthController : ControllerBase
 
 public abstract class OpsPortalControllerBase : ControllerBase
 {
+    protected static DateTime? ParseCapturedAtUtc(string? capturedAt)
+    {
+        if (string.IsNullOrWhiteSpace(capturedAt))
+        {
+            return null;
+        }
+
+        return DateTime.TryParse(
+            capturedAt,
+            culture: null,
+            System.Globalization.DateTimeStyles.RoundtripKind,
+            out var parsed)
+            ? parsed.ToUniversalTime()
+            : null;
+    }
+
     protected async Task<ActionResult<ApiResponse<T>>> ExecuteAsync<T>(Func<Task<T>> action)
     {
         try

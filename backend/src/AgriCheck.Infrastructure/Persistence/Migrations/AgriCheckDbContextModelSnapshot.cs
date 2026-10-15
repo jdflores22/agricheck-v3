@@ -1139,6 +1139,15 @@ namespace AgriCheck.Infrastructure.Persistence.Migrations
                     b.Property<long>("ContainerId")
                         .HasColumnType("bigint");
 
+                    b.Property<decimal?>("CaptureLatitude")
+                        .HasColumnType("decimal(65,30)");
+
+                    b.Property<decimal?>("CaptureLongitude")
+                        .HasColumnType("decimal(65,30)");
+
+                    b.Property<DateTime?>("CapturedAtUtc")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<string>("ContentType")
                         .IsRequired()
                         .HasColumnType("longtext");
