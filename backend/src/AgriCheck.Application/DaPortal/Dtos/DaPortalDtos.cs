@@ -491,3 +491,63 @@ public record DaImporterEntryListItemDto(
     int ContainerCount,
     decimal VolumeKg,
     string ImportTrack);
+
+public record DaGeoPointDto(decimal Latitude, decimal Longitude);
+
+public record DaDeliveryStopDto(string Label, decimal Latitude, decimal Longitude);
+
+public record DaContainerTrailPointDto(decimal Latitude, decimal Longitude, DateTime RecordedAt);
+
+public record DaLiveDeliveryDto(
+    Guid ContainerUuid,
+    string ContainerNumber,
+    string EntryReference,
+    string Status,
+    string? DriverName,
+    string? VehiclePlate,
+    DaDeliveryStopDto Pickup,
+    DaDeliveryStopDto Destination,
+    decimal? CurrentLatitude,
+    decimal? CurrentLongitude,
+    DateTime? LastLocationAt,
+    IReadOnlyList<DaContainerTrailPointDto> RecentTrail);
+
+public record DaDeliveryComplianceAlertDto(
+    Guid ContainerUuid,
+    string ContainerNumber,
+    string EventType,
+    string? Details,
+    DateTime RecordedAt);
+
+public record DaDeliveryComplianceHoldDto(
+    Guid ContainerUuid,
+    string ContainerNumber,
+    string EntryReference,
+    string HoldReason,
+    DateTime HoldAt,
+    string? DriverName,
+    string? VehiclePlate);
+
+public record DaClearDeliveryComplianceHoldRequest(string ClearanceNotes);
+
+public record DaLiveLogisticsSnapshotDto(
+    DateTime ServerTime,
+    IReadOnlyList<DaLiveDeliveryDto> ActiveDeliveries,
+    IReadOnlyList<DaLiveDeliveryDto> RecentlyArrived,
+    IReadOnlyList<DaDeliveryComplianceAlertDto> ComplianceAlerts,
+    IReadOnlyList<DaDeliveryComplianceHoldDto> ActiveComplianceHolds);
+
+public record DaContainerActualRouteDto(
+    Guid ContainerUuid,
+    string ContainerNumber,
+    string EntryReference,
+    string Status,
+    string? DriverName,
+    string? VehiclePlate,
+    DaDeliveryStopDto Pickup,
+    DaDeliveryStopDto Destination,
+    DateTime? DepartureTime,
+    DateTime? ArrivalTime,
+    decimal? DistanceKm,
+    int PointCount,
+    IReadOnlyList<DaContainerTrailPointDto> Trail);

@@ -680,9 +680,43 @@ public class DriverOpsService : IDriverOpsService
             ContainerId = container.Id,
             Latitude = request.Latitude,
             Longitude = request.Longitude,
-            RecordedAt = DateTime.UtcNow
+            RecordedAt = ContainerLocationTimestampHelper.NormalizeRecordedAt(request.RecordedAt)
         });
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<int> RecordContainerLocationsBatchAsync(
+        Guid containerUuid,
+        RecordContainerLocationsBatchRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.Points is null || request.Points.Count == 0)
+        {
+            return 0;
+        }
+
+        if (request.Points.Count > 250)
+        {
+            throw new ClientPortalException("VALIDATION", "At most 250 location points per batch.");
+        }
+
+        var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        var container = await _db.Containers.FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
+
+        foreach (var point in request.Points.OrderBy(p => p.RecordedAt))
+        {
+            _db.ContainerLocations.Add(new ContainerLocation
+            {
+                ContainerId = container.Id,
+                Latitude = point.Latitude,
+                Longitude = point.Longitude,
+                RecordedAt = ContainerLocationTimestampHelper.NormalizeRecordedAt(point.RecordedAt)
+            });
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return request.Points.Count;
     }
 
     public async Task<ContainerTrackDto> GetContainerTrackAsync(Guid containerUuid, CancellationToken cancellationToken = default)
@@ -713,7 +747,14 @@ public class DriverOpsService : IDriverOpsService
             last?.Longitude,
             pickup,
             destination,
-            trail);
+            trail,
+            container.WarehouseHandoffEligibleAt is not null &&
+            container.Status is ContainerStatus.InTransit &&
+            !DeliveryComplianceHoldHelper.HasActiveHold(container),
+            DeliveryComplianceHoldHelper.HasActiveHold(container),
+            DeliveryComplianceHoldHelper.HasActiveHold(container)
+                ? container.DeliveryComplianceHoldReason
+                : null);
     }
 
     private static ContainerTrackDestinationDto ResolveTrackPickup(Container container)
@@ -748,7 +789,14 @@ public class DriverOpsService : IDriverOpsService
             mapped.MavCategoryName,
             mapped.VolumeKg,
             new ContainerDeliveryStopDto(pickup.Label, pickup.Latitude, pickup.Longitude),
-            new ContainerDeliveryStopDto(destination.Name, destination.Latitude, destination.Longitude));
+            new ContainerDeliveryStopDto(destination.Name, destination.Latitude, destination.Longitude),
+            container.WarehouseHandoffEligibleAt is not null &&
+            container.Status == ContainerStatus.InTransit &&
+            !DeliveryComplianceHoldHelper.HasActiveHold(container),
+            DeliveryComplianceHoldHelper.HasActiveHold(container),
+            DeliveryComplianceHoldHelper.HasActiveHold(container)
+                ? container.DeliveryComplianceHoldReason
+                : null);
     }
 
     private async Task<ContainerTrackDestinationDto> ResolveTrackDestinationAsync(Container container, CancellationToken cancellationToken)
@@ -799,42 +847,80 @@ public class DriverOpsService : IDriverOpsService
         var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
         var container = await _db.Containers
             .Include(c => c.Entry)
-            .Include(c => c.TransportTags)
+            .Include(c => c.Locations)
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
 
-        if (container.Status is ContainerStatus.Released or ContainerStatus.Pending)
+        if (container.Status is not ContainerStatus.InTransit and not ContainerStatus.PickedUp)
         {
-            throw new ClientPortalException("INVALID_STATUS", "Delivery QR is not available for this container.");
+            throw new ClientPortalException("INVALID_STATUS", "Delivery QR is only available while the trip is in progress at the assigned warehouse.");
         }
 
-        var tag = container.TransportTags.OrderByDescending(t => t.TaggedAt).FirstOrDefault();
-        string qrPayload;
-        string? qrCodeData;
-        if (tag?.QrPayload is { Length: > 0 } existingPayload)
+        if (DeliveryComplianceHoldHelper.HasActiveHold(container))
         {
-            qrPayload = existingPayload;
-            qrCodeData = tag.QrCodeData;
+            throw new ClientPortalException(
+                "COMPLIANCE_HOLD",
+                DeliveryComplianceHoldHelper.HoldUserMessage(container.DeliveryComplianceHoldReason));
         }
-        else
+
+        if (container.WarehouseHandoffEligibleAt is null)
         {
-            var signingKey = TransportQrSigningKeyResolver.Resolve(_configuration);
-            var syntheticTagUuid = tag?.Uuid ?? Guid.NewGuid();
-            var taggedAt = tag?.TaggedAt ?? DateTime.UtcNow;
-            qrPayload = TransportQrCodec.Encode(
-                new TransportQrPayload(
-                    syntheticTagUuid,
-                    container.Uuid,
-                    container.ContainerNumber,
-                    container.Entry.ReferenceNo,
-                    tag?.TransportType ?? "warehouse_nmis",
-                    tag?.ScheduledWarehouseDate.HasValue == true
-                        ? DateOnly.FromDateTime(tag.ScheduledWarehouseDate!.Value)
-                        : null,
-                    taggedAt),
-                signingKey);
-            qrCodeData = QrCodeGenerator.ToBase64Png(qrPayload);
+            throw new ClientPortalException(
+                "HANDOFF_NOT_READY",
+                "Confirm arrival at your assigned warehouse first. The QR code is generated only when you are at the correct warehouse.");
         }
+
+        var destination = await ResolveTrackDestinationAsync(container, cancellationToken);
+        var last = container.Locations
+            .Where(l => l.Latitude is not null && l.Longitude is not null)
+            .OrderByDescending(l => l.RecordedAt)
+            .FirstOrDefault();
+        if (last is not null)
+        {
+            var dist = GeoDistanceHelper.DistanceMeters(
+                last.Latitude!.Value,
+                last.Longitude!.Value,
+                destination.Latitude,
+                destination.Longitude);
+            if (dist > GeoDistanceHelper.DeliveryStopGeofenceMeters)
+            {
+                throw new ClientPortalException(
+                    "OUTSIDE_GEOFENCE",
+                    "You must stay within the assigned warehouse area. Mis-warehouse delivery is not allowed.");
+            }
+        }
+
+        var now = DateTime.UtcNow;
+        var expiresAt = now.Add(DeliveryHandoffQrCodec.MaxAge);
+        var nonce = Guid.NewGuid();
+        var signingKey = TransportQrSigningKeyResolver.Resolve(_configuration);
+        var handoffPayload = new DeliveryHandoffQrPayload(
+            nonce,
+            container.Uuid,
+            container.ContainerNumber,
+            container.Entry.ReferenceNo,
+            now);
+        var qrPayload = DeliveryHandoffQrCodec.Encode(handoffPayload, signingKey);
+        var qrCodeData = QrCodeGenerator.ToBase64Png(qrPayload);
+
+        var staleTokens = await _db.ContainerHandoffTokens
+            .Where(t => t.ContainerId == container.Id && t.ConsumedAt == null && t.ExpiresAt > now)
+            .ToListAsync(cancellationToken);
+        foreach (var stale in staleTokens)
+        {
+            stale.ExpiresAt = now;
+        }
+
+        _db.ContainerHandoffTokens.Add(new ContainerHandoffToken
+        {
+            Nonce = nonce,
+            ContainerId = container.Id,
+            IssuedByDriverUserId = driver.Id,
+            IssuedAt = now,
+            ExpiresAt = expiresAt,
+            QrPayload = qrPayload,
+        });
+        await _db.SaveChangesAsync(cancellationToken);
 
         return new DriverDeliveryHandoffQrDto(
             container.Uuid,
@@ -842,7 +928,9 @@ public class DriverOpsService : IDriverOpsService
             container.Entry.ReferenceNo,
             qrPayload,
             qrCodeData,
-            "Present this QR at the warehouse. NMIS/Doctor will scan it to complete the delivery — you cannot end the trip from the app.");
+            "This QR refreshes automatically and cannot be reused from a screenshot. Only NMIS/Doctor can scan it to end the trip.",
+            expiresAt,
+            (int)DeliveryHandoffQrCodec.MaxAge.TotalSeconds - 5);
     }
 
     public async Task<DriverTransportQrPreviewDto> PreviewTransportQrAsync(
@@ -927,9 +1015,20 @@ public class DriverOpsService : IDriverOpsService
 
         if (distance > GeoDistanceHelper.DeliveryStopGeofenceMeters)
         {
+            DeliveryComplianceHoldHelper.ApplyHold(container, DeliveryComplianceEventTypes.WrongWarehouse);
+            await RecordDeliveryComplianceEventAsync(
+                container.Id,
+                driver.Id,
+                DeliveryComplianceEventTypes.WrongWarehouse,
+                request.Latitude,
+                request.Longitude,
+                $"distance_to_assigned_warehouse_m={distance:0}",
+                cancellationToken,
+                applyHold: false);
+            await _db.SaveChangesAsync(cancellationToken);
             throw new ClientPortalException(
-                "OUTSIDE_GEOFENCE",
-                $"Move within {GeoDistanceHelper.DeliveryStopGeofenceMeters:0} m of the warehouse to confirm arrival.");
+                "WRONG_WAREHOUSE",
+                "Wrong warehouse location. DA has been alerted. You cannot end this trip until DA authority clears the delivery.");
         }
 
         if (RequireGeotagProof() && geotagPhoto is null)
@@ -963,18 +1062,91 @@ public class DriverOpsService : IDriverOpsService
         var withinGeofence = distance <= GeoDistanceHelper.DeliveryStopGeofenceMeters;
         if (container.Status is ContainerStatus.InTransit or ContainerStatus.PickedUp)
         {
-            container.Status = ContainerStatus.AtWarehouse;
-            container.ArrivalTime ??= DateTime.UtcNow;
-            if (container.Entry.CompliancePhase < EntryCompliancePhase.AtWarehouse)
-            {
-                container.Entry.CompliancePhase = EntryCompliancePhase.AtWarehouse;
-            }
-
-            await _push.NotifyWarehouseArrivalAsync(container.ContainerNumber, container.Uuid, destination.Name, cancellationToken);
+            container.WarehouseHandoffEligibleAt = DateTime.UtcNow;
         }
 
         await _db.SaveChangesAsync(cancellationToken);
-        return new DriverWarehouseCheckInResultDto(withinGeofence, distance, OpsDtoMapper.MapContainer(container));
+        var mapped = await MapDriverContainerAsync(container, cancellationToken);
+        return new DriverWarehouseCheckInResultDto(withinGeofence, distance, mapped);
+    }
+
+    public async Task ReportDeliveryComplianceAsync(
+        Guid containerUuid,
+        ReportDeliveryComplianceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        var container = await _db.Containers
+            .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
+
+        var eventType = request.EventType.Trim().ToLowerInvariant();
+        if (eventType is not DeliveryComplianceEventTypes.Misroute
+            and not DeliveryComplianceEventTypes.WrongWarehouse
+            and not DeliveryComplianceEventTypes.OffRouteBlocked)
+        {
+            throw new ClientPortalException("INVALID_EVENT", "Unsupported compliance event type.");
+        }
+
+        var details = request.Details?.Trim();
+        if (request.OffRouteMeters is not null)
+        {
+            details = string.IsNullOrWhiteSpace(details)
+                ? $"off_route_m={request.OffRouteMeters:0}"
+                : $"{details} | off_route_m={request.OffRouteMeters:0}";
+        }
+
+        await RecordDeliveryComplianceEventAsync(
+            container.Id,
+            driver.Id,
+            eventType,
+            request.Latitude,
+            request.Longitude,
+            details,
+            cancellationToken);
+    }
+
+    private async Task RecordDeliveryComplianceEventAsync(
+        long containerId,
+        long? driverUserId,
+        string eventType,
+        decimal? latitude,
+        decimal? longitude,
+        string? details,
+        CancellationToken cancellationToken,
+        bool applyHold = true)
+    {
+        var since = DateTime.UtcNow.AddMinutes(-10);
+        var duplicate = await _db.DeliveryComplianceEvents.AnyAsync(
+            e => e.ContainerId == containerId &&
+                 e.EventType == eventType &&
+                 e.RecordedAt >= since,
+            cancellationToken);
+
+        if (!duplicate)
+        {
+            _db.DeliveryComplianceEvents.Add(new DeliveryComplianceEvent
+            {
+                ContainerId = containerId,
+                DriverUserId = driverUserId,
+                EventType = eventType,
+                Latitude = latitude,
+                Longitude = longitude,
+                Details = details,
+                RecordedAt = DateTime.UtcNow,
+            });
+        }
+
+        if (applyHold && DeliveryComplianceHoldHelper.ShouldApplyHoldForEvent(eventType))
+        {
+            var container = await _db.Containers.FirstOrDefaultAsync(c => c.Id == containerId, cancellationToken);
+            if (container is not null)
+            {
+                DeliveryComplianceHoldHelper.ApplyHold(container, eventType);
+            }
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<ContainerListItemDto> ResetDeliveryTestAsync(

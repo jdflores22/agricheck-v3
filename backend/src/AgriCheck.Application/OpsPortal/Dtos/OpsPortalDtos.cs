@@ -176,7 +176,16 @@ public record DriverDeliveryHandoffQrDto(
     string EntryReference,
     string QrPayload,
     string? QrCodeData,
-    string HandoffInstruction);
+    string HandoffInstruction,
+    DateTime ExpiresAtUtc,
+    int RefreshAfterSeconds);
+
+public record ReportDeliveryComplianceRequest(
+    string EventType,
+    decimal Latitude,
+    decimal Longitude,
+    string? Details = null,
+    double? OffRouteMeters = null);
 
 public record SubmitFaceVerificationRequest(
     decimal? Confidence,
@@ -208,7 +217,10 @@ public record ContainerListItemDto(
     string? MavCategoryName = null,
     decimal? VolumeKg = null,
     ContainerDeliveryStopDto? Pickup = null,
-    ContainerDeliveryStopDto? Destination = null);
+    ContainerDeliveryStopDto? Destination = null,
+    bool HandoffQrAvailable = false,
+    bool DeliveryComplianceHoldActive = false,
+    string? DeliveryComplianceHoldReason = null);
 
 public record UpdateContainerStatusRequest(string Status, decimal? Latitude = null, decimal? Longitude = null);
 
@@ -256,7 +268,11 @@ public record ScanTransportQrRequest([property: System.ComponentModel.DataAnnota
 
 public record CompleteDoctorInspectionRequest(string Decision, string? Findings);
 
-public record RecordContainerLocationRequest(decimal Latitude, decimal Longitude);
+public record RecordContainerLocationRequest(decimal Latitude, decimal Longitude, DateTime? RecordedAt = null);
+
+public record RecordContainerLocationPointRequest(decimal Latitude, decimal Longitude, DateTime RecordedAt);
+
+public record RecordContainerLocationsBatchRequest(IReadOnlyList<RecordContainerLocationPointRequest> Points);
 
 public record ConfirmContainerPickupRequest(decimal Latitude, decimal Longitude, string? Label = null);
 
@@ -297,6 +313,9 @@ public record ContainerTrackDto(
     decimal? CurrentLongitude,
     ContainerTrackDestinationDto Pickup,
     ContainerTrackDestinationDto Destination,
-    IReadOnlyList<ContainerLocationPointDto> Trail);
+    IReadOnlyList<ContainerLocationPointDto> Trail,
+    bool HandoffQrAvailable = false,
+    bool DeliveryComplianceHoldActive = false,
+    string? DeliveryComplianceHoldReason = null);
 
 public record RegisterMobilePushDeviceRequest(string ExpoPushToken, string Platform);

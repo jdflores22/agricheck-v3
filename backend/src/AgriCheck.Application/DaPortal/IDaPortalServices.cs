@@ -63,3 +63,13 @@ public interface IDaImporterProfileService
     Task<DaImporterProfileDto> GetProfileAsync(Guid uuid, CancellationToken cancellationToken = default);
     Task<PagedResult<DaImporterEntryListItemDto>> ListEntriesAsync(Guid uuid, int page, int pageSize, string? status, CancellationToken cancellationToken = default);
 }
+
+public interface IDaLogisticsLiveService
+{
+    Task<DaLiveLogisticsSnapshotDto> GetLiveSnapshotAsync(CancellationToken cancellationToken = default);
+    Task<DaContainerActualRouteDto> GetActualRouteAsync(Guid containerUuid, CancellationToken cancellationToken = default);
+    Task<DaDeliveryComplianceHoldDto> ClearComplianceHoldAsync(
+        Guid containerUuid,
+        DaClearDeliveryComplianceHoldRequest request,
+        CancellationToken cancellationToken = default);
+}

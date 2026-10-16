@@ -21,6 +21,7 @@ public class DaPortalController : AgencyPortalControllerBase
     private readonly IDaImporterProfileService _importerProfileService;
     private readonly IDaFacilityRegistrationService _facilityRegistrationService;
     private readonly IDaWarehouseLtoApplicationService _ltoApplicationService;
+    private readonly IDaLogisticsLiveService _logisticsLiveService;
 
     public DaPortalController(
         IDaDashboardService dashboardService,
@@ -29,7 +30,8 @@ public class DaPortalController : AgencyPortalControllerBase
         IDaWarehouseManagementService warehouseService,
         IDaImporterProfileService importerProfileService,
         IDaFacilityRegistrationService facilityRegistrationService,
-        IDaWarehouseLtoApplicationService ltoApplicationService)
+        IDaWarehouseLtoApplicationService ltoApplicationService,
+        IDaLogisticsLiveService logisticsLiveService)
     {
         _dashboardService = dashboardService;
         _agencyOverviewService = agencyOverviewService;
@@ -38,6 +40,7 @@ public class DaPortalController : AgencyPortalControllerBase
         _importerProfileService = importerProfileService;
         _facilityRegistrationService = facilityRegistrationService;
         _ltoApplicationService = ltoApplicationService;
+        _logisticsLiveService = logisticsLiveService;
     }
 
     [HttpGet("dashboard")]
@@ -207,4 +210,21 @@ public class DaPortalController : AgencyPortalControllerBase
         [FromQuery] string? status = null,
         CancellationToken cancellationToken = default) =>
         await ExecuteAsync(() => _importerProfileService.ListEntriesAsync(uuid, page, pageSize, status, cancellationToken));
+
+    [HttpGet("logistics/live")]
+    public async Task<ActionResult<ApiResponse<DaLiveLogisticsSnapshotDto>>> LogisticsLive(CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _logisticsLiveService.GetLiveSnapshotAsync(cancellationToken));
+
+    [HttpGet("logistics/containers/{uuid:guid}/actual-route")]
+    public async Task<ActionResult<ApiResponse<DaContainerActualRouteDto>>> ContainerActualRoute(
+        Guid uuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _logisticsLiveService.GetActualRouteAsync(uuid, cancellationToken));
+
+    [HttpPost("logistics/containers/{uuid:guid}/clear-compliance-hold")]
+    public async Task<ActionResult<ApiResponse<DaDeliveryComplianceHoldDto>>> ClearComplianceHold(
+        Guid uuid,
+        [FromBody] DaClearDeliveryComplianceHoldRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _logisticsLiveService.ClearComplianceHoldAsync(uuid, request, cancellationToken));
 }

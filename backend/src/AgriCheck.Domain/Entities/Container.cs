@@ -17,6 +17,13 @@ public class Container : BaseEntity
     public long? AssignedOperatorVehicleId { get; set; }
     public DateTime? DepartureTime { get; set; }
     public DateTime? ArrivalTime { get; set; }
+    /// <summary>Driver confirmed geofence at assigned warehouse; rotating handoff QR enabled until doctor scan.</summary>
+    public DateTime? WarehouseHandoffEligibleAt { get; set; }
+    public string? DeliveryComplianceHoldReason { get; set; }
+    public DateTime? DeliveryComplianceHoldAt { get; set; }
+    public DateTime? DeliveryComplianceClearedAt { get; set; }
+    public long? DeliveryComplianceClearedByUserId { get; set; }
+    public string? DeliveryComplianceClearanceNotes { get; set; }
     public long? SpsImportClearanceId { get; set; }
     public long? WarehouseFacilityId { get; set; }
 

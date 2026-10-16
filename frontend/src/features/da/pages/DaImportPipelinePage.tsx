@@ -37,6 +37,21 @@ function importerLabel(name: string, companyName?: string | null) {
   return companyName?.trim() ? companyName.trim() : name
 }
 
+function isOversightCommodityRow(commodityName: string, hsCode: string) {
+  const name = commodityName.trim()
+  if (!name || name.toLowerCase() === 'unclassified') {
+    return false
+  }
+  if (/^\d+$/.test(name)) {
+    return false
+  }
+  const hs = hsCode.trim()
+  if (hs && hs !== '—') {
+    return true
+  }
+  return /[a-zA-Z]/.test(name)
+}
+
 export function DaImportPipelinePage() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -44,16 +59,25 @@ export function DaImportPipelinePage() {
   const { data, isLoading, isFetching } = useGetDaImportPipelineReportQuery({})
   const report = data?.data
 
-  const filteredCommodities = useMemo(() => {
+  const oversightCommodities = useMemo(() => {
     if (!report) return []
+    return report.byCommodity.filter((row) => isOversightCommodityRow(row.commodityName, row.hsCode))
+  }, [report])
+
+  const oversightWarehouses = useMemo(() => {
+    if (!report) return []
+    return report.byCommodityWarehouse.filter((row) => isOversightCommodityRow(row.commodityName, row.hsCode))
+  }, [report])
+
+  const filteredCommodities = useMemo(() => {
     const term = search.trim().toLowerCase()
-    if (!term) return report.byCommodity
-    return report.byCommodity.filter(
+    if (!term) return oversightCommodities
+    return oversightCommodities.filter(
       (row) =>
         row.commodityName.toLowerCase().includes(term)
         || row.hsCode.toLowerCase().includes(term),
     )
-  }, [report, search])
+  }, [oversightCommodities, search])
 
   const commodityImporters = useMemo(() => {
     if (!report || !selectedCommodity) return []
@@ -97,7 +121,7 @@ export function DaImportPipelinePage() {
       <PortalPageHeader
         eyebrow="Import oversight"
         title="Expected vs actual imports"
-        subtitle="Compare import entries still in the pipeline against commodities already received into warehouse inventory — classified by commodity, importer, and warehouse."
+        subtitle="Classified imports only (with destination warehouse). Processing / in transit = not yet checked in; Actual = stored inventory at the CSW."
       >
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, mt: 1.5 }}>
           <Chip
@@ -208,7 +232,7 @@ export function DaImportPipelinePage() {
           ))}
         </PortalTablePanel>
         <Typography sx={{ mt: 1, fontSize: '0.75rem', color: portalColors.textMuted }}>
-          Click a commodity row to see which importers brought it in and which warehouses currently hold it.
+          Click a commodity row to see importers and destination warehouses (expected in pipeline vs actual stock on hand).
         </Typography>
       </Box>
 
@@ -244,10 +268,10 @@ export function DaImportPipelinePage() {
             </Grid>
             <Grid size={{ xs: 12, lg: 6 }}>
               <PortalTablePanel
-                title={`${selectedCommodity.commodityName} — warehouses (actual stock)`}
-                columns={['Warehouse', 'Region', 'Volume', 'Containers']}
+                title={`${selectedCommodity.commodityName} — destination warehouses`}
+                columns={['Warehouse', 'Region', 'Expected (pipeline)', 'Actual (stored)', 'Entries', 'Containers']}
                 isEmpty={commodityWarehouses.length === 0}
-                emptyMessage="No warehouse stock recorded for this commodity yet."
+                emptyMessage="No destination warehouse linked for this commodity yet."
               >
                 {commodityWarehouses.map((row) => (
                   <TableRow key={row.warehouseId} hover>
@@ -258,7 +282,9 @@ export function DaImportPipelinePage() {
                       </Typography>
                     </TableCell>
                     <TableCell>{row.regionName ?? '—'}</TableCell>
+                    <TableCell>{formatMt(row.expectedKg)}</TableCell>
                     <TableCell>{formatMt(row.actualKg)}</TableCell>
+                    <TableCell>{row.expectedEntryCount}</TableCell>
                     <TableCell>{row.containerCount}</TableCell>
                   </TableRow>
                 ))}
@@ -267,6 +293,56 @@ export function DaImportPipelinePage() {
           </Grid>
         </Box>
       ) : null}
+
+      <Box sx={{ mt: 3 }}>
+        <PortalTablePanel
+          title="All commodities × destination warehouses"
+          columns={['Commodity', 'HS', 'Warehouse', 'Region', 'Expected', 'Actual', 'Entries', 'Containers']}
+          isEmpty={oversightWarehouses.length === 0}
+          emptyMessage="No destination warehouse volume in the pipeline."
+        >
+          {oversightWarehouses.map((row) => (
+            <TableRow
+              key={`${row.hsCode}-${row.commodityName}-${row.warehouseId}`}
+              hover
+              onClick={() =>
+                setSelectedCommodity(
+                  report.byCommodity.find(
+                    (c) => c.hsCode === row.hsCode && c.commodityName === row.commodityName,
+                  ) ?? {
+                    hsCode: row.hsCode,
+                    commodityName: row.commodityName,
+                    expectedKg: row.expectedKg,
+                    actualKg: row.actualKg,
+                    processingKg: 0,
+                    inTransitKg: 0,
+                    awaitingStorageKg: 0,
+                    expectedContainers: 0,
+                    actualContainers: row.containerCount,
+                    importerCount: 0,
+                    warehouseCount: 1,
+                  },
+                )
+              }
+              sx={{ cursor: 'pointer' }}
+            >
+              <TableCell sx={{ fontWeight: 600 }}>{row.commodityName}</TableCell>
+              <TableCell>{row.hsCode}</TableCell>
+              <TableCell>
+                {row.warehouseName}
+                <Typography sx={{ fontSize: '0.7rem', color: portalColors.textMuted }}>
+                  {row.warehouseCode}
+                </Typography>
+              </TableCell>
+              <TableCell>{row.regionName ?? '—'}</TableCell>
+              <TableCell>{formatMt(row.expectedKg)}</TableCell>
+              <TableCell>{formatMt(row.actualKg)}</TableCell>
+              <TableCell>{row.expectedEntryCount}</TableCell>
+              <TableCell>{row.containerCount}</TableCell>
+            </TableRow>
+          ))}
+        </PortalTablePanel>
+      </Box>
 
       <Box sx={{ mt: 3 }}>
         <PortalTablePanel
@@ -297,12 +373,14 @@ export function DaImportPipelinePage() {
 
       <Box sx={{ mt: 3 }}>
         <PortalTablePanel
-          title="Import entries in pipeline"
-          columns={['Reference', 'Importer', 'Agency', 'Stage', 'Commodity', 'Expected', 'Containers', 'Submitted']}
+          title={`Import entries in pipeline (${report.entries.length}${report.pipelineEntryCount > report.entries.length ? ` of ${report.pipelineEntryCount}` : ''})`}
+          columns={['Reference', 'Importer', 'Agency', 'Destination warehouse', 'Stage', 'Commodity', 'Expected', 'Containers', 'Submitted']}
           isEmpty={report.entries.length === 0}
           emptyMessage="No active import entries awaiting warehouse intake."
         >
-          {report.entries.map((entry) => (
+          {report.entries
+            .filter((entry) => isOversightCommodityRow(entry.commodityName, entry.hsCode))
+            .map((entry) => (
             <TableRow key={entry.entryUuid} hover>
               <TableCell>{entry.referenceNo}</TableCell>
               <TableCell>
@@ -326,6 +404,22 @@ export function DaImportPipelinePage() {
                 ) : null}
               </TableCell>
               <TableCell>{entry.agencyCode}</TableCell>
+              <TableCell>
+                {entry.destinationWarehouseName?.trim() ? (
+                  <>
+                    <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                      {entry.destinationWarehouseName}
+                    </Typography>
+                    {entry.destinationWarehouseCode?.trim() ? (
+                      <Typography sx={{ fontSize: '0.7rem', color: portalColors.textMuted }}>
+                        {entry.destinationWarehouseCode}
+                      </Typography>
+                    ) : null}
+                  </>
+                ) : (
+                  '—'
+                )}
+              </TableCell>
               <TableCell>
                 <Chip size="small" label={entry.pipelineLabel} sx={{ fontWeight: 600 }} />
               </TableCell>

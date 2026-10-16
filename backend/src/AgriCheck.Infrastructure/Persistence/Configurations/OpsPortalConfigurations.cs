@@ -25,6 +25,43 @@ public class ContainerConfiguration : IEntityTypeConfiguration<Container>
         builder.HasOne(x => x.AssignedOperatorVehicle).WithMany().HasForeignKey(x => x.AssignedOperatorVehicleId);
         builder.HasOne(x => x.SpsImportClearance).WithMany().HasForeignKey(x => x.SpsImportClearanceId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne(x => x.WarehouseFacility).WithMany().HasForeignKey(x => x.WarehouseFacilityId).OnDelete(DeleteBehavior.SetNull);
+        builder.Property(x => x.WarehouseHandoffEligibleAt);
+        builder.Property(x => x.DeliveryComplianceHoldReason).HasMaxLength(64);
+        builder.Property(x => x.DeliveryComplianceHoldAt);
+        builder.Property(x => x.DeliveryComplianceClearedAt);
+        builder.Property(x => x.DeliveryComplianceClearedByUserId);
+        builder.Property(x => x.DeliveryComplianceClearanceNotes).HasMaxLength(2000);
+    }
+}
+
+public class ContainerHandoffTokenConfiguration : IEntityTypeConfiguration<ContainerHandoffToken>
+{
+    public void Configure(EntityTypeBuilder<ContainerHandoffToken> builder)
+    {
+        builder.ToTable("container_handoff_tokens");
+        builder.HasKey(x => x.Id);
+        builder.HasIndex(x => x.Nonce).IsUnique();
+        builder.HasIndex(x => new { x.ContainerId, x.ExpiresAt });
+        builder.Property(x => x.QrPayload).HasColumnType("longtext").IsRequired();
+        builder.HasOne(x => x.Container).WithMany().HasForeignKey(x => x.ContainerId);
+        builder.HasOne(x => x.IssuedByDriver).WithMany().HasForeignKey(x => x.IssuedByDriverUserId);
+        builder.HasOne(x => x.ConsumedBy).WithMany().HasForeignKey(x => x.ConsumedByUserId);
+    }
+}
+
+public class DeliveryComplianceEventConfiguration : IEntityTypeConfiguration<DeliveryComplianceEvent>
+{
+    public void Configure(EntityTypeBuilder<DeliveryComplianceEvent> builder)
+    {
+        builder.ToTable("delivery_compliance_events");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.EventType).HasMaxLength(64).IsRequired();
+        builder.Property(x => x.Details).HasMaxLength(2000);
+        builder.Property(x => x.Latitude).HasPrecision(10, 7);
+        builder.Property(x => x.Longitude).HasPrecision(10, 7);
+        builder.HasIndex(x => new { x.ContainerId, x.RecordedAt });
+        builder.HasOne(x => x.Container).WithMany().HasForeignKey(x => x.ContainerId);
+        builder.HasOne(x => x.DriverUser).WithMany().HasForeignKey(x => x.DriverUserId);
     }
 }
 

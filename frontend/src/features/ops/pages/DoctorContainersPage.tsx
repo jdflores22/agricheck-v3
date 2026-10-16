@@ -17,6 +17,7 @@ import {
   useClaimDoctorContainerMutation,
   useCompleteDoctorInspectionMutation,
   useGetDoctorContainersQuery,
+  useScanDoctorHandoffQrMutation,
 } from '../api/opsApi'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalTablePanel } from '../../../components/portal/PortalTablePanel'
@@ -26,6 +27,9 @@ export function DoctorContainersPage() {
   const { data, isLoading } = useGetDoctorContainersQuery()
   const [claimContainer] = useClaimDoctorContainerMutation()
   const [completeInspection, { isLoading: completing }] = useCompleteDoctorInspectionMutation()
+  const [scanHandoff, { isLoading: scanningHandoff }] = useScanDoctorHandoffQrMutation()
+  const [scanOpen, setScanOpen] = useState(false)
+  const [scanQrData, setScanQrData] = useState('')
   const [message, setMessage] = useState('')
   const [completeTarget, setCompleteTarget] = useState<string | null>(null)
   const [decision, setDecision] = useState<'Approved' | 'Rejected'>('Approved')
@@ -39,6 +43,19 @@ export function DoctorContainersPage() {
       setMessage('Container claimed for inspection.')
     } catch {
       setMessage('Failed to claim container.')
+    }
+  }
+
+  const handleScanHandoff = async () => {
+    const qrData = scanQrData.trim()
+    if (!qrData) return
+    try {
+      await scanHandoff({ qrData }).unwrap()
+      setMessage('Delivery handoff QR accepted — trip ended and inspection started.')
+      setScanOpen(false)
+      setScanQrData('')
+    } catch {
+      setMessage('Handoff QR rejected — expired, reused, wrong warehouse, misroute hold, or driver not at assigned warehouse.')
     }
   }
 
@@ -64,7 +81,12 @@ export function DoctorContainersPage() {
       <PortalPageHeader
         eyebrow="Inspection"
         title="Doctor Inspection Queue"
-        subtitle="Claim containers and record veterinary inspection decisions."
+        subtitle="Scan the driver’s rotating warehouse QR to end the trip, then complete inspection."
+        actions={
+          <Button size="small" variant="contained" sx={portalPrimaryButtonSx} onClick={() => setScanOpen(true)}>
+            Scan delivery QR
+          </Button>
+        }
       />
       {message && <Alert severity="info" sx={{ mb: 2 }} onClose={() => setMessage('')}>{message}</Alert>}
       <PortalTablePanel
@@ -92,6 +114,28 @@ export function DoctorContainersPage() {
           </TableRow>
         ))}
       </PortalTablePanel>
+
+      <Dialog open={scanOpen} onClose={() => !scanningHandoff && setScanOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Scan delivery handoff QR</DialogTitle>
+        <DialogContent>
+          <TextField
+            label="QR payload (from scanner)"
+            value={scanQrData}
+            onChange={(e) => setScanQrData(e.target.value)}
+            fullWidth
+            multiline
+            minRows={4}
+            sx={{ mt: 1 }}
+            helperText="Screenshots and old codes are rejected. Only the live AgriTrack code works."
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setScanOpen(false)} disabled={scanningHandoff}>Cancel</Button>
+          <Button variant="contained" sx={portalPrimaryButtonSx} onClick={handleScanHandoff} disabled={scanningHandoff || !scanQrData.trim()}>
+            Accept handoff
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(completeTarget)} onClose={() => !completing && setCompleteTarget(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Complete inspection</DialogTitle>

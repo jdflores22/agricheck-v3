@@ -78,6 +78,8 @@ public class AgriCheckDbContext : DbContext
     public DbSet<ContainerLocation> ContainerLocations => Set<ContainerLocation>();
     public DbSet<ContainerInspectionPhoto> ContainerInspectionPhotos => Set<ContainerInspectionPhoto>();
     public DbSet<ContainerTransportTag> ContainerTransportTags => Set<ContainerTransportTag>();
+    public DbSet<ContainerHandoffToken> ContainerHandoffTokens => Set<ContainerHandoffToken>();
+    public DbSet<DeliveryComplianceEvent> DeliveryComplianceEvents => Set<DeliveryComplianceEvent>();
     public DbSet<ContainerDoctorInspection> ContainerDoctorInspections => Set<ContainerDoctorInspection>();
     public DbSet<WarehouseInventory> WarehouseInventories => Set<WarehouseInventory>();
     public DbSet<ReleaseAuthorization> ReleaseAuthorizations => Set<ReleaseAuthorization>();

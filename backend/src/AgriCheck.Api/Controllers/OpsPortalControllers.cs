@@ -246,6 +246,16 @@ public class DriverContainersController : OpsPortalControllerBase
         await _service.RecordContainerLocationAsync(uuid, request, cancellationToken);
         return Ok(ApiResponse<object>.Ok(new { recorded = true }));
     }
+
+    [HttpPost("{uuid:guid}/locations/batch")]
+    public async Task<ActionResult<ApiResponse<object>>> RecordLocationsBatch(
+        Guid uuid,
+        [FromBody] RecordContainerLocationsBatchRequest request,
+        CancellationToken cancellationToken)
+    {
+        var count = await _service.RecordContainerLocationsBatchAsync(uuid, request, cancellationToken);
+        return Ok(ApiResponse<object>.Ok(new { recorded = count }));
+    }
 }
 
 [ApiController]
@@ -370,6 +380,26 @@ public class MobileContainersController : OpsPortalControllerBase
         CancellationToken cancellationToken)
     {
         await _service.RecordContainerLocationAsync(uuid, request, cancellationToken);
+        return Ok(ApiResponse<object>.Ok(new { recorded = true }));
+    }
+
+    [HttpPost("{uuid:guid}/locations/batch")]
+    public async Task<ActionResult<ApiResponse<object>>> RecordLocationsBatch(
+        Guid uuid,
+        [FromBody] RecordContainerLocationsBatchRequest request,
+        CancellationToken cancellationToken)
+    {
+        var count = await _service.RecordContainerLocationsBatchAsync(uuid, request, cancellationToken);
+        return Ok(ApiResponse<object>.Ok(new { recorded = count }));
+    }
+
+    [HttpPost("{uuid:guid}/compliance-events")]
+    public async Task<ActionResult<ApiResponse<object>>> ReportCompliance(
+        Guid uuid,
+        [FromBody] ReportDeliveryComplianceRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _service.ReportDeliveryComplianceAsync(uuid, request, cancellationToken);
         return Ok(ApiResponse<object>.Ok(new { recorded = true }));
     }
 

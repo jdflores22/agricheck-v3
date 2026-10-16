@@ -984,6 +984,12 @@ public class DoctorContainersController : OpsPortalControllerBase
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.ClaimContainerAsync(uuid, cancellationToken));
 
+    [HttpPost("scan-handoff")]
+    public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> ScanHandoff(
+        [FromBody] ScanTransportQrRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.ScanDeliveryHandoffQrAsync(request, cancellationToken));
+
     [HttpPost("{uuid:guid}/complete")]
     public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> Complete(
         Guid uuid,

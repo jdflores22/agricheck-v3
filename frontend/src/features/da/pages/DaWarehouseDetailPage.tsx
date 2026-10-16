@@ -12,6 +12,10 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Grid,
   LinearProgress,
   Stack,
@@ -19,17 +23,24 @@ import {
   TableCell,
   TableRow,
   Tabs,
+  TextField,
   Typography,
 } from '@mui/material'
-import { useState } from 'react'
+import { FormEvent, useState } from 'react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { PortalStatGrid } from '../../../components/portal/PortalStatGrid'
 import { PortalTablePanel } from '../../../components/portal/PortalTablePanel'
 import { portalStatusChipSx } from '../../../components/portal/PortalTablePanel'
 import { portalColors } from '../../../components/portal/portalTheme'
-import { portalOutlinedButtonSx } from '../../../components/portal/portalStyles'
+import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
 import { DaWarehouseLocationMap } from '../components/DaWarehouseLocationMap'
-import { useGetDaWarehouseDetailQuery } from '../api/daApi'
+import {
+  useGetDaWarehouseDetailQuery,
+  useGetDaWarehouseOperatingLicenseQuery,
+  useIssueDaWarehouseOperatingLicenseMutation,
+  useRegisterDaWarehouseCswMutation,
+  useVerifyDaFacilityRegistrationMutation,
+} from '../api/daApi'
 
 function LocationStep({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null
@@ -47,7 +58,19 @@ export function DaWarehouseDetailPage() {
   const { id = '' } = useParams()
   const warehouseId = Number(id)
   const [inventoryTab, setInventoryTab] = useState<'stored' | 'history'>('stored')
-  const { data, isLoading, error } = useGetDaWarehouseDetailQuery(warehouseId, { skip: !warehouseId })
+  const { data, isLoading, error, refetch } = useGetDaWarehouseDetailQuery(warehouseId, { skip: !warehouseId })
+  const [verifyRegistration, { isLoading: verifying }] = useVerifyDaFacilityRegistrationMutation()
+  const [registerCsw, { isLoading: registeringCsw }] = useRegisterDaWarehouseCswMutation()
+  const [cswOpen, setCswOpen] = useState(false)
+  const [cswNumber, setCswNumber] = useState('')
+  const [cswExpires, setCswExpires] = useState('')
+  const [ltoOpen, setLtoOpen] = useState(false)
+  const [ltoNumber, setLtoNumber] = useState('')
+  const [ltoIssued, setLtoIssued] = useState('')
+  const [ltoExpires, setLtoExpires] = useState('')
+  const [ltoNotes, setLtoNotes] = useState('')
+  const { data: ltoData, refetch: refetchLto } = useGetDaWarehouseOperatingLicenseQuery(warehouseId, { skip: !warehouseId })
+  const [issueLto, { isLoading: issuingLto }] = useIssueDaWarehouseOperatingLicenseMutation()
   const detail = data?.data
 
   if (!warehouseId || Number.isNaN(warehouseId)) {
@@ -132,7 +155,74 @@ export function DaWarehouseDetailPage() {
                       fontWeight: 600,
                     }}
                   />
+                  <Chip
+                    size="small"
+                    label={
+                      warehouse.hasActiveWarehouseLto
+                        ? `LTO: ${warehouse.warehouseLtoNumber ?? 'Active'}`
+                        : 'LTO: not issued'
+                    }
+                    color={warehouse.hasActiveWarehouseLto ? 'success' : 'warning'}
+                    sx={{ fontWeight: 600 }}
+                  />
+                  <Chip size="small" label={`RSAS: ${warehouse.rsasStatus ?? 'NotStarted'}`} sx={{ fontWeight: 600 }} />
+                  <Chip size="small" label={`CSW: ${warehouse.cswStatus ?? 'NotStarted'}`} sx={{ fontWeight: 600 }} />
+                  <Chip
+                    size="small"
+                    label={warehouse.destinationReady ? 'Destination ready' : 'Destination incomplete'}
+                    color={warehouse.destinationReady ? 'success' : 'warning'}
+                    variant="outlined"
+                    sx={{ fontWeight: 600 }}
+                  />
                 </Stack>
+                <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: 'wrap' }}>
+                  <Button size="small" variant="contained" sx={portalPrimaryButtonSx} onClick={() => setLtoOpen(true)}>
+                    {warehouse.hasActiveWarehouseLto ? 'Record new warehouse LTO' : 'Issue warehouse LTO (DA)'}
+                  </Button>
+                  {ltoData?.data && (
+                    <Typography sx={{ fontSize: '0.8125rem', color: portalColors.textMuted, alignSelf: 'center' }}>
+                      Current LTO expires {new Date(ltoData.data.expiresAt).toLocaleDateString()}
+                    </Typography>
+                  )}
+                </Stack>
+                {warehouse.rsasStatus === 'Submitted' ? (
+                  <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      disabled={verifying}
+                      sx={portalOutlinedButtonSx}
+                      onClick={async () => {
+                        await verifyRegistration({ warehouseId, approve: true })
+                        refetch()
+                      }}
+                    >
+                      Approve RSAS registration
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      disabled={verifying}
+                      onClick={async () => {
+                        await verifyRegistration({ warehouseId, approve: false, reviewComments: 'Rejected by DA oversight' })
+                        refetch()
+                      }}
+                    >
+                      Reject
+                    </Button>
+                  </Stack>
+                ) : null}
+                {warehouse.rsasStatus === 'Registered' && !warehouse.destinationReady ? (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    sx={portalOutlinedButtonSx}
+                    onClick={() => setCswOpen(true)}
+                  >
+                    Record CSW accreditation
+                  </Button>
+                ) : null}
                 <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', color: portalColors.textMuted }}>
                   <LocationOnOutlinedIcon sx={{ fontSize: 16 }} />
                   <Typography sx={{ fontSize: '0.875rem' }}>{warehouse.formattedAddress}</Typography>
@@ -220,11 +310,11 @@ export function DaWarehouseDetailPage() {
 
       <Box sx={{ mt: 3 }}>
         <PortalTablePanel
-          title="Commodities in this warehouse"
+          title="Commodities in this warehouse (MAV HS library)"
           columns={['Commodity', 'HS Code', 'Volume', 'Containers']}
           isLoading={false}
           isEmpty={commodities.length === 0}
-          emptyMessage="No stored commodity yet. Volume appears here after warehouse staff receive an import container."
+          emptyMessage="No stored commodity yet. HS codes resolve from the MAV library or the importer entry form after warehouse receive."
         >
           {commodities.map((commodity) => (
             <TableRow key={`${commodity.hsCode}-${commodity.commodityName}`} hover>
@@ -397,6 +487,131 @@ export function DaWarehouseDetailPage() {
           </PortalTablePanel>
         )}
       </Box>
+
+      <Dialog open={cswOpen} onClose={() => setCswOpen(false)} maxWidth="sm" fullWidth>
+        <Box
+          component="form"
+          onSubmit={async (e: FormEvent) => {
+            e.preventDefault()
+            const accreditedAt = new Date().toISOString()
+            const expiresAt = cswExpires ? new Date(cswExpires).toISOString() : ''
+            if (!expiresAt) return
+            await registerCsw({
+              warehouseId,
+              warehouseFacilityId: warehouseId,
+              certificateNumber: cswNumber,
+              accreditedAt,
+              expiresAt,
+            })
+            setCswOpen(false)
+            refetch()
+          }}
+        >
+          <DialogTitle>Record CSW accreditation</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ pt: 1 }}>
+              <TextField
+                label="CSW certificate number"
+                size="small"
+                required
+                value={cswNumber}
+                onChange={(e) => setCswNumber(e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Expiry date"
+                type="date"
+                size="small"
+                required
+                value={cswExpires}
+                onChange={(e) => setCswExpires(e.target.value)}
+                slotProps={{ inputLabel: { shrink: true } }}
+                fullWidth
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={() => setCswOpen(false)} sx={portalOutlinedButtonSx}>Cancel</Button>
+            <Button type="submit" variant="contained" sx={portalPrimaryButtonSx} disabled={registeringCsw}>
+              Save CSW
+            </Button>
+          </DialogActions>
+        </Box>
+      </Dialog>
+
+      <Dialog open={ltoOpen} onClose={() => setLtoOpen(false)} maxWidth="sm" fullWidth>
+        <Box
+          component="form"
+          onSubmit={async (e: FormEvent) => {
+            e.preventDefault()
+            if (!ltoIssued || !ltoExpires || !ltoNumber.trim()) return
+            await issueLto({
+              warehouseId,
+              body: {
+                licenseNumber: ltoNumber.trim(),
+                issuedAt: new Date(ltoIssued).toISOString(),
+                expiresAt: new Date(ltoExpires).toISOString(),
+                notes: ltoNotes.trim() || undefined,
+              },
+            })
+            setLtoOpen(false)
+            refetch()
+            refetchLto()
+          }}
+        >
+          <DialogTitle>Warehouse operating license (LTO)</DialogTitle>
+          <DialogContent>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Mother-unit DA action. Importers can only link and use warehouses with an active LTO for entry destinations and RSAS.
+            </Alert>
+            <Stack spacing={2} sx={{ pt: 1 }}>
+              <TextField
+                label="LTO number"
+                size="small"
+                required
+                value={ltoNumber}
+                onChange={(e) => setLtoNumber(e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Issued date"
+                type="date"
+                size="small"
+                required
+                value={ltoIssued}
+                onChange={(e) => setLtoIssued(e.target.value)}
+                slotProps={{ inputLabel: { shrink: true } }}
+                fullWidth
+              />
+              <TextField
+                label="Expiry date"
+                type="date"
+                size="small"
+                required
+                value={ltoExpires}
+                onChange={(e) => setLtoExpires(e.target.value)}
+                slotProps={{ inputLabel: { shrink: true } }}
+                fullWidth
+              />
+              <TextField
+                label="Notes (optional)"
+                size="small"
+                value={ltoNotes}
+                onChange={(e) => setLtoNotes(e.target.value)}
+                fullWidth
+                multiline
+                minRows={2}
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={() => setLtoOpen(false)} sx={portalOutlinedButtonSx}>Cancel</Button>
+            <Button type="submit" variant="contained" sx={portalPrimaryButtonSx} disabled={issuingLto}>
+              Save LTO
+            </Button>
+          </DialogActions>
+        </Box>
+      </Dialog>
     </Box>
   )
 }

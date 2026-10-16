@@ -14,7 +14,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { Link as RouterLink, useSearchParams } from 'react-router-dom'
+import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalTablePanel } from '../../../components/portal/PortalTablePanel'
@@ -48,6 +48,7 @@ function TrackSplitBar({ mavKg, regularKg }: { mavKg: number; regularKg: number 
 }
 
 export function DaCommodityStockPage() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState(searchParams.get('q') ?? '')
   const hsCode = searchParams.get('hsCode') || undefined
@@ -82,6 +83,15 @@ export function DaCommodityStockPage() {
     )
   }, [report, selected])
 
+  const regionRows = useMemo(() => {
+    if (!report) return []
+    const rows = report.byRegion ?? []
+    if (!selected) return rows
+    return rows.filter(
+      (row) => row.hsCode === selected.hsCode && row.commodityName === selected.commodityName,
+    )
+  }, [report, selected])
+
   const selectCommodity = (row: DaCommodityStockRow) => {
     const next = new URLSearchParams(searchParams)
     if (row.hsCode !== '—') next.set('hsCode', row.hsCode)
@@ -111,7 +121,7 @@ export function DaCommodityStockPage() {
       <PortalPageHeader
         eyebrow="Presidential briefing"
         title="National Commodity Stock"
-        subtitle="Actual physical stock nationwide by HS code and commodity — what is really in cold storage and bonded warehouses right now, split between MAV in-quota and regular out-quota imports."
+        subtitle="Physical stock nationwide from the MAV HS library and entry forms — by commodity, supervising agency, and region (where each product is stored)."
       >
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, mt: 1.5, alignItems: 'center' }}>
           <Chip
@@ -252,6 +262,36 @@ export function DaCommodityStockPage() {
           </TableRow>
         ))}
       </PortalTablePanel>
+
+      <Box sx={{ mt: 3 }}>
+        <PortalTablePanel
+          title={selected ? `${selected.commodityName} — stored by region` : 'All products — stored by region'}
+          columns={['Region', 'Commodity', 'HS Code', 'Physical stock', 'Containers', 'Warehouses']}
+          isLoading={false}
+          isEmpty={regionRows.length === 0}
+          emptyMessage="No regional stock breakdown yet."
+        >
+          {regionRows.map((row) => (
+            <TableRow
+              key={`${row.regionId}-${row.hsCode}-${row.commodityName}`}
+              hover
+              onClick={() => {
+                if (row.regionId) {
+                  navigate(`/da/reports/stock?regionId=${row.regionId}&hsCode=${encodeURIComponent(row.hsCode)}&commodityName=${encodeURIComponent(row.commodityName)}`)
+                }
+              }}
+              sx={{ cursor: row.regionId ? 'pointer' : 'default' }}
+            >
+              <TableCell sx={{ fontWeight: 600 }}>{row.regionName}</TableCell>
+              <TableCell>{row.commodityName}</TableCell>
+              <TableCell>{row.hsCode}</TableCell>
+              <TableCell>{formatMt(row.stockKg)}</TableCell>
+              <TableCell>{row.storedContainers}</TableCell>
+              <TableCell>{row.warehouseCount}</TableCell>
+            </TableRow>
+          ))}
+        </PortalTablePanel>
+      </Box>
 
       {selected && agencyRows.length > 0 ? (
         <Box sx={{ mt: 3 }}>

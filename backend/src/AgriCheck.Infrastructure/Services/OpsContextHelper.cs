@@ -1,6 +1,7 @@
 using AgriCheck.Application.ClientPortal;
 using AgriCheck.Application.OpsPortal.Dtos;
 using AgriCheck.Domain.Entities;
+using AgriCheck.Infrastructure.Helpers;
 using AgriCheck.Infrastructure.Persistence;
 
 namespace AgriCheck.Infrastructure.Services;
@@ -70,7 +71,14 @@ internal static class OpsDtoMapper
             last?.RecordedAt,
             driverUuid,
             driverName,
-            vehiclePlate);
+            vehiclePlate,
+            HandoffQrAvailable: c.WarehouseHandoffEligibleAt is not null &&
+                                c.Status is Domain.Enums.ContainerStatus.InTransit &&
+                                !DeliveryComplianceHoldHelper.HasActiveHold(c),
+            DeliveryComplianceHoldActive: DeliveryComplianceHoldHelper.HasActiveHold(c),
+            DeliveryComplianceHoldReason: DeliveryComplianceHoldHelper.HasActiveHold(c)
+                ? c.DeliveryComplianceHoldReason
+                : null);
     }
 
     public static string FormatUserName(UserProfile? profile, string email)

@@ -256,6 +256,13 @@ export function DaWarehousesPage() {
                             <TableCell>{warehouse.code}</TableCell>
                             <TableCell>
                               <Typography sx={{ fontWeight: 600 }}>{warehouse.name}</Typography>
+                              <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, flexWrap: 'wrap', gap: 0.5 }}>
+                                {warehouse.destinationReady ? (
+                                  <Chip size="small" label="RSAS+CSW" color="success" variant="outlined" />
+                                ) : (
+                                  <Chip size="small" label="Compliance pending" variant="outlined" />
+                                )}
+                              </Stack>
                             </TableCell>
                             <TableCell sx={{ maxWidth: 360 }}>
                               <Typography sx={{ fontSize: '0.875rem', color: portalColors.textMuted }}>

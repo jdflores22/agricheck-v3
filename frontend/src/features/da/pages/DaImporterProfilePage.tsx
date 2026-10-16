@@ -248,8 +248,16 @@ export function DaImporterProfilePage() {
           <DaAnalyticsKpiCard
             label="Certificates"
             value={String(profile.certificates.length)}
-            meta={`${profile.logisticsStats.activeMavLicenses} active MAV license(s)`}
+            meta={`${profile.logisticsStats.activeMavLicenses} active MAV · ${profile.logisticsStats.activeAgencyLicenses} bureau license(s)`}
             icon={<VerifiedOutlinedIcon />}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <DaAnalyticsKpiCard
+            label="SPS clearances"
+            value={String(profile.logisticsStats.issuedSpsClearances)}
+            meta="Issued SPSIC on import entries"
+            icon={<LocalShippingOutlinedIcon />}
           />
         </Grid>
       </Grid>

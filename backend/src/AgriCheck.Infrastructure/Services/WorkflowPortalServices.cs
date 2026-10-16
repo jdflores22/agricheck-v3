@@ -1732,11 +1732,19 @@ public class DoctorInspectionService : IDoctorInspectionService
 {
     private readonly AgriCheckDbContext _db;
     private readonly ICurrentUserService _currentUser;
+    private readonly IConfiguration _configuration;
+    private readonly IAgriTrackPushService _push;
 
-    public DoctorInspectionService(AgriCheckDbContext db, ICurrentUserService currentUser)
+    public DoctorInspectionService(
+        AgriCheckDbContext db,
+        ICurrentUserService currentUser,
+        IConfiguration configuration,
+        IAgriTrackPushService push)
     {
         _db = db;
         _currentUser = currentUser;
+        _configuration = configuration;
+        _push = push;
     }
 
     public async Task<IReadOnlyList<ContainerListItemDto>> ListInspectableContainersAsync(CancellationToken cancellationToken = default)
@@ -1751,6 +1759,112 @@ public class DoctorInspectionService : IDoctorInspectionService
         return containers.Select(OpsDtoMapper.MapContainer).ToList();
     }
 
+    public async Task<ContainerListItemDto> ScanDeliveryHandoffQrAsync(
+        ScanTransportQrRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var doctor = await RequireDoctorAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(request.QrData))
+        {
+            throw new ClientPortalException("QR_REQUIRED", "QR data is required.");
+        }
+
+        DeliveryHandoffQrPayload payload;
+        try
+        {
+            payload = DeliveryHandoffQrCodec.Verify(
+                request.QrData.Trim(),
+                TransportQrSigningKeyResolver.Resolve(_configuration));
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new ClientPortalException("INVALID_QR", ex.Message);
+        }
+
+        var token = await _db.ContainerHandoffTokens
+            .Include(t => t.Container).ThenInclude(c => c.Entry)
+            .FirstOrDefaultAsync(t => t.Nonce == payload.Nonce, cancellationToken)
+            ?? throw new ClientPortalException("INVALID_QR", "Handoff QR is not recognized. Ask the driver to refresh the code.");
+
+        if (!string.Equals(token.QrPayload, request.QrData.Trim(), StringComparison.Ordinal))
+        {
+            throw new ClientPortalException("INVALID_QR", "Handoff QR payload does not match the active code.");
+        }
+
+        if (token.ConsumedAt is not null)
+        {
+            _db.DeliveryComplianceEvents.Add(new DeliveryComplianceEvent
+            {
+                ContainerId = token.ContainerId,
+                EventType = DeliveryComplianceEventTypes.HandoffQrReplay,
+                Details = "Replay of consumed handoff QR",
+                RecordedAt = DateTime.UtcNow,
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+            throw new ClientPortalException("QR_ALREADY_USED", "This QR code was already scanned and cannot be used again.");
+        }
+
+        if (token.ExpiresAt < DateTime.UtcNow)
+        {
+            throw new ClientPortalException("QR_EXPIRED", "Handoff QR has expired. Ask the driver to open AgriTrack and show a fresh code.");
+        }
+
+        var container = token.Container;
+        if (container.Uuid != payload.ContainerUuid)
+        {
+            throw new ClientPortalException("INVALID_QR", "Handoff QR does not match this container.");
+        }
+
+        if (container.Status is not ContainerStatus.InTransit and not ContainerStatus.PickedUp)
+        {
+            throw new ClientPortalException("INVALID_STATUS", "Container is not awaiting warehouse handoff.");
+        }
+
+        if (DeliveryComplianceHoldHelper.HasActiveHold(container))
+        {
+            throw new ClientPortalException(
+                "COMPLIANCE_HOLD",
+                "NMIS/Doctor cannot end this trip while it is flagged for misroute or wrong warehouse. DA authority must clear it first.");
+        }
+
+        if (container.WarehouseHandoffEligibleAt is null)
+        {
+            throw new ClientPortalException("HANDOFF_NOT_READY", "Driver has not confirmed arrival at the assigned warehouse.");
+        }
+
+        token.ConsumedAt = DateTime.UtcNow;
+        token.ConsumedByUserId = doctor.Id;
+        container.Status = ContainerStatus.UnderInspection;
+        container.ArrivalTime ??= DateTime.UtcNow;
+        if (container.Entry.CompliancePhase < EntryCompliancePhase.AtWarehouse)
+        {
+            container.Entry.CompliancePhase = EntryCompliancePhase.AtWarehouse;
+        }
+
+        var active = await _db.ContainerDoctorInspections
+            .FirstOrDefaultAsync(i => i.ContainerId == container.Id && i.Status == DoctorInspectionStatus.InProgress, cancellationToken);
+        if (active is null)
+        {
+            _db.ContainerDoctorInspections.Add(new ContainerDoctorInspection
+            {
+                Uuid = Guid.NewGuid(),
+                ContainerId = container.Id,
+                DoctorUserId = doctor.Id,
+                Status = DoctorInspectionStatus.InProgress,
+                ClaimedAt = DateTime.UtcNow,
+            });
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        await _push.NotifyWarehouseArrivalAsync(
+            container.ContainerNumber,
+            container.Uuid,
+            "Assigned warehouse",
+            cancellationToken);
+
+        return OpsDtoMapper.MapContainer(container);
+    }
+
     public async Task<ContainerListItemDto> ClaimContainerAsync(Guid containerUuid, CancellationToken cancellationToken = default)
     {
         var doctor = await RequireDoctorAsync(cancellationToken);
@@ -1759,6 +1873,13 @@ public class DoctorInspectionService : IDoctorInspectionService
             .Include(c => c.Locations)
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Container not found.");
+
+        if (DeliveryComplianceHoldHelper.HasActiveHold(container))
+        {
+            throw new ClientPortalException(
+                "COMPLIANCE_HOLD",
+                "This delivery is on DA compliance hold (misroute / wrong warehouse). Clearance is required before inspection.");
+        }
 
         if (container.Status is not ContainerStatus.InTransit and not ContainerStatus.UnderInspection)
         {

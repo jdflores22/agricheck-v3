@@ -94,6 +94,7 @@ const accreditationOfficerNavItems: PortalNavItem[] = [
 
 const daNavItems: PortalNavItem[] = [
   { label: 'Dashboard', path: '/da', icon: <DashboardOutlinedIcon /> },
+  { label: 'Live delivery map', path: '/da/logistics/live', icon: <LocalShippingOutlinedIcon /> },
   { label: 'News & announcements', path: '/agency/news', icon: <ArticleOutlinedIcon /> },
   { label: 'Agencies', path: '/da/agencies', icon: <BusinessOutlinedIcon /> },
   { label: 'Warehouses', path: '/da/warehouses', icon: <WarehouseOutlinedIcon /> },

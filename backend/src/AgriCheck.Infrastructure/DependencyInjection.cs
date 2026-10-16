@@ -96,6 +96,7 @@ public static class DependencyInjection
         services.AddScoped<IDaOversightReportService, DaOversightReportService>();
         services.AddScoped<IDaWarehouseManagementService, DaWarehouseManagementService>();
         services.AddScoped<IDaImporterProfileService, DaImporterProfileService>();
+        services.AddScoped<IDaLogisticsLiveService, DaLogisticsLiveService>();
         services.AddScoped<IAdminDashboardService, AdminDashboardService>();
         services.AddScoped<IAdminUserService, AdminUserService>();
         services.AddScoped<IAdminAgencyService, AdminAgencyService>();

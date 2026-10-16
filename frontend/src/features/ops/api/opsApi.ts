@@ -441,6 +441,10 @@ export const opsApi = createApi({
       query: (uuid) => ({ url: `/ops/doctor/containers/${uuid}/claim`, method: 'POST' }),
       invalidatesTags: ['DoctorContainers'],
     }),
+    scanDoctorHandoffQr: builder.mutation<ApiEnvelope<OpsContainerListItem>, { qrData: string }>({
+      query: (body) => ({ url: '/ops/doctor/containers/scan-handoff', method: 'POST', body }),
+      invalidatesTags: ['DoctorContainers'],
+    }),
     completeDoctorInspection: builder.mutation<
       ApiEnvelope<OpsContainerListItem>,
       { uuid: string; decision: 'Approved' | 'Rejected'; findings?: string }
@@ -492,5 +496,6 @@ export const {
   useBookOperatorDeliveryStopsMutation,
   useGetDoctorContainersQuery,
   useClaimDoctorContainerMutation,
+  useScanDoctorHandoffQrMutation,
   useCompleteDoctorInspectionMutation,
 } = opsApi

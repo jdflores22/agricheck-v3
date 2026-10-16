@@ -7,6 +7,7 @@ import { AuthLayout } from '../layouts/AuthLayout'
 import { AppPortalLayout } from '../layouts/AppPortalLayout'
 
 import { HomePage } from '../features/home/pages/HomePage'
+import { AgriTrackDownloadPage } from '../features/public/pages/AgriTrackDownloadPage'
 
 import { LoginPage } from '../features/auth/pages/LoginPage'
 
@@ -141,6 +142,7 @@ import { DoctorContainersPage } from '../features/ops/pages/DoctorContainersPage
 import { TransportTagPage } from '../features/agency/pages/TransportTagPage'
 import { TransportTagDetailPage } from '../features/agency/pages/TransportTagDetailPage'
 import { DaDashboardPage } from '../features/da/pages/DaDashboardPage'
+import { DaLiveLogisticsPage } from '../features/da/pages/DaLiveLogisticsPage'
 import { DaAgenciesPage } from '../features/da/pages/DaAgenciesPage'
 import { DaAgencyOversightPage } from '../features/da/pages/DaAgencyOversightPage'
 import { DaReportsPage } from '../features/da/pages/DaReportsPage'
@@ -169,6 +171,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <HomePage /> },
       { path: 'verify', element: <VerifyCertificatePage /> },
+      { path: 'agritrack', element: <AgriTrackDownloadPage /> },
     ],
 
   },
@@ -348,6 +351,8 @@ export const router = createBrowserRouter([
                 children: [
 
                   { index: true, element: <DaDashboardPage /> },
+
+                  { path: 'logistics/live', element: <DaLiveLogisticsPage /> },
 
                   { path: 'agencies', element: <DaAgenciesPage /> },
 

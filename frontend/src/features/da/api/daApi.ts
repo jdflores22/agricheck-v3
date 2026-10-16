@@ -84,6 +84,43 @@ export interface DaWarehouse {
   formattedAddress: string
   latitude?: number | null
   longitude?: number | null
+  rsasStatus?: string | null
+  cswStatus?: string | null
+  destinationReady?: boolean
+  hasActiveWarehouseLto?: boolean
+  warehouseLtoNumber?: string | null
+}
+
+export interface WarehouseOperatingLicense {
+  licenseNumber: string
+  status: string
+  issuedAt: string
+  expiresAt: string
+  notes?: string | null
+}
+
+export interface IssueWarehouseOperatingLicenseRequest {
+  licenseNumber: string
+  issuedAt: string
+  expiresAt: string
+  notes?: string
+}
+
+export interface DaWarehouseLtoApplicationListItem {
+  uuid: string
+  warehouseFacilityId: number
+  warehouseCode: string
+  warehouseName: string
+  operatorLegalName: string
+  status: string
+  submittedAt: string
+  submittedByEmail?: string | null
+}
+
+export interface ResolveWarehouseLtoApplicationRequest {
+  approve: boolean
+  reviewComments?: string
+  issueLicense?: IssueWarehouseOperatingLicenseRequest
 }
 
 export interface SaveDaWarehouseRequest {
@@ -232,6 +269,16 @@ export interface DaCommodityStockAgencyRow {
   warehouseCount: number
 }
 
+export interface DaCommodityStockRegionRow {
+  regionId?: number | null
+  regionName: string
+  hsCode: string
+  commodityName: string
+  stockKg: number
+  storedContainers: number
+  warehouseCount: number
+}
+
 export interface DaImportPipelineStageRow {
   stage: string
   label: string
@@ -282,7 +329,9 @@ export interface DaImportPipelineCommodityWarehouseRow {
   warehouseCode: string
   warehouseName: string
   regionName?: string | null
+  expectedKg: number
   actualKg: number
+  expectedEntryCount: number
   containerCount: number
 }
 
@@ -303,6 +352,9 @@ export interface DaImportPipelineEntryRow {
   importerUuid: string
   importerName: string
   companyName?: string | null
+  destinationWarehouseId?: number | null
+  destinationWarehouseCode?: string | null
+  destinationWarehouseName?: string | null
 }
 
 export interface DaImportPipelineReport {
@@ -334,6 +386,7 @@ export interface DaCommodityStockReport {
   warehouseCount: number
   commodities: DaCommodityStockRow[]
   byAgency: DaCommodityStockAgencyRow[]
+  byRegion: DaCommodityStockRegionRow[]
 }
 
 export interface DaGeoStockReport {
@@ -441,6 +494,8 @@ export interface DaImporterLogisticsStats {
   overdueBills: number
   storedContainers: number
   activeMavLicenses: number
+  activeAgencyLicenses: number
+  issuedSpsClearances: number
 }
 
 export interface DaImporterPipelineStats {
@@ -511,10 +566,79 @@ export interface DaImporterEntryListItem {
   importTrack: string
 }
 
+export interface DaDeliveryStop {
+  label: string
+  latitude: number
+  longitude: number
+}
+
+export interface DaContainerTrailPoint {
+  latitude: number
+  longitude: number
+  recordedAt: string
+}
+
+export interface DaLiveDelivery {
+  containerUuid: string
+  containerNumber: string
+  entryReference: string
+  status: string
+  driverName?: string | null
+  vehiclePlate?: string | null
+  pickup: DaDeliveryStop
+  destination: DaDeliveryStop
+  currentLatitude?: number | null
+  currentLongitude?: number | null
+  lastLocationAt?: string | null
+  recentTrail: DaContainerTrailPoint[]
+}
+
+export interface DaDeliveryComplianceAlert {
+  containerUuid: string
+  containerNumber: string
+  eventType: string
+  details?: string | null
+  recordedAt: string
+}
+
+export interface DaDeliveryComplianceHold {
+  containerUuid: string
+  containerNumber: string
+  entryReference: string
+  holdReason: string
+  holdAt: string
+  driverName?: string | null
+  vehiclePlate?: string | null
+}
+
+export interface DaLiveLogisticsSnapshot {
+  serverTime: string
+  activeDeliveries: DaLiveDelivery[]
+  recentlyArrived: DaLiveDelivery[]
+  complianceAlerts: DaDeliveryComplianceAlert[]
+  activeComplianceHolds: DaDeliveryComplianceHold[]
+}
+
+export interface DaContainerActualRoute {
+  containerUuid: string
+  containerNumber: string
+  entryReference: string
+  status: string
+  driverName?: string | null
+  vehiclePlate?: string | null
+  pickup: DaDeliveryStop
+  destination: DaDeliveryStop
+  departureTime?: string | null
+  arrivalTime?: string | null
+  distanceKm?: number | null
+  pointCount: number
+  trail: DaContainerTrailPoint[]
+}
+
 export const daApi = createApi({
   reducerPath: 'daApi',
   baseQuery: baseQueryWithReauth,
-  tagTypes: ['DaDashboard', 'DaAgencies', 'DaReports', 'DaWarehouses', 'DaImporters'],
+  tagTypes: ['DaDashboard', 'DaAgencies', 'DaReports', 'DaWarehouses', 'DaWarehouseLtoApplications', 'DaImporters', 'DaLogistics'],
   endpoints: (builder) => ({
     getDaDashboard: builder.query<ApiEnvelope<DaDashboard>, void>({
       query: () => '/da/dashboard',
@@ -588,6 +712,84 @@ export const daApi = createApi({
       query: ({ id, body }) => ({ url: `/da/warehouses/${id}`, method: 'PUT', body }),
       invalidatesTags: ['DaWarehouses'],
     }),
+    registerDaWarehouseCsw: builder.mutation<
+      ApiEnvelope<{ uuid: string; status: string; certificateNumber: string }>,
+      {
+        warehouseId: number
+        warehouseFacilityId: number
+        certificateNumber: string
+        accreditedAt: string
+        expiresAt: string
+        leadAgencyId?: number
+      }
+    >({
+      query: ({ warehouseId, warehouseFacilityId, certificateNumber, accreditedAt, expiresAt, leadAgencyId }) => ({
+        url: `/da/warehouses/${warehouseId}/csw-accreditation`,
+        method: 'POST',
+        body: {
+          warehouseFacilityId,
+          certificateNumber,
+          accreditedAt,
+          expiresAt,
+          leadAgencyId,
+        },
+      }),
+      invalidatesTags: ['DaWarehouses'],
+    }),
+    getDaWarehouseOperatingLicense: builder.query<ApiEnvelope<WarehouseOperatingLicense>, number>({
+      query: (warehouseId) => `/da/warehouses/${warehouseId}/operating-license`,
+      providesTags: (_r, _e, id) => [{ type: 'DaWarehouses', id: `lto-${id}` }],
+    }),
+    issueDaWarehouseOperatingLicense: builder.mutation<
+      ApiEnvelope<WarehouseOperatingLicense>,
+      { warehouseId: number; body: IssueWarehouseOperatingLicenseRequest }
+    >({
+      query: ({ warehouseId, body }) => ({
+        url: `/da/warehouses/${warehouseId}/operating-license`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_r, _e, { warehouseId }) => [
+        'DaWarehouses',
+        { type: 'DaWarehouses', id: warehouseId },
+        { type: 'DaWarehouses', id: `lto-${warehouseId}` },
+      ],
+    }),
+    getDaPendingWarehouseLtoApplications: builder.query<ApiEnvelope<DaWarehouseLtoApplicationListItem[]>, void>({
+      query: () => '/da/warehouse-lto-applications',
+      providesTags: ['DaWarehouseLtoApplications'],
+    }),
+    getDaRecentWarehouseLtoApplications: builder.query<ApiEnvelope<DaWarehouseLtoApplicationListItem[]>, void>({
+      query: () => '/da/warehouse-lto-applications/recent',
+      providesTags: ['DaWarehouseLtoApplications'],
+    }),
+    resolveDaWarehouseLtoApplication: builder.mutation<
+      ApiEnvelope<unknown>,
+      { uuid: string; body: ResolveWarehouseLtoApplicationRequest }
+    >({
+      query: ({ uuid, body }) => ({
+        url: `/da/warehouse-lto-applications/${uuid}/resolve`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['DaWarehouseLtoApplications', 'DaWarehouses'],
+    }),
+    verifyDaFacilityRegistration: builder.mutation<
+      ApiEnvelope<{
+        registrationUuid: string
+        warehouseFacilityId: number
+        status: string
+        ownerName: string
+      }>,
+      { warehouseId: number; approve: boolean; reviewComments?: string }
+    >({
+      query: ({ warehouseId, approve, reviewComments }) => ({
+        url: `/da/warehouses/${warehouseId}/facility-registration/verify`,
+        method: 'POST',
+        body: { approve, reviewComments },
+      }),
+      invalidatesTags: ['DaWarehouses'],
+    }),
     getDaImporters: builder.query<ApiEnvelope<DaPagedResult<DaImporterListItem>>, { page?: number; pageSize?: number; search?: string }>({
       query: ({ page = 1, pageSize = 20, search }) => {
         const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
@@ -611,6 +813,25 @@ export const daApi = createApi({
       },
       providesTags: (_result, _error, { uuid }) => [{ type: 'DaImporters', id: `${uuid}-entries` }],
     }),
+    getDaLogisticsLive: builder.query<ApiEnvelope<DaLiveLogisticsSnapshot>, void>({
+      query: () => '/da/logistics/live',
+      providesTags: ['DaLogistics'],
+    }),
+    getDaContainerActualRoute: builder.query<ApiEnvelope<DaContainerActualRoute>, string>({
+      query: (uuid) => `/da/logistics/containers/${uuid}/actual-route`,
+      providesTags: (_result, _error, uuid) => [{ type: 'DaLogistics', id: uuid }],
+    }),
+    clearDaDeliveryComplianceHold: builder.mutation<
+      ApiEnvelope<DaDeliveryComplianceHold>,
+      { uuid: string; clearanceNotes: string }
+    >({
+      query: ({ uuid, clearanceNotes }) => ({
+        url: `/da/logistics/containers/${uuid}/clear-compliance-hold`,
+        method: 'POST',
+        body: { clearanceNotes },
+      }),
+      invalidatesTags: ['DaLogistics'],
+    }),
   }),
 })
 
@@ -627,7 +848,17 @@ export const {
   useGetDaWarehouseDetailQuery,
   useCreateDaWarehouseMutation,
   useUpdateDaWarehouseMutation,
+  useGetDaWarehouseOperatingLicenseQuery,
+  useIssueDaWarehouseOperatingLicenseMutation,
+  useGetDaPendingWarehouseLtoApplicationsQuery,
+  useGetDaRecentWarehouseLtoApplicationsQuery,
+  useResolveDaWarehouseLtoApplicationMutation,
+  useVerifyDaFacilityRegistrationMutation,
+  useRegisterDaWarehouseCswMutation,
   useGetDaImportersQuery,
   useGetDaImporterProfileQuery,
   useGetDaImporterEntriesQuery,
+  useGetDaLogisticsLiveQuery,
+  useGetDaContainerActualRouteQuery,
+  useClearDaDeliveryComplianceHoldMutation,
 } = daApi

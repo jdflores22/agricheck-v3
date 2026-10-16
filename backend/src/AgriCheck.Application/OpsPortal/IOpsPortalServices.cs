@@ -30,6 +30,8 @@ public interface IDriverOpsService
         DateTime? capturedAtUtc = null,
         CancellationToken cancellationToken = default);
     Task RecordContainerLocationAsync(Guid containerUuid, RecordContainerLocationRequest request, CancellationToken cancellationToken = default);
+    Task<int> RecordContainerLocationsBatchAsync(Guid containerUuid, RecordContainerLocationsBatchRequest request, CancellationToken cancellationToken = default);
+    Task ReportDeliveryComplianceAsync(Guid containerUuid, ReportDeliveryComplianceRequest request, CancellationToken cancellationToken = default);
     Task<ContainerTrackDto> GetContainerTrackAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<DriverDeliveryHandoffQrDto> GetDeliveryHandoffQrAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<DriverTransportQrPreviewDto> PreviewTransportQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
@@ -84,4 +86,5 @@ public interface IDoctorInspectionService
     Task<IReadOnlyList<ContainerListItemDto>> ListInspectableContainersAsync(CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> ClaimContainerAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> CompleteInspectionAsync(Guid containerUuid, CompleteDoctorInspectionRequest request, CancellationToken cancellationToken = default);
+    Task<ContainerListItemDto> ScanDeliveryHandoffQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
 }

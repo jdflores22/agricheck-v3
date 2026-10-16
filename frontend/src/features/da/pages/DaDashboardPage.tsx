@@ -49,6 +49,14 @@ export function DaDashboardPage() {
         </Typography>
         <Grid container spacing={1.5}>
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+            <QuickLinkCard
+              to="/da/logistics/live"
+              icon={LocalShippingOutlinedIcon}
+              label="Live delivery map"
+              description="Track drivers in real time and review actual routes after warehouse arrival."
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
             <QuickLinkCard to="/da/agencies" icon={BusinessOutlinedIcon} label="Agencies" description="Browse bureaus and open agency oversight views." />
           </Grid>
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
