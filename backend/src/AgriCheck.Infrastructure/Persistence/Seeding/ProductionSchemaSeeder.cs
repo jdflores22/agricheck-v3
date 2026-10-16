@@ -34,6 +34,12 @@ public static class ProductionSchemaSeeder
 
         await AgencyNewsSchemaSeeder.EnsureAsync(db, cancellationToken);
         logger?.LogInformation("Agency news schema ensured.");
+
+        if (logger is not null)
+        {
+            await DriverGeotagSchemaSeeder.EnsureAsync(db, logger, cancellationToken);
+            logger.LogInformation("Driver geotag schema ensured.");
+        }
     }
 
     public static async Task<int> CountApplicationTablesAsync(AgriCheckDbContext db, CancellationToken cancellationToken = default)

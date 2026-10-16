@@ -8,8 +8,10 @@ object UiStrings {
 
     object Brand {
         const val name = "AgriTrack"
+        const val fallbackSystemName = "AgriCheck"
         const val tagline = "Container delivery & tracking"
         const val integratedWith = "Integrated with AgriCheck"
+        const val poweredBy = "Powered by: Trans-Net Software Development Services"
         fun copyright(year: Int) = "© $year $name. All rights reserved."
     }
 
@@ -50,6 +52,12 @@ object UiStrings {
         const val preparingNavigation = "Preparing navigation"
         fun loadingDirectionsTo(destinationName: String) = "Loading route to $destinationName"
         const val routeLoadFailed = "Could not load route. Check GPS and try again."
+        const val rerouting = "Off route — recalculating path…"
+        const val offRouteWarning = "Stay on the assigned route. Misroute is not allowed and DA is notified."
+        const val offRouteBlockedTitle = "Return to assigned route"
+        const val offRouteBlockedBody =
+            "You are too far from the approved directions. Continue only toward your assigned pickup or warehouse. This event is logged for DA oversight."
+        const val suggestedRouteHint = "Suggested route: pickup to warehouse"
         const val compass = "Compass · north up / heading up"
         const val recenter = "Recenter"
         const val routePreview = "Route preview"
@@ -97,6 +105,10 @@ object UiStrings {
     }
 
     object Permissions {
+        const val welcomeTitle = "Welcome to AgriTrack"
+        const val welcomeBody =
+            "AgriTrack helps drivers and operators run container pickups, turn-by-turn navigation, QR handoffs, and geotagged proof photos. We will ask for a few permissions so these features work reliably."
+        const val welcomeContinue = "Continue"
         const val notificationsTitle = "Notifications"
         const val notificationsBody =
             "We send alerts when a new container is assigned to you so you do not miss a pickup."
@@ -108,11 +120,11 @@ object UiStrings {
             "While navigation or in-transit tracking is active, AgriTrack updates your route and GPS on the server even when the screen is off."
         const val cameraTitle = "Camera"
         const val cameraBody =
-            "The camera scans transport and delivery QR codes during handoff at pickup and the warehouse."
-        const val cameraRequired = "Camera permission is required for geotag proof photos."
+            "The camera scans QR codes, captures your driver license during registration, and takes geotagged proof photos at pickup and the warehouse."
+        const val cameraRequired = "Camera permission is required before capturing your license or proof photos."
         const val allow = "Allow permission"
         const val next = "Next"
-        const val getStarted = "Continue to app"
+        const val getStarted = "Continue to sign in"
         const val requiredHint = "This permission is required to use AgriTrack."
         const val stepCounter = "Step %1\$d of %2\$d"
     }
@@ -141,9 +153,28 @@ object UiStrings {
         const val stampLabel = "AgriTrack geotag proof"
         const val pickupTitle = "Pickup geotag photo"
         const val warehouseTitle = "Warehouse geotag photo"
-        const val pickupHint = "Take a photo at the pickup point. Coordinates and time will be stamped on the image."
-        const val warehouseHint = "Take a photo at the warehouse. Coordinates and time will be stamped on the image."
+        const val pickupHint = "Take a clear photo. Brand and GPS details are added in one bar at the bottom when you tap Capture."
+        const val warehouseHint = "Take a clear photo. Brand and GPS details are added in one bar at the bottom when you tap Capture."
         const val useMapForPickup = "Open the delivery map to confirm pickup with a geotag photo."
+        const val incidentPhotoTitle = "Incident geotag photo"
+        fun incidentPhotoHint(step: Int) =
+            "Photo $step of 2. Capture the scene; logo, coordinates, and PH time are stamped on save."
+    }
+
+    object Incident {
+        const val reportFab = "Report incident"
+        const val sheetTitle = "Driver incident report (TAG)"
+        const val sheetSubtitle =
+            "For accidents, breakdowns, and other delays. DA will see this on compliance alerts."
+        const val categoryLabel = "Incident type"
+        const val notesLabel = "Notes (optional)"
+        const val notesPlaceholder = "Short description for DA reviewers"
+        const val photoRequirement = "Required: 2 geotagged photos with your current GPS."
+        const val cancel = "Cancel"
+        const val startPhotos = "Take 2 photos"
+        const val submitting = "Sending incident report…"
+        const val submitted = "Incident report sent to DA."
+        const val locationRequired = "GPS fix required before reporting an incident."
     }
 
     object Loads {
@@ -163,6 +194,11 @@ object UiStrings {
         const val pickupConfirmed = "Pickup confirmed. Start navigation to the warehouse."
         const val arrivalConfirmed = "Arrival recorded. Waiting for QR scan."
         const val arrivalOutsideGeofence = "Recorded, but still far from warehouse (%s)."
+        const val wrongWarehouseAlert =
+            "Wrong warehouse — this is not your assigned destination. DA is alerted. Trip cannot end until DA clears the delivery."
+        const val complianceHoldTitle = "DA compliance hold"
+        const val complianceHoldBody =
+            "This trip is flagged (misroute or wrong warehouse). NMIS/Doctor cannot end the trip until DA authority clears it."
         fun inTransitMessage(number: String) = "$number — in transit"
     }
 
@@ -187,6 +223,9 @@ object UiStrings {
         const val phone = "Phone"
         const val faceVerified = "Face verified"
         const val facePending = "Face verification pending"
+        const val selfieMissing = "Face verification photo not found on the server. Tap below to capture and upload again."
+        const val selfieRetry = "Upload face verification photo"
+        const val selfieUploading = "Uploading verification photo…"
         const val apiSettings = "Settings"
         const val driver = "Driver"
         const val logout = "Log out"
@@ -253,12 +292,15 @@ object UiStrings {
         const val title = "Delivery QR"
         const val entryPrefix = "Entry"
         const val handoffDefault = "Show this QR at the warehouse for NMIS/Doctor to scan."
+        const val rotatingHint = "Code refreshes automatically — screenshots cannot be reused."
         const val noEndTrip = ""
     }
 
     object ScanQr {
-        const val title = "Scan QR"
-        const val hint = ""
+        const val title = "Scan transport QR"
+        const val reviewTitle = "Confirm delivery"
+        const val hint = "Point the camera at the agency transport QR code on the container tag."
+        const val close = "Close scanner"
         const val deliverTo = "Deliver to"
         const val scheduled = "Scheduled"
         const val status = "Status"

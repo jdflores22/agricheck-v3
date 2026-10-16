@@ -19,41 +19,48 @@ public static class GeotagImageStamper
 
         var canvas = surface.Canvas;
         canvas.DrawBitmap(bitmap, 0, 0);
-        DrawBrandLogo(canvas, bitmap.Width, bitmap.Height);
 
         var localTime = TimeZoneInfo.ConvertTimeFromUtc(
             DateTime.SpecifyKind(capturedAtUtc, DateTimeKind.Utc),
             PhilippinesTimeZone);
         var line1 = $"Lat {latitude:F6}  Lng {longitude:F6}";
         var line2 = localTime.ToString("dd MMM yyyy HH:mm:ss", CultureInfo.InvariantCulture) + " (PH time)";
-        var line3 = "AgriTrack geotag proof";
+        var line3 = GeotagStampHelper.ProofMarker;
 
-        var barHeight = bitmap.Height * 0.14f;
-        using var barPaint = new SKPaint { Color = new SKColor(0, 0, 0, 190), IsAntialias = true };
-        canvas.DrawRect(0, bitmap.Height - barHeight, bitmap.Width, barHeight, barPaint);
+        var barHeight = Math.Max(bitmap.Height * 0.12f, 96f);
+        var logoColumnWidth = barHeight * 1.15f;
+        var textLeft = logoColumnWidth + 14f;
+        var barTop = bitmap.Height - barHeight;
+
+        using var barPaint = new SKPaint { Color = new SKColor(0, 0, 0, 200), IsAntialias = true };
+        canvas.DrawRect(0, barTop, bitmap.Width, barHeight, barPaint);
+
+        DrawBrandLogoInBar(canvas, barTop, barHeight, logoColumnWidth);
 
         using var textPaint = new SKPaint
         {
             Color = SKColors.White,
             IsAntialias = true,
-            TextSize = Math.Max(22f, bitmap.Width * 0.028f),
+            TextSize = Math.Max(20f, bitmap.Width * 0.026f),
             Typeface = SKTypeface.Default,
         };
 
-        var y = bitmap.Height - barHeight + textPaint.TextSize + 8f;
-        canvas.DrawText(line1, 16f, y, textPaint);
-        y += textPaint.TextSize + 6f;
-        canvas.DrawText(line2, 16f, y, textPaint);
-        y += textPaint.TextSize + 4f;
+        var lineGap = textPaint.TextSize + 5f;
+        var textBlockHeight = lineGap * 2 + textPaint.TextSize * 0.85f;
+        var y = barTop + (barHeight - textBlockHeight) / 2f + textPaint.TextSize;
+        canvas.DrawText(line1, textLeft, y, textPaint);
+        y += lineGap;
+        canvas.DrawText(line2, textLeft, y, textPaint);
+        y += lineGap - 2f;
         textPaint.TextSize *= 0.85f;
-        canvas.DrawText(line3, 16f, y, textPaint);
+        canvas.DrawText(line3, textLeft, y, textPaint);
 
         using var image = surface.Snapshot();
         using var data = image.Encode(SKEncodedImageFormat.Jpeg, 90);
         return data.ToArray();
     }
 
-    private static void DrawBrandLogo(SKCanvas canvas, int width, int height)
+    private static void DrawBrandLogoInBar(SKCanvas canvas, float barTop, float barHeight, float logoColumnWidth)
     {
         var logo = BrandLogo.Value;
         if (logo is null)
@@ -61,21 +68,12 @@ public static class GeotagImageStamper
             return;
         }
 
-        var maxWidth = width * 0.22f;
-        var scale = maxWidth / logo.Width;
+        var maxLogoHeight = barHeight * 0.78f;
+        var scale = maxLogoHeight / logo.Height;
         var drawWidth = logo.Width * scale;
         var drawHeight = logo.Height * scale;
-        var left = (width - drawWidth) / 2f;
-        var top = height * 0.03f;
-
-        using var backing = new SKPaint { Color = new SKColor(0, 0, 0, 140), IsAntialias = true };
-        var pad = 10f;
-        canvas.DrawRoundRect(
-            new SKRect(left - pad, top - pad, left + drawWidth + pad, top + drawHeight + pad),
-            12f,
-            12f,
-            backing);
-
+        var left = (logoColumnWidth - drawWidth) / 2f;
+        var top = barTop + (barHeight - drawHeight) / 2f;
         canvas.DrawBitmap(logo, SKRect.Create(left, top, drawWidth, drawHeight));
     }
 

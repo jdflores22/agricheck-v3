@@ -1133,35 +1133,44 @@ public class DriverOpsService : IDriverOpsService
 
         var storageFolder = $"container-incident-geotag/{container.Uuid}";
 
-        await AddDriverIncidentGeotagPhotoAsync(
-            container,
-            storageFolder,
-            photo1,
-            photo1FileName,
-            latitude,
-            longitude,
-            capturedAtUtc,
-            cancellationToken);
-        await AddDriverIncidentGeotagPhotoAsync(
-            container,
-            storageFolder,
-            photo2,
-            photo2FileName,
-            latitude,
-            longitude,
-            capturedAtUtc,
-            cancellationToken);
+        try
+        {
+            await AddDriverIncidentGeotagPhotoAsync(
+                container,
+                storageFolder,
+                photo1,
+                photo1FileName,
+                latitude,
+                longitude,
+                capturedAtUtc,
+                cancellationToken);
+            await AddDriverIncidentGeotagPhotoAsync(
+                container,
+                storageFolder,
+                photo2,
+                photo2FileName,
+                latitude,
+                longitude,
+                capturedAtUtc,
+                cancellationToken);
 
-        var details = DriverIncidentCategories.FormatComplianceDetails(categoryCode, categoryLabel, notes);
-        await RecordDeliveryComplianceEventAsync(
-            container.Id,
-            driver.Id,
-            DeliveryComplianceEventTypes.DriverIncident,
-            latitude,
-            longitude,
-            details,
-            cancellationToken,
-            applyHold: false);
+            var details = DriverIncidentCategories.FormatComplianceDetails(categoryCode, categoryLabel, notes);
+            await RecordDeliveryComplianceEventAsync(
+                container.Id,
+                driver.Id,
+                DeliveryComplianceEventTypes.DriverIncident,
+                latitude,
+                longitude,
+                details,
+                cancellationToken,
+                applyHold: false);
+        }
+        catch (DbUpdateException)
+        {
+            throw new ClientPortalException(
+                "INCIDENT_SAVE_FAILED",
+                "Unable to save incident photos. Please install the latest AgriTrack update and try again.");
+        }
 
         return new DriverIncidentReportResultDto(
             true,
@@ -1546,7 +1555,7 @@ public class DriverOpsService : IDriverOpsService
     {
         using var raw = new MemoryStream();
         await photoStream.CopyToAsync(raw, cancellationToken);
-        var stamped = GeotagImageStamper.StampJpeg(raw.ToArray(), latitude, longitude, capturedAtUtc);
+        var stamped = GeotagStampHelper.PrepareDriverGeotagJpeg(raw.ToArray(), latitude, longitude, capturedAtUtc);
         await using var stampedStream = new MemoryStream(stamped);
         var safeName = string.IsNullOrWhiteSpace(fileName) ? "geotag.jpg" : fileName.Trim();
         var (storedFileName, _) = await _fileStorage.SaveAsync(
@@ -1600,7 +1609,7 @@ public class DriverOpsService : IDriverOpsService
     {
         using var raw = new MemoryStream();
         await photoStream.CopyToAsync(raw, cancellationToken);
-        var stamped = GeotagImageStamper.StampJpeg(raw.ToArray(), latitude, longitude, capturedAtUtc);
+        var stamped = GeotagStampHelper.PrepareDriverGeotagJpeg(raw.ToArray(), latitude, longitude, capturedAtUtc);
         await using var stampedStream = new MemoryStream(stamped);
         var safeName = string.IsNullOrWhiteSpace(fileName) ? "incident-geotag.jpg" : fileName.Trim();
         var (storedFileName, _) = await _fileStorage.SaveAsync(

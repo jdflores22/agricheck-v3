@@ -163,6 +163,34 @@ class DriverRepository(private val container: AppContainer) {
         uuid,
         ReportDeliveryComplianceRequest(eventType, latitude, longitude, details, offRouteMeters),
     ).requireData()
+
+    suspend fun submitDriverIncidentReport(
+        uuid: String,
+        category: String,
+        notes: String?,
+        latitude: Double,
+        longitude: Double,
+        photo1: ByteArray,
+        photo2: ByteArray,
+        capturedAt: Instant,
+    ) = api().submitDriverIncidentReport(
+        uuid,
+        MultipartBody.Part.createFormData(
+            "photo1",
+            "incident-geotag-1.jpg",
+            photo1.toRequestBody("image/jpeg".toMediaType()),
+        ),
+        MultipartBody.Part.createFormData(
+            "photo2",
+            "incident-geotag-2.jpg",
+            photo2.toRequestBody("image/jpeg".toMediaType()),
+        ),
+        category.toRequestBody("text/plain".toMediaType()),
+        (notes ?: "").toRequestBody("text/plain".toMediaType()),
+        latitude.toString().toRequestBody("text/plain".toMediaType()),
+        longitude.toString().toRequestBody("text/plain".toMediaType()),
+        capturedAt.toString().toRequestBody("text/plain".toMediaType()),
+    ).requireData()
     suspend fun track(uuid: String) = api().containerTrack(uuid).requireData()
     suspend fun healthCheck(): Boolean = runCatching { api().health().requireData() }.isSuccess
     suspend fun previewTransportQr(qrData: String) =
