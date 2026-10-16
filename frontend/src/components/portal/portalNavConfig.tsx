@@ -340,7 +340,12 @@ export function resolvePortalKey(
   if (matchesPrefix(pathname, '/client')) return 'client'
   if (matchesPrefix(pathname, '/da')) return 'da'
   if (matchesPrefix(pathname, '/accreditation-officer')) return 'accreditation-officer'
-  if (matchesPrefix(pathname, '/agency')) return 'agency'
+  if (matchesPrefix(pathname, '/agency')) {
+    if (isDaLeadershipOnly(roles) && matchesPrefix(pathname, '/agency/news')) {
+      return 'da'
+    }
+    return 'agency'
+  }
   if (matchesPrefix(pathname, '/inspector')) return 'inspector'
   if (matchesPrefix(pathname, '/mav')) return 'mav'
   if (matchesPrefix(pathname, '/warehouse')) return 'warehouse'

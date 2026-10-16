@@ -53,11 +53,10 @@ function hasAgencyStaffAccess(roles: string[]): boolean {
 export function usePortalNavBadgeCounts(portalKey: PortalKey, navPaths: string[] = []): PortalNavBadgeCounts {
   const user = useAppSelector(selectCurrentUser)
   const roles = user?.roles ?? []
-  // DA nav links to /agency/news only — do not prefetch agency dashboard without staff roles (403).
+  // Agency dashboard requires staff roles — DA leadership uses /agency/news without membership (403 otherwise).
   const needsAgency =
-    portalKey === 'agency' ||
-    portalKey === 'inspector' ||
-    (hasAgencyStaffAccess(roles) && navPaths.some((path) => path.startsWith('/agency')))
+    hasAgencyStaffAccess(roles) &&
+    (portalKey === 'agency' || portalKey === 'inspector')
   const needsContainerInspectionQueue = navPaths.includes('/inspector/inspections')
   const needsTransportTagQueue = navPaths.includes('/agency/transport-tags')
   const needsAccreditation =
