@@ -231,9 +231,13 @@ public class DaPortalController : AgencyPortalControllerBase
             var download = await _logisticsLiveService.DownloadDeliveryProofPhotoAsync(photoUuid, cancellationToken);
             return PhysicalFile(download.PhysicalPath, download.ContentType, download.DownloadFileName);
         }
-        catch (ClientPortalException ex) when (ex.Code == "NOT_FOUND")
+        catch (ClientPortalException ex) when (ex.Code is "NOT_FOUND" or "FILE_NOT_FOUND")
         {
             return NotFound(ApiResponse<object>.Fail(ex.Code, ex.Message));
+        }
+        catch (FileNotFoundException)
+        {
+            return NotFound(ApiResponse<object>.Fail("NOT_FOUND", "Photo file not found."));
         }
     }
 

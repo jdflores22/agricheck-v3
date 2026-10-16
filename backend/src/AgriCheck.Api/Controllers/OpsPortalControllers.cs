@@ -432,8 +432,8 @@ public class MobileContainersController : OpsPortalControllerBase
         using var stream2 = new MemoryStream();
         await upload1.CopyToAsync(stream1, cancellationToken);
         await upload2.CopyToAsync(stream2, cancellationToken);
-        stream1.Position = 0;
-        stream2.Position = 0;
+        var photo1Bytes = stream1.ToArray();
+        var photo2Bytes = stream2.ToArray();
         return await ExecuteAsync(() =>
             _service.SubmitDriverIncidentReportAsync(
                 uuid,
@@ -442,8 +442,8 @@ public class MobileContainersController : OpsPortalControllerBase
                 latitude,
                 longitude,
                 capturedUtc,
-                stream1,
-                stream2,
+                new MemoryStream(photo1Bytes),
+                new MemoryStream(photo2Bytes),
                 photo1.FileName,
                 photo2.FileName,
                 cancellationToken));

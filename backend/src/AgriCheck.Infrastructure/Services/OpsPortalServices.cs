@@ -1131,8 +1131,7 @@ public class DriverOpsService : IDriverOpsService
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
 
-        var incidentKey = DateTime.UtcNow.Ticks;
-        var storageFolder = $"container-incident-geotag/{container.Uuid}/{incidentKey}";
+        var storageFolder = $"container-incident-geotag/{container.Uuid}";
 
         await AddDriverIncidentGeotagPhotoAsync(
             container,
@@ -1624,7 +1623,6 @@ public class DriverOpsService : IDriverOpsService
             CapturedAtUtc = capturedAtUtc,
             ReviewDecision = EvaluationDecision.Approved,
         });
-        await _db.SaveChangesAsync(cancellationToken);
     }
 
 }

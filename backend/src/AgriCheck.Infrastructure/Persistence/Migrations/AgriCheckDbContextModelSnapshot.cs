@@ -1200,8 +1200,7 @@ namespace AgriCheck.Infrastructure.Persistence.Migrations
                     b.HasIndex("Uuid")
                         .IsUnique();
 
-                    b.HasIndex("ContainerId", "PhotoType")
-                        .IsUnique();
+                    b.HasIndex("ContainerId", "PhotoType");
 
                     b.ToTable("container_inspection_photos", (string)null);
                 });

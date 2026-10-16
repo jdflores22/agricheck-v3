@@ -11,4 +11,5 @@ public interface IFileStorageService
 {
     Task<(string storedFileName, long size)> SaveAsync(Stream stream, string folder, string originalFileName, CancellationToken cancellationToken = default);
     string GetPhysicalPath(string folder, string storedFileName);
+    string? FindStoredFile(string folder, string storedFileName);
 }

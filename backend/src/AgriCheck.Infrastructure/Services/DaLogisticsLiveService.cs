@@ -216,8 +216,15 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
         }
 
         var folder = ResolveDeliveryProofStorageFolder(photo.Container.Uuid, photo.PhotoType);
+        var physicalPath = _fileStorage.FindStoredFile(folder, photo.StoredFileName)
+            ?? _fileStorage.GetPhysicalPath(folder, photo.StoredFileName);
+        if (!File.Exists(physicalPath))
+        {
+            throw new ClientPortalException("NOT_FOUND", "Photo file not found.");
+        }
+
         return new StoredFileDownload(
-            _fileStorage.GetPhysicalPath(folder, photo.StoredFileName),
+            physicalPath,
             photo.ContentType,
             photo.OriginalFileName);
     }

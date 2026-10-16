@@ -8,4 +8,7 @@ internal sealed class NoOpFileStorage : IFileStorageService
         Task.FromResult(("test.bin", 0L));
 
     public string GetPhysicalPath(string folder, string storedFileName) => Path.Combine(folder, storedFileName);
+
+    public string? FindStoredFile(string folder, string storedFileName) =>
+        File.Exists(GetPhysicalPath(folder, storedFileName)) ? GetPhysicalPath(folder, storedFileName) : null;
 }

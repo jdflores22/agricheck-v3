@@ -28,4 +28,26 @@ public class LocalFileStorageService : IFileStorageService
 
     public string GetPhysicalPath(string folder, string storedFileName) =>
         Path.Combine(_root, folder, storedFileName);
+
+    public string? FindStoredFile(string folder, string storedFileName)
+    {
+        var direct = GetPhysicalPath(folder, storedFileName);
+        if (File.Exists(direct))
+        {
+            return direct;
+        }
+
+        var baseDir = Path.Combine(_root, folder);
+        if (!Directory.Exists(baseDir))
+        {
+            return null;
+        }
+
+        foreach (var match in Directory.EnumerateFiles(baseDir, storedFileName, SearchOption.AllDirectories))
+        {
+            return match;
+        }
+
+        return null;
+    }
 }
