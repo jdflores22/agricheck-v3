@@ -64,6 +64,11 @@ internal static class ContainerDeliveryPointHelper
             return null;
         }
 
+        if (!GeoCoordinateHelper.IsPlausiblePhilippinesCoordinate(lat, lng))
+        {
+            return null;
+        }
+
         var label = dict.GetValueOrDefault(DestinationLabelKey) ?? "Warehouse";
         return (label, lat, lng);
     }
@@ -78,6 +83,11 @@ internal static class ContainerDeliveryPointHelper
 
         if (!decimal.TryParse(latRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var lat)
             || !decimal.TryParse(lngRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var lng))
+        {
+            return null;
+        }
+
+        if (!GeoCoordinateHelper.IsPlausiblePhilippinesCoordinate(lat, lng))
         {
             return null;
         }

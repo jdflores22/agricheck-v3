@@ -434,6 +434,9 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
             }
         }
 
-        return new DaDeliveryStopDto("Warehouse", 0, 0);
+        return new DaDeliveryStopDto(
+            "Warehouse (set final warehouse on entry)",
+            DriverDeliveryTestReset.WarehouseLatitude,
+            DriverDeliveryTestReset.WarehouseLongitude);
     }
 }

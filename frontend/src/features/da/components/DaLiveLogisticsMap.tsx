@@ -8,10 +8,19 @@ import type { DaContainerTrailPoint, DaLiveDelivery } from '../api/daApi'
 import { resolveDriverGpsDisplay } from '../utils/daDriverGpsStatus'
 import { fetchOsrmDrivingRoute, type LatLng } from '../utils/daOsrmRoute'
 import {
+  isUsablePhilippinesCoordinate,
   PHILIPPINES_BOUNDS,
   PHILIPPINES_MAP_CENTER,
   PHILIPPINES_MAP_MIN_ZOOM,
 } from '../utils/philippinesMap'
+
+function PhilippinesDefaultView() {
+  const map = useMap()
+  useEffect(() => {
+    map.setView(PHILIPPINES_MAP_CENTER, 6)
+  }, [map])
+  return null
+}
 
 function pinIcon(color: string, label: string) {
   return L.divIcon({
@@ -64,18 +73,30 @@ function FitAllDeliveries({
     const points: L.LatLngExpression[] = []
     for (const d of deliveries) {
       if (d.currentLatitude != null && d.currentLongitude != null) {
-        points.push([Number(d.currentLatitude), Number(d.currentLongitude)])
+        const cLat = Number(d.currentLatitude)
+        const cLng = Number(d.currentLongitude)
+        if (isUsablePhilippinesCoordinate(cLat, cLng)) points.push([cLat, cLng])
       }
       const full = fullTrailByUuid?.[d.containerUuid]
       const trailPoints = full && full.length > 0 ? full : d.recentTrail
       for (const p of trailPoints) {
-        points.push([Number(p.latitude), Number(p.longitude)])
+        const lat = Number(p.latitude)
+        const lng = Number(p.longitude)
+        if (isUsablePhilippinesCoordinate(lat, lng)) points.push([lat, lng])
       }
-      points.push([Number(d.pickup.latitude), Number(d.pickup.longitude)])
-      points.push([Number(d.destination.latitude), Number(d.destination.longitude)])
+      const pLat = Number(d.pickup.latitude)
+      const pLng = Number(d.pickup.longitude)
+      if (isUsablePhilippinesCoordinate(pLat, pLng)) points.push([pLat, pLng])
+      const dLat = Number(d.destination.latitude)
+      const dLng = Number(d.destination.longitude)
+      if (isUsablePhilippinesCoordinate(dLat, dLng)) points.push([dLat, dLng])
       const r = routes[d.containerUuid]
-      r?.navigation?.forEach(([lat, lng]) => points.push([lat, lng]))
-      r?.overview?.forEach(([lat, lng]) => points.push([lat, lng]))
+      r?.navigation?.forEach(([lat, lng]) => {
+        if (isUsablePhilippinesCoordinate(lat, lng)) points.push([lat, lng])
+      })
+      r?.overview?.forEach(([lat, lng]) => {
+        if (isUsablePhilippinesCoordinate(lat, lng)) points.push([lat, lng])
+      })
     }
     if (points.length === 0) {
       map.setView(PHILIPPINES_MAP_CENTER, 6)
@@ -170,6 +191,7 @@ export function DaLiveLogisticsMap({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        <PhilippinesDefaultView />
         <FitAllDeliveries
           deliveries={visible}
           selectedUuid={selectedUuid}
@@ -179,7 +201,9 @@ export function DaLiveLogisticsMap({
         {visible.map((d) => {
           const full = fullTrailByUuid?.[d.containerUuid]
           const source = full && full.length > 0 ? full : d.recentTrail
-          const trail = source.map((p) => [Number(p.latitude), Number(p.longitude)] as [number, number])
+          const trail = source
+            .map((p) => [Number(p.latitude), Number(p.longitude)] as [number, number])
+            .filter(([lat, lng]) => isUsablePhilippinesCoordinate(lat, lng))
           const lat = d.currentLatitude != null ? Number(d.currentLatitude) : null
           const lng = d.currentLongitude != null ? Number(d.currentLongitude) : null
           const gps = resolveDriverGpsDisplay(d, serverTime)
@@ -201,15 +225,22 @@ export function DaLiveLogisticsMap({
               {trail.length >= 2 && (
                 <Polyline positions={trail} pathOptions={{ color: '#2563EB', weight: 4, opacity: 0.85 }} />
               )}
-              <Marker position={[Number(d.pickup.latitude), Number(d.pickup.longitude)]} icon={pickupIcon}>
-                <Popup>Pickup · {d.pickup.label}</Popup>
-              </Marker>
-              <Marker
-                position={[Number(d.destination.latitude), Number(d.destination.longitude)]}
-                icon={warehouseIcon}
-              >
-                <Popup>Warehouse · {d.destination.label}</Popup>
-              </Marker>
+              {isUsablePhilippinesCoordinate(Number(d.pickup.latitude), Number(d.pickup.longitude)) && (
+                <Marker position={[Number(d.pickup.latitude), Number(d.pickup.longitude)]} icon={pickupIcon}>
+                  <Popup>Pickup · {d.pickup.label}</Popup>
+                </Marker>
+              )}
+              {isUsablePhilippinesCoordinate(
+                Number(d.destination.latitude),
+                Number(d.destination.longitude),
+              ) && (
+                <Marker
+                  position={[Number(d.destination.latitude), Number(d.destination.longitude)]}
+                  icon={warehouseIcon}
+                >
+                  <Popup>Warehouse · {d.destination.label}</Popup>
+                </Marker>
+              )}
               {lat != null && lng != null && (
                 <Marker position={[lat, lng]} icon={gps.offline ? driverOfflineIcon : driverLiveIcon}>
                   <Popup>

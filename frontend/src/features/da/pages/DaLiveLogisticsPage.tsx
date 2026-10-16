@@ -1,4 +1,4 @@
-import MapOutlinedIcon from '@mui/icons-material/MapOutlined'
+import AssessmentOutlinedIcon from '@mui/icons-material/AssessmentOutlined'
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
 import {
   Box,
@@ -11,18 +11,15 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
+import { Link as RouterLink } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { portalColors } from '../../../components/portal/portalTheme'
 import {
   useClearDaDeliveryComplianceHoldMutation,
-  useGetDaContainerActualRouteQuery,
   useGetDaLogisticsLiveQuery,
   type DaLiveDelivery,
 } from '../api/daApi'
-import { DaActualRouteMap } from '../components/DaActualRouteMap'
-import { DaDeliveryProofGallery } from '../components/DaDeliveryProofGallery'
-import { DaGpsTrailTable } from '../components/DaGpsTrailTable'
 import { DaLiveLogisticsMap } from '../components/DaLiveLogisticsMap'
 import { resolveDriverGpsDisplay } from '../utils/daDriverGpsStatus'
 
@@ -31,9 +28,13 @@ function formatHoldReason(reason: string) {
   return reason.replace(/_/g, ' ')
 }
 
-function formatKm(km: number | null | undefined) {
-  if (km == null) return '—'
-  return `${km.toFixed(1)} km`
+function canOpenDeliveryReport(delivery: DaLiveDelivery) {
+  return (
+    !['Pending', 'ReadyForTransport', 'Released'].includes(delivery.status) &&
+    (delivery.status !== 'Assigned' ||
+      Boolean(delivery.lastLocationAt) ||
+      (delivery.recentTrail?.length ?? 0) > 0)
+  )
 }
 
 function DeliveryListItem({
@@ -48,8 +49,9 @@ function DeliveryListItem({
   serverTime?: string | null
 }) {
   const gps = resolveDriverGpsDisplay(delivery, serverTime)
+  const reportHref = `/da/logistics/containers/${delivery.containerUuid}/report`
   return (
-    <ListItemButton selected={selected} onClick={onSelect} sx={{ borderRadius: 1, mb: 0.5 }}>
+    <ListItemButton selected={selected} onClick={onSelect} sx={{ borderRadius: 1, mb: 0.5, flexDirection: 'column', alignItems: 'stretch' }}>
       <ListItemText
         primary={
           <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
@@ -71,6 +73,19 @@ function DeliveryListItem({
           secondary: { sx: { fontSize: '0.75rem' } },
         }}
       />
+      {canOpenDeliveryReport(delivery) && (
+        <Button
+          size="small"
+          variant="text"
+          component={RouterLink}
+          to={reportHref}
+          startIcon={<AssessmentOutlinedIcon />}
+          sx={{ alignSelf: 'flex-start', mt: 0.5, fontSize: '0.75rem' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          Open delivery report
+        </Button>
+      )}
     </ListItemButton>
   )
 }
@@ -89,23 +104,6 @@ export function DaLiveLogisticsPage() {
 
   const [selectedUuid, setSelectedUuid] = useState<string | null>(null)
   const selected = allOnMap.find((d) => d.containerUuid === selectedUuid) ?? null
-  const fetchDeliveryReport =
-    selected != null &&
-    !['Pending', 'ReadyForTransport', 'Released'].includes(selected.status) &&
-    (selected.status !== 'Assigned' ||
-      Boolean(selected.lastLocationAt) ||
-      (selected.recentTrail?.length ?? 0) > 0)
-
-  const { data: routeData, isLoading: routeLoading } = useGetDaContainerActualRouteQuery(selectedUuid ?? '', {
-    skip: !selectedUuid || !fetchDeliveryReport,
-    pollingInterval: fetchDeliveryReport ? 15_000 : 0,
-  })
-  const actualRoute = routeData?.data
-
-  const fullTrailOnLiveMap = useMemo(() => {
-    if (!selectedUuid || !actualRoute?.trail?.length) return undefined
-    return { [selectedUuid]: actualRoute.trail }
-  }, [selectedUuid, actualRoute?.trail])
 
   if (isLoading && !snapshot) {
     return (
@@ -120,7 +118,7 @@ export function DaLiveLogisticsPage() {
       <PortalPageHeader
         eyebrow="DA Secretary · Logistics"
         title="Live delivery map"
-        subtitle="Blue line = actual GPS from Start navigation (pickup leg through warehouse). Select a container for full coordinate list and geotag photos below."
+        subtitle="Philippines map only. Blue = GPS trail. Open delivery report for full coordinates and geotag photos."
         actions={
           <Button
             size="small"
@@ -187,7 +185,6 @@ export function DaLiveLogisticsPage() {
             deliveries={allOnMap}
             selectedUuid={selectedUuid}
             serverTime={snapshot?.serverTime}
-            fullTrailByUuid={fullTrailOnLiveMap}
             height={560}
           />
         </Box>
@@ -195,7 +192,7 @@ export function DaLiveLogisticsPage() {
           <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: portalColors.textMuted, mb: 1 }}>
             In progress ({active.length})
           </Typography>
-          <List dense disablePadding sx={{ mb: 2, maxHeight: 240, overflow: 'auto' }}>
+          <List dense disablePadding sx={{ mb: 2, maxHeight: 280, overflow: 'auto' }}>
             {active.length === 0 && (
               <Typography sx={{ fontSize: '0.85rem', color: portalColors.textMuted, py: 2 }}>
                 No active deliveries with an assigned driver right now.
@@ -213,9 +210,9 @@ export function DaLiveLogisticsPage() {
           </List>
 
           <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: portalColors.textMuted, mb: 1 }}>
-            Warehouse check-in (48h) — route & proof
+            Warehouse check-in (48h)
           </Typography>
-          <List dense disablePadding sx={{ maxHeight: 200, overflow: 'auto' }}>
+          <List dense disablePadding sx={{ maxHeight: 220, overflow: 'auto' }}>
             {arrived.map((d) => (
               <DeliveryListItem
                 key={d.containerUuid}
@@ -239,7 +236,6 @@ export function DaLiveLogisticsPage() {
           }}
         >
           <Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-            <MapOutlinedIcon fontSize="small" color="primary" />
             <Typography sx={{ fontWeight: 800 }}>{selected.containerNumber}</Typography>
             <Chip size="small" label={selected.status} />
             {(() => {
@@ -254,43 +250,22 @@ export function DaLiveLogisticsPage() {
               )
             })()}
           </Stack>
-          <Typography sx={{ fontSize: '0.85rem', color: portalColors.textMuted, mb: 1 }}>
+          <Typography sx={{ fontSize: '0.85rem', color: portalColors.textMuted, mb: 1.5 }}>
             {selected.pickup.label} → {selected.destination.label}
           </Typography>
-          {!fetchDeliveryReport && (
+          {canOpenDeliveryReport(selected) ? (
+            <Button
+              variant="contained"
+              component={RouterLink}
+              to={`/da/logistics/containers/${selected.containerUuid}/report`}
+              startIcon={<AssessmentOutlinedIcon />}
+            >
+              Open full delivery report (GPS points & geotag photos)
+            </Button>
+          ) : (
             <Typography sx={{ fontSize: '0.85rem', color: portalColors.textMuted }}>
-              Select a container with an active driver. GPS coordinates appear after the driver starts navigation in
-              AgriTrack; pickup/warehouse geotag photos appear after each stop is confirmed.
+              GPS report unlocks after the driver starts navigation in AgriTrack.
             </Typography>
-          )}
-          {fetchDeliveryReport && (
-            <Box sx={{ mt: 2 }}>
-              <Typography sx={{ fontWeight: 800, fontSize: '0.95rem', mb: 1 }}>Delivery report</Typography>
-              {routeLoading && <CircularProgress size={22} sx={{ mb: 2 }} />}
-              {actualRoute && (
-                <>
-                  <Typography sx={{ fontSize: '0.85rem', mb: 1.5 }}>
-                    GPS trail: <strong>{formatKm(actualRoute.distanceKm)}</strong> ·{' '}
-                    <strong>{actualRoute.pointCount}</strong> points
-                    {actualRoute.warehouseHandoffEligibleAt
-                      ? ` · warehouse check-in ${new Date(actualRoute.warehouseHandoffEligibleAt).toLocaleString()}`
-                      : ''}
-                    {actualRoute.arrivalTime
-                      ? ` · warehouse received ${new Date(actualRoute.arrivalTime).toLocaleString()}`
-                      : ''}
-                  </Typography>
-                  <DaActualRouteMap route={actualRoute} height={380} />
-                  <Typography sx={{ fontWeight: 700, fontSize: '0.85rem', mt: 2, mb: 1 }}>
-                    GPS coordinates (navigation start → warehouse)
-                  </Typography>
-                  <DaGpsTrailTable trail={actualRoute.trail} containerNumber={actualRoute.containerNumber} />
-                  <Typography sx={{ fontWeight: 700, fontSize: '0.85rem', mt: 2, mb: 1 }}>
-                    Arrival proof (geotagged photos)
-                  </Typography>
-                  <DaDeliveryProofGallery photos={actualRoute.proofPhotos ?? []} />
-                </>
-              )}
-            </Box>
           )}
         </Box>
       )}

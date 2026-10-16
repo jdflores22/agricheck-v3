@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css'
 import { portalColors } from '../../../components/portal/portalTheme'
 import type { DaContainerActualRoute, DaDeliveryProofPhoto } from '../api/daApi'
 import {
+  isUsablePhilippinesCoordinate,
   PHILIPPINES_BOUNDS,
   PHILIPPINES_MAP_CENTER,
   PHILIPPINES_MAP_MIN_ZOOM,
@@ -27,12 +28,17 @@ const proofIcon = pinIcon('#7C3AED', '📷')
 function FitRoute({ route }: { route: DaContainerActualRoute }) {
   const map = useMap()
   useEffect(() => {
-    const points: L.LatLngExpression[] = [
-      [Number(route.pickup.latitude), Number(route.pickup.longitude)],
-      [Number(route.destination.latitude), Number(route.destination.longitude)],
-    ]
+    const points: L.LatLngExpression[] = []
+    const pLat = Number(route.pickup.latitude)
+    const pLng = Number(route.pickup.longitude)
+    const dLat = Number(route.destination.latitude)
+    const dLng = Number(route.destination.longitude)
+    if (isUsablePhilippinesCoordinate(pLat, pLng)) points.push([pLat, pLng])
+    if (isUsablePhilippinesCoordinate(dLat, dLng)) points.push([dLat, dLng])
     for (const p of route.trail) {
-      points.push([Number(p.latitude), Number(p.longitude)])
+      const lat = Number(p.latitude)
+      const lng = Number(p.longitude)
+      if (isUsablePhilippinesCoordinate(lat, lng)) points.push([lat, lng])
     }
     for (const photo of route.proofPhotos) {
       if (photo.captureLatitude != null && photo.captureLongitude != null) {
