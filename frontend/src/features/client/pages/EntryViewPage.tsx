@@ -25,7 +25,9 @@ import { portalPrimaryButtonSx, portalOutlinedButtonSx } from '../../../componen
 import {
   useGetClientFormQuery,
   useGetClientFormsQuery,
+  useGetEntryComplianceChainQuery,
   useGetEntryQuery,
+  useGetEntrySpsApplicationQuery,
   useGetContainerInspectionsQuery,
   useGetInspectionsQuery,
   useSubmitEntryMutation,
@@ -34,6 +36,9 @@ import { applyMavEntrySchema, parseFormSchema } from '../../forms/formSchema'
 import { useGetMavAgencyContextQuery } from '../../mav/api/mavApi'
 import { buildFormFieldLabelMap, getEntryFormCompletion, buildEntryFormValues, resolveFormFieldLabel } from '../utils/entryFormUtils'
 import { downloadAuthenticatedFile } from '../utils/downloadFile'
+import { EntryComplianceChainPanel } from '../components/EntryComplianceChainPanel'
+import { EntryErfiPanel } from '../components/EntryErfiPanel'
+import { EntrySpsicPanel } from '../components/EntrySpsicPanel'
 import { EntryOverviewPanel } from '../components/EntryOverviewPanel'
 import { EntryMavPanel } from '../components/EntryMavPanel'
 import { EntrySubmitValidationDialog } from '../components/EntrySubmitValidationDialog'
@@ -50,11 +55,16 @@ export function EntryViewPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const viewEntryDetails = searchParams.get('view') === 'entry'
-  const [tab, setTab] = useState(0)
+  const complianceTab = searchParams.get('tab') === 'compliance'
+  const [tab, setTab] = useState(complianceTab ? 1 : 0)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [submitIssue, setSubmitIssue] = useState<EntrySubmitValidationIssue | null>(null)
   const { data, isLoading, refetch } = useGetEntryQuery(uuid, { skip: !uuid })
+  const { data: complianceData, isError: complianceError, isFetching: complianceFetching } = useGetEntryComplianceChainQuery(uuid, { skip: !uuid })
+  const { data: spsData } = useGetEntrySpsApplicationQuery(uuid ?? '', { skip: !uuid })
   const entry = data?.data
+  const complianceChain = complianceData?.data
+  const hasIssuedClearance = Boolean(spsData?.data?.issuedClearance)
   const { data: inspectionsData } = useGetInspectionsQuery({ entryUuid: uuid }, { skip: !uuid })
   const { data: containerInspectionsData } = useGetContainerInspectionsQuery(uuid, {
     skip: !uuid || entry?.status !== 'ForInspection',
@@ -63,6 +73,10 @@ export function EntryViewPage() {
 
   const containerInspections = containerInspectionsData?.data ?? []
   const inspectionProgress = getContainerInspectionProgress(containerInspections)
+
+  useEffect(() => {
+    if (complianceTab) setTab(1)
+  }, [complianceTab])
 
   useEffect(() => {
     if (entry?.status !== 'ForInspection' || viewEntryDetails) return
@@ -295,8 +309,24 @@ export function EntryViewPage() {
         </Alert>
       )}
 
+      {entry.entryType === 'Import' && (
+        <Alert
+          severity="info"
+          sx={{ mb: 2, borderRadius: '0.75rem' }}
+          action={
+            <Button color="inherit" size="small" onClick={() => setTab(1)}>
+              Import clearance
+            </Button>
+          }
+        >
+          Apply for <strong>SPSIC</strong> and file <strong>e-RFI</strong> under the Compliance tab. Link your destination warehouse under{' '}
+          <RouterLink to="/client/facilities">My Facilities</RouterLink> and confirm operator RSAS + DA CSW show ready.
+        </Alert>
+      )}
+
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Overview" />
+        <Tab label="Compliance" />
         <Tab label="Documents" />
         <Tab label="History" />
         <Tab label="Payment" />
@@ -312,6 +342,34 @@ export function EntryViewPage() {
       )}
 
       {tab === 1 && (
+        <Stack spacing={2}>
+          {complianceError ? (
+            <Alert severity="error">Unable to load compliance chain. Refresh the page or try again later.</Alert>
+          ) : complianceChain ? (
+            <EntryComplianceChainPanel chain={complianceChain} />
+          ) : (
+            <Typography sx={{ color: portalColors.textMuted }}>
+              {complianceFetching ? 'Loading compliance chain…' : 'No compliance data for this entry.'}
+            </Typography>
+          )}
+          {uuid && entry && (
+            <EntrySpsicPanel
+              entryUuid={uuid}
+              entryType={entry.entryType}
+              files={entry.files.map((f) => ({ uuid: f.uuid, originalFileName: f.originalFileName }))}
+            />
+          )}
+          {uuid && entry && (
+            <EntryErfiPanel
+              entryUuid={uuid}
+              entryType={entry.entryType}
+              hasIssuedClearance={hasIssuedClearance}
+            />
+          )}
+        </Stack>
+      )}
+
+      {tab === 2 && (
         <PortalPanel title="Documents">
           <Box sx={{ px: 2.5, py: 2 }}>
             {entry.files.length === 0 ? (
@@ -364,7 +422,7 @@ export function EntryViewPage() {
         </PortalPanel>
       )}
 
-      {tab === 2 && (
+      {tab === 3 && (
         <Stack spacing={2}>
           {entry.timeline.map((event) => (
             <PortalPanel key={`${event.eventType}-${event.createdAt}`} title={event.title}>
@@ -377,7 +435,7 @@ export function EntryViewPage() {
         </Stack>
       )}
 
-      {tab === 3 && (
+      {tab === 4 && (
         <Stack spacing={2}>
           {entry.bills.length === 0 && (
             <Typography sx={{ color: portalColors.textMuted }}>
@@ -413,7 +471,7 @@ export function EntryViewPage() {
         </Stack>
       )}
 
-      {tab === 4 && (
+      {tab === 5 && (
         <Stack spacing={2}>
           {entry.status === 'ForInspection' && (
             <PortalPanel title="Container photo uploads">

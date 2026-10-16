@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 
@@ -13,6 +14,7 @@ data class PendingDriverLocation(
     val latitude: Double,
     val longitude: Double,
     val recordedAtEpochMs: Long,
+    val capturedOffline: Boolean = false,
 )
 
 @Serializable
@@ -29,7 +31,8 @@ class DriverLocationQueueStore(context: Context) {
         if (last != null &&
             last.containerUuid == point.containerUuid &&
             last.latitude == point.latitude &&
-            last.longitude == point.longitude
+            last.longitude == point.longitude &&
+            point.recordedAtEpochMs - last.recordedAtEpochMs < 60_000L
         ) {
             return
         }
@@ -60,6 +63,8 @@ class DriverLocationQueueStore(context: Context) {
             file.delete()
             return
         }
-        file.writeText(json.encodeToString(PendingDriverLocationFile(list)))
+        file.writeText(
+            json.encodeToString(PendingDriverLocationFile.serializer(), PendingDriverLocationFile(list)),
+        )
     }
 }

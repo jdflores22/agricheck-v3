@@ -1,6 +1,7 @@
 import {
   Box,
   Button,
+  Chip,
   Table,
   TableBody,
   TableCell,
@@ -9,9 +10,11 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import { useMemo } from 'react'
+import { Fragment, useMemo } from 'react'
 import { portalColors } from '../../../components/portal/portalTheme'
 import type { DaContainerTrailPoint } from '../api/daApi'
+import type { GpsTrailOfflineGap } from '../utils/daGpsTrailOfflineGaps'
+import { trailPointStatusLabel } from '../utils/daTrailPointStatus'
 
 function formatCoord(value: number) {
   return value.toFixed(6)
@@ -20,18 +23,20 @@ function formatCoord(value: number) {
 interface DaGpsTrailTableProps {
   trail: DaContainerTrailPoint[]
   containerNumber?: string
+  offlineGaps?: GpsTrailOfflineGap[]
 }
 
-export function DaGpsTrailTable({ trail, containerNumber }: DaGpsTrailTableProps) {
+export function DaGpsTrailTable({ trail, containerNumber, offlineGaps = [] }: DaGpsTrailTableProps) {
   const sorted = useMemo(
     () => [...trail].sort((a, b) => Date.parse(a.recordedAt) - Date.parse(b.recordedAt)),
     [trail],
   )
 
   const csv = useMemo(() => {
-    const header = 'index,recorded_at_utc,latitude,longitude'
+    const header = 'index,status,recorded_at_utc,latitude,longitude'
     const rows = sorted.map(
-      (p, i) => `${i + 1},${p.recordedAt},${p.latitude},${p.longitude}`,
+      (p, i) =>
+        `${i + 1},${trailPointStatusLabel(p)},${p.recordedAt},${p.latitude},${p.longitude}`,
     )
     return [header, ...rows].join('\n')
   }, [sorted])
@@ -47,6 +52,8 @@ export function DaGpsTrailTable({ trail, containerNumber }: DaGpsTrailTableProps
 
   const first = sorted[0]
   const last = sorted[sorted.length - 1]
+
+  const gapAfterRecordedAt = new Set(offlineGaps.map((g) => g.offlineStartedAt))
 
   return (
     <Box>
@@ -76,26 +83,52 @@ export function DaGpsTrailTable({ trail, containerNumber }: DaGpsTrailTableProps
           <TableHead>
             <TableRow>
               <TableCell sx={{ fontWeight: 700, width: 48 }}>#</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Time</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Latitude</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Longitude</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {sorted.map((p, index) => (
-              <TableRow key={`${p.recordedAt}-${index}`}>
-                <TableCell>{index + 1}</TableCell>
-                <TableCell sx={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
-                  {new Date(p.recordedAt).toLocaleString()}
-                </TableCell>
-                <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                  {formatCoord(Number(p.latitude))}
-                </TableCell>
-                <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                  {formatCoord(Number(p.longitude))}
-                </TableCell>
-              </TableRow>
-            ))}
+            {sorted.map((p, index) => {
+              const gap = offlineGaps.find((g) => g.offlineStartedAt === p.recordedAt)
+              const status = trailPointStatusLabel(p)
+              const offlineQueued = status === 'Offline (queued)'
+              return (
+                <Fragment key={`${p.recordedAt}-${index}`}>
+                  <TableRow sx={offlineQueued ? { bgcolor: '#FFF7ED' } : undefined}>
+                    <TableCell>{index + 1}</TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={status}
+                        color={offlineQueued ? 'warning' : 'success'}
+                        variant={offlineQueued ? 'filled' : 'outlined'}
+                        sx={{ height: 22, fontSize: '0.65rem', fontWeight: 700 }}
+                      />
+                    </TableCell>
+                    <TableCell sx={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                      {new Date(p.recordedAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                      {formatCoord(Number(p.latitude))}
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                      {formatCoord(Number(p.longitude))}
+                    </TableCell>
+                  </TableRow>
+                  {gapAfterRecordedAt.has(p.recordedAt) && gap && (
+                    <TableRow key={`gap-${gap.gapIndex}`} sx={{ bgcolor: '#FEF2F2' }}>
+                      <TableCell />
+                      <TableCell colSpan={4} sx={{ fontSize: '0.75rem', color: '#991B1B', fontWeight: 600 }}>
+                        ↳ No GPS fix ~{gap.durationMinutes} min until{' '}
+                        {new Date(gap.backOnlineAt).toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
+              )
+            })}
           </TableBody>
         </Table>
       </TableContainer>

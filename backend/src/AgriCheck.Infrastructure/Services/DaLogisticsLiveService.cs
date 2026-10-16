@@ -384,7 +384,12 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
         }
 
         return ordered
-            .Select(l => new DaContainerTrailPointDto(l.Latitude!.Value, l.Longitude!.Value, l.RecordedAt))
+            .Select(l => new DaContainerTrailPointDto(
+                l.Latitude!.Value,
+                l.Longitude!.Value,
+                l.RecordedAt,
+                ContainerLocationTrailHelper.ResolveCapturedOffline(l),
+                l.CreatedAt))
             .ToList();
     }
 

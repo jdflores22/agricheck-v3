@@ -1215,6 +1215,9 @@ namespace AgriCheck.Infrastructure.Persistence.Migrations
                     b.Property<long>("ContainerId")
                         .HasColumnType("bigint");
 
+                    b.Property<bool>("CapturedOffline")
+                        .HasColumnType("tinyint(1)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 

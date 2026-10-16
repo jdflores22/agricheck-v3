@@ -211,6 +211,19 @@ function normalizeOption(option: FormFieldOption | string): FormFieldOption {
   return option
 }
 
+function normalizeFormColumnWidth(columnWidth: unknown): number {
+  if (typeof columnWidth === 'number' && Number.isFinite(columnWidth)) {
+    return Math.min(12, Math.max(1, Math.round(columnWidth)))
+  }
+  if (typeof columnWidth === 'string' && columnWidth.trim()) {
+    const parsed = Number(columnWidth)
+    if (Number.isFinite(parsed)) {
+      return Math.min(12, Math.max(1, Math.round(parsed)))
+    }
+  }
+  return 12
+}
+
 /** Strip HTML tags and whitespace-only placeholders from migrated V2 help text. */
 export function sanitizeDisplayText(text?: string | null): string | undefined {
   if (!text) return undefined
@@ -236,7 +249,7 @@ export function parseFormSchema(schemaJson: string): FormFieldSchema[] {
           placeholder: raw.placeholder,
           helpText: raw.helpText,
           tooltip: raw.tooltip,
-          columnWidth: raw.columnWidth ?? 12,
+          columnWidth: normalizeFormColumnWidth(raw.columnWidth),
           displayOrder: raw.displayOrder ?? index + 1,
           options,
           validationRules: raw.validationRules,

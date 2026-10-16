@@ -15,7 +15,8 @@ export function PublicLayout() {
   const location = useLocation()
   const isHome = location.pathname === '/'
   const isVerify = location.pathname === '/verify'
-  const isFullWidthPublicPage = isHome || isVerify
+  const isAgriTrack = location.pathname === '/agritrack'
+  const isFullWidthPublicPage = isHome || isVerify || isAgriTrack
   const isAuthenticated = useAppSelector(selectIsAuthenticated)
   const user = useAppSelector(selectCurrentUser)
   const redirectPath = useAppSelector(selectAuthRedirect)

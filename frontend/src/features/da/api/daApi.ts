@@ -576,6 +576,10 @@ export interface DaContainerTrailPoint {
   latitude: number
   longitude: number
   recordedAt: string
+  /** Captured on device with no network (AgriTrack queue). */
+  capturedOffline?: boolean
+  /** Server insert time (UTC) — used to infer buffered offline when flag missing. */
+  syncedAtUtc?: string | null
 }
 
 export interface DaLiveDelivery {

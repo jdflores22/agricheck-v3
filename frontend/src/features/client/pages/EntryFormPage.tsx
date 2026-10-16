@@ -42,9 +42,11 @@ import {
   useGetCommoditiesQuery,
   useGetDashboardQuery,
   useGetEntryQuery,
+  useGetFacilityRegistrationsQuery,
   useUpdateEntryMutation,
   useUploadEntryFileMutation,
   useUtilizeEntryMicMutation,
+  useValidateEntryDestinationMutation,
 } from '../api/clientApi'
 import { useGetMavAgencyContextQuery } from '../../mav/api/mavApi'
 import { DynamicFormRenderer, mapDynamicValuesToEntryDetail } from '../components/DynamicFormRenderer'
@@ -65,6 +67,12 @@ import {
   type ContainerValidationResult,
 } from '../utils/containerFormUtils'
 import { ENTRY_CONTAINER_EDIT_HASH } from '../utils/entrySubmitValidation'
+import {
+  DESTINATION_SCOPE_CHECK_CODES,
+  entryAgencyWarehouseFilterHint,
+  resolveEffectiveWarehouseFacilityId,
+  resolveWarehouseIdFromFormFields,
+} from '../utils/entryDestinationUtils'
 import { downloadAuthenticatedFile } from '../utils/downloadFile'
 
 function parseFormSchemaSafe(schemaJson: string) {
@@ -106,7 +114,28 @@ export function EntryFormPage() {
   const [uploadingField, setUploadingField] = useState<string | null>(null)
   const [utilizeDraft, setUtilizeDraft] = useState({ micUuid: '', volume: '' })
   const [importTrack, setImportTrack] = useState<ImportTrack>('Regular')
+  const [finalWarehouseFacilityId, setFinalWarehouseFacilityId] = useState('')
+  const [validateDestination] = useValidateEntryDestinationMutation()
+  const [destinationValidation, setDestinationValidation] = useState<{
+    isValid: boolean
+    checks: Array<{ code: string; severity: string; message: string; detail?: string | null }>
+  } | null>(null)
+  const [validatingDestination, setValidatingDestination] = useState(false)
   const agencyIdNum = form.agencyId ? Number(form.agencyId) : 0
+  const { data: linkedFacilitiesData } = useGetFacilityRegistrationsQuery(agencyIdNum, {
+    skip: form.entryType !== 'Import' || !agencyIdNum,
+  })
+  const linkedDestinationWarehouses = (linkedFacilitiesData?.data ?? []).map((f) => ({
+    id: f.warehouseFacilityId,
+    code: f.warehouseCode,
+    name: f.warehouseName,
+    scopeHint: f.facilityScopeHint,
+    leadAgency: f.cswLeadAgencyCode,
+  }))
+  const allowedWarehouseIds = useMemo(
+    () => linkedDestinationWarehouses.map((w) => w.id),
+    [linkedDestinationWarehouses],
+  )
   const { data: formsData, isFetching: isLoadingForms } = useGetClientFormsQuery(
     { agencyId: agencyIdNum, formType: 'ENTRY' },
     { skip: !agencyIdNum },
@@ -159,6 +188,14 @@ export function EntryFormPage() {
   const selectedHsCode = commodityHsKeys ? dynamicValues[commodityHsKeys.hsCode] : ''
   const selectedCommodityName = commodityHsKeys ? dynamicValues[commodityHsKeys.commodityName] : ''
   const entryQuantity = Number(dynamicValues.quantity || dynamicValues.txt_volume_weight || form.quantity || 0)
+  const warehouseIdFromDynamicForm = useMemo(
+    () => resolveWarehouseIdFromFormFields(effectiveSchemaFields, dynamicValues),
+    [effectiveSchemaFields, dynamicValues],
+  )
+  const effectiveWarehouseFacilityId = useMemo(
+    () => resolveEffectiveWarehouseFacilityId(effectiveSchemaFields, dynamicValues, finalWarehouseFacilityId),
+    [effectiveSchemaFields, dynamicValues, finalWarehouseFacilityId],
+  )
   const hasExistingMav = Boolean(
     entryData?.data?.mav?.mavNo
     || (entryData?.data?.mav?.micUtilizations?.length ?? 0) > 0,
@@ -181,6 +218,9 @@ export function EntryFormPage() {
       portOfEntry: entry.detail?.portOfEntry ?? '',
       notes: entry.notes ?? '',
     })
+    setFinalWarehouseFacilityId(
+      entry.finalWarehouseFacilityId ? String(entry.finalWarehouseFacilityId) : '',
+    )
     setDynamicValues(buildEntryFormValues(entry, schemaFields))
     const existingContainers = parseContainersFromEntry(entry.containers, containerSchemaFields)
     const resolvedCount = getNumContainersFromFormData(entry.formDataJson, existingContainers.length)
@@ -218,6 +258,25 @@ export function EntryFormPage() {
     }
   }, [agencyIdParam, isEdit])
 
+  useEffect(() => {
+    if (!warehouseIdFromDynamicForm || warehouseIdFromDynamicForm === finalWarehouseFacilityId) {
+      return
+    }
+    if (!allowedWarehouseIds.includes(Number(warehouseIdFromDynamicForm))) {
+      return
+    }
+    setFinalWarehouseFacilityId(warehouseIdFromDynamicForm)
+  }, [warehouseIdFromDynamicForm, finalWarehouseFacilityId, allowedWarehouseIds])
+
+  useEffect(() => {
+    if (!finalWarehouseFacilityId) {
+      return
+    }
+    if (!allowedWarehouseIds.includes(Number(finalWarehouseFacilityId))) {
+      setFinalWarehouseFacilityId('')
+    }
+  }, [allowedWarehouseIds, finalWarehouseFacilityId])
+
   const containerCompletion = useMemo(
     () => getContainerCompletion(containerSchemaFields, containerDraft),
     [containerSchemaFields, containerDraft],
@@ -228,6 +287,109 @@ export function EntryFormPage() {
   )
   const requiredFileCount = formCompletion.requiredFileCount
   const uploadedFileCount = formCompletion.uploadedFileCount
+
+  const destinationValidationPayload = useMemo(() => {
+    if (form.entryType !== 'Import' || !effectiveWarehouseFacilityId) {
+      return null
+    }
+    const detail = useDynamicForm && formSchemaData?.data
+      ? mapDynamicValuesToEntryDetail(dynamicValues, form.commodityId, form.unit)
+      : {
+          quantity: Number(form.quantity),
+          unit: form.unit,
+        }
+    const valuesForSave = { ...dynamicValues, import_track: importTrack }
+    const containerPayload = hasContainerForm
+      ? buildContainersPayload(valuesForSave, numContainers, containerDraft)
+      : null
+    const formDataJson = containerPayload
+      ? serializeFormDataJson(containerPayload.formDataJsonValues)
+      : useDynamicForm
+        ? serializeFormDataJson(valuesForSave)
+        : serializeFormDataJson({ import_track: importTrack })
+    return {
+      warehouseFacilityId: Number(effectiveWarehouseFacilityId),
+      shipmentQuantity: detail.quantity,
+      shipmentUnit: detail.unit,
+      excludeEntryUuid: editUuid,
+      formDataJson,
+      entryAgencyId: agencyIdNum,
+    }
+  }, [
+    form.entryType,
+    effectiveWarehouseFacilityId,
+    useDynamicForm,
+    formSchemaData?.data,
+    dynamicValues,
+    form.commodityId,
+    form.unit,
+    form.quantity,
+    importTrack,
+    hasContainerForm,
+    numContainers,
+    containerDraft,
+    editUuid,
+    agencyIdNum,
+  ])
+
+  useEffect(() => {
+    if (!destinationValidationPayload) {
+      setDestinationValidation(null)
+      setValidatingDestination(false)
+      return
+    }
+
+    setDestinationValidation(null)
+    setValidatingDestination(true)
+
+    let cancelled = false
+    const handle = window.setTimeout(() => {
+      validateDestination(destinationValidationPayload)
+        .unwrap()
+        .then((res) => {
+          if (!cancelled && res.success && res.data) {
+            setDestinationValidation({ isValid: res.data.isValid, checks: res.data.checks })
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            setDestinationValidation({
+              isValid: false,
+              checks: [{
+                code: 'VALIDATION_REQUEST_FAILED',
+                severity: 'warning',
+                message: getApiErrorMessage(err) ?? 'Could not verify warehouse destination. Try again.',
+                detail: null,
+              }],
+            })
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setValidatingDestination(false)
+          }
+        })
+    }, 450)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(handle)
+    }
+  }, [destinationValidationPayload, validateDestination])
+
+  const destinationHasBlockingError = Boolean(
+    destinationValidation?.checks.some((c) => c.severity === 'error'),
+  )
+
+  const destinationChecksToShow = useMemo(() => {
+    const checks = destinationValidation?.checks ?? []
+    return checks.filter((c) => c.severity !== 'ok')
+  }, [destinationValidation?.checks])
+
+  const commodityScopeChecks = useMemo(
+    () => destinationChecksToShow.filter((c) => DESTINATION_SCOPE_CHECK_CODES.has(c.code)),
+    [destinationChecksToShow],
+  )
 
   if (!isEdit && !agencyIdParam) {
     return <Navigate to="/client/entries/agencies" replace />
@@ -243,6 +405,14 @@ export function EntryFormPage() {
       if (!validation.isValid) return
     } else {
       setContainerValidation(undefined)
+    }
+
+    if (
+      form.entryType === 'Import'
+      && effectiveWarehouseFacilityId
+      && destinationHasBlockingError
+    ) {
+      return
     }
 
     const commodity = commoditiesData?.data?.find((c) => String(c.id) === form.commodityId)
@@ -278,6 +448,10 @@ export function EntryFormPage() {
       detail,
       importTrack,
       mavNo: mavTrackSelected ? (dynamicValues.mav_no?.trim() || undefined) : undefined,
+      finalWarehouseFacilityId:
+        form.entryType === 'Import' && effectiveWarehouseFacilityId
+          ? Number(effectiveWarehouseFacilityId)
+          : undefined,
     }
 
     try {
@@ -294,6 +468,10 @@ export function EntryFormPage() {
             mavNo: mavTrackSelected
               ? (dynamicValues.mav_no?.trim() || entryData?.data?.mav?.mavNo || undefined)
               : undefined,
+            finalWarehouseFacilityId:
+              form.entryType === 'Import' && effectiveWarehouseFacilityId
+                ? Number(effectiveWarehouseFacilityId)
+                : undefined,
           },
         }).unwrap()
         if (result.success) navigate(`/client/entries/${editUuid}`)
@@ -377,7 +555,14 @@ export function EntryFormPage() {
   const isLoading = creating || updating
   const isFormLoading = !isEdit && agencyIdNum > 0 && (isLoadingForms || (Boolean(selectedFormUuid) && isLoadingFormSchema))
   const isContainerFormLoading = hasContainerForm && (isLoadingContainerForms || (Boolean(selectedContainerFormUuid) && isLoadingContainerFormSchema))
-  const canSubmit = !isLoading && !isFormLoading && !isContainerFormLoading && (isEdit || (useDynamicForm && !noFormConfigured))
+  const destinationBlocksSave = form.entryType === 'Import'
+    && Boolean(effectiveWarehouseFacilityId)
+    && (validatingDestination || destinationHasBlockingError)
+  const canSubmit = !isLoading
+    && !isFormLoading
+    && !isContainerFormLoading
+    && !destinationBlocksSave
+    && (isEdit || (useDynamicForm && !noFormConfigured))
   const filesPendingDraft = !isEdit && useDynamicForm
 
   return (
@@ -516,6 +701,39 @@ export function EntryFormPage() {
                   <MenuItem value="Import">Import</MenuItem>
                   <MenuItem value="Export">Export</MenuItem>
                 </TextField>
+                {form.entryType === 'Import' && (
+                  <TextField
+                    select
+                    size="small"
+                    label="Final warehouse (CSW destination)"
+                    value={finalWarehouseFacilityId}
+                    onChange={(e) => setFinalWarehouseFacilityId(e.target.value)}
+                    helperText={entryAgencyWarehouseFilterHint(selectedAgency?.code)}
+                    sx={{
+                      minWidth: 260,
+                      flex: 1,
+                      width: { xs: '100%', sm: 'auto' },
+                      '& .MuiOutlinedInput-root': { borderRadius: '0.5rem' },
+                    }}
+                  >
+                    <MenuItem value="">
+                      <em>Not selected yet</em>
+                    </MenuItem>
+                    {linkedDestinationWarehouses.length === 0 ? (
+                      <MenuItem value="" disabled>
+                        No {selectedAgency?.code ?? 'agency'}-compatible warehouses — link an LTO facility under My Facilities
+                        with matching CSW/RSAS scope
+                      </MenuItem>
+                    ) : (
+                      linkedDestinationWarehouses.map((warehouse) => (
+                        <MenuItem key={warehouse.id} value={String(warehouse.id)}>
+                          {warehouse.code} — {warehouse.name}
+                          {warehouse.leadAgency ? ` (${warehouse.leadAgency})` : ''}
+                        </MenuItem>
+                      ))
+                    )}
+                  </TextField>
+                )}
                 {mavProgramAvailable && (
                   <ImportTrackSelector
                     value={importTrack}
@@ -536,6 +754,43 @@ export function EntryFormPage() {
                   />
                 )}
               </Stack>
+              {form.entryType === 'Import' && effectiveWarehouseFacilityId && (
+                <Box sx={{ mt: 2 }}>
+                  {validatingDestination && (
+                    <Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: 'center' }}>
+                      <CircularProgress size={16} />
+                      <Typography variant="body2" color="text.secondary">
+                        Checking warehouse destination…
+                      </Typography>
+                    </Stack>
+                  )}
+                  {destinationChecksToShow.map((check) => (
+                      <Alert
+                        key={check.code}
+                        severity={
+                          check.severity === 'error'
+                            ? 'error'
+                            : check.severity === 'warning'
+                              ? 'warning'
+                              : 'info'
+                        }
+                        sx={{ mb: 1, borderRadius: '0.75rem' }}
+                      >
+                        {check.message}
+                        {check.detail ? (
+                          <Typography component="span" sx={{ display: 'block', mt: 0.5, fontSize: '0.8125rem' }}>
+                            {check.detail}
+                          </Typography>
+                        ) : null}
+                      </Alert>
+                    ))}
+                  {destinationValidation?.isValid && !destinationHasBlockingError && !validatingDestination && (
+                    <Alert severity="success" sx={{ borderRadius: '0.75rem' }}>
+                      Destination checks passed for this warehouse and shipment volume.
+                    </Alert>
+                  )}
+                </Box>
+              )}
             </Box>
           </PortalPanel>
 
@@ -546,19 +801,65 @@ export function EntryFormPage() {
                   <CircularProgress size={28} sx={{ color: portalColors.primary }} />
                 </Box>
               ) : useDynamicForm && formSchemaData?.data ? (
-                <DynamicFormRenderer
-                  schemaJson={formSchemaData.data.schemaJson}
-                  values={dynamicValues}
-                  onChange={(name, value) => setDynamicValues((prev) => ({ ...prev, [name]: value }))}
-                  onBatchChange={(updates) => setDynamicValues((prev) => ({ ...prev, ...updates }))}
-                  agencyId={agencyIdNum || undefined}
-                  showMavFields={mavTrackSelected}
-                  showCommodityHs={mavProgramAvailable}
-                  onFileUpload={isEdit ? handleFormFileUpload : undefined}
-                  onFileDownload={isEdit ? handleDownloadFile : undefined}
-                  uploadingField={uploadingField}
-                  filesPendingDraft={filesPendingDraft}
-                />
+                <>
+                  <DynamicFormRenderer
+                    schemaJson={formSchemaData.data.schemaJson}
+                    values={dynamicValues}
+                    onChange={(name, value) => setDynamicValues((prev) => ({ ...prev, [name]: value }))}
+                    onBatchChange={(updates) => setDynamicValues((prev) => ({ ...prev, ...updates }))}
+                    agencyId={agencyIdNum || undefined}
+                    showMavFields={mavTrackSelected}
+                    showCommodityHs={mavProgramAvailable}
+                    onFileUpload={isEdit ? handleFormFileUpload : undefined}
+                    onFileDownload={isEdit ? handleDownloadFile : undefined}
+                    uploadingField={uploadingField}
+                    filesPendingDraft={filesPendingDraft}
+                    allowedWarehouseIds={allowedWarehouseIds}
+                  />
+                  {form.entryType === 'Import' && effectiveWarehouseFacilityId && selectedHsCode && (
+                    <Box sx={{ mt: 2.5 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                        Warehouse product scope (LTO / RSAS)
+                      </Typography>
+                      {validatingDestination && (
+                        <Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: 'center' }}>
+                          <CircularProgress size={16} />
+                          <Typography variant="body2" color="text.secondary">
+                            Checking meat vs fish segregation and your contract scope…
+                          </Typography>
+                        </Stack>
+                      )}
+                      {commodityScopeChecks.map((check) => (
+                        <Alert
+                          key={`scope-${check.code}`}
+                          severity={
+                            check.severity === 'error'
+                              ? 'error'
+                              : check.severity === 'warning'
+                                ? 'warning'
+                                : 'info'
+                          }
+                          sx={{ mb: 1, borderRadius: '0.75rem' }}
+                        >
+                          {check.message}
+                          {check.detail ? (
+                            <Typography component="span" sx={{ display: 'block', mt: 0.5, fontSize: '0.8125rem' }}>
+                              {check.detail}
+                            </Typography>
+                          ) : null}
+                        </Alert>
+                      ))}
+                      {!validatingDestination
+                        && commodityScopeChecks.length === 0
+                        && destinationValidation
+                        && !destinationHasBlockingError && (
+                        <Alert severity="success" sx={{ borderRadius: '0.75rem' }}>
+                          This HS commodity matches the warehouse LTO scope (e.g. BAI meat-only vs BFAR fish-only).
+                        </Alert>
+                      )}
+                    </Box>
+                  )}
+                </>
               ) : isEdit ? (
                 <Stack spacing={2}>
                   <TextField select label="Commodity" value={form.commodityId} onChange={(e) => setForm({ ...form, commodityId: e.target.value })} fullWidth size="small">
@@ -687,6 +988,12 @@ export function EntryFormPage() {
                 {filesPendingDraft && requiredFileCount > 0 && (
                   <Alert severity="info" icon={<DescriptionOutlinedIcon fontSize="inherit" />} sx={{ borderRadius: '0.625rem', py: 0.5 }}>
                     Save draft first, then return here to upload required PDFs.
+                  </Alert>
+                )}
+
+                {form.entryType === 'Import' && effectiveWarehouseFacilityId && destinationHasBlockingError && (
+                  <Alert severity="error" sx={{ borderRadius: '0.75rem' }}>
+                    Fix warehouse destination checks (scope, contract, or capacity) before saving this draft.
                   </Alert>
                 )}
 

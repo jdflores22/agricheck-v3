@@ -16,6 +16,17 @@ data class ApiError(
 )
 
 @Serializable
+data class SystemBrandingDto(
+    val systemName: String,
+    val systemLogoUrl: String? = null,
+    val spinnerLogoUrl: String? = null,
+    val faviconUrl: String? = null,
+    val spinnerColor: String? = null,
+    val primaryColor: String? = null,
+    val footerText: String? = null,
+)
+
+@Serializable
 data class LoginRequest(val email: String, val password: String)
 
 @Serializable
@@ -56,6 +67,24 @@ data class ContainerDeliveryStopDto(
 )
 
 @Serializable
+data class BookOperatorDeliveryStopsRequest(
+    val pickupLabel: String,
+    val pickupLatitude: Double,
+    val pickupLongitude: Double,
+    val destinationLabel: String,
+    val destinationLatitude: Double,
+    val destinationLongitude: Double,
+)
+
+@Serializable
+data class OperatorDeliveryStopsDto(
+    val containerUuid: String,
+    val containerNumber: String,
+    val pickup: ContainerDeliveryStopDto,
+    val destination: ContainerDeliveryStopDto,
+)
+
+@Serializable
 data class ContainerListItemDto(
     val uuid: String,
     val containerNumber: String,
@@ -69,6 +98,9 @@ data class ContainerListItemDto(
     val lastLocationAt: String? = null,
     val pickup: ContainerDeliveryStopDto? = null,
     val destination: ContainerDeliveryStopDto? = null,
+    val handoffQrAvailable: Boolean = false,
+    val deliveryComplianceHoldActive: Boolean = false,
+    val deliveryComplianceHoldReason: String? = null,
 )
 
 @Serializable
@@ -113,6 +145,17 @@ data class DriverDeliveryHandoffQrDto(
     val qrPayload: String,
     val qrCodeData: String? = null,
     val handoffInstruction: String,
+    val expiresAtUtc: String,
+    val refreshAfterSeconds: Int = 85,
+)
+
+@Serializable
+data class ReportDeliveryComplianceRequest(
+    val eventType: String,
+    val latitude: Double,
+    val longitude: Double,
+    val details: String? = null,
+    val offRouteMeters: Double? = null,
 )
 
 @Serializable
@@ -123,7 +166,24 @@ data class UpdateContainerStatusRequest(
 )
 
 @Serializable
-data class RecordContainerLocationRequest(val latitude: Double, val longitude: Double)
+data class RecordContainerLocationRequest(
+    val latitude: Double,
+    val longitude: Double,
+    val recordedAt: String? = null,
+)
+
+@Serializable
+data class RecordContainerLocationPointRequest(
+    val latitude: Double,
+    val longitude: Double,
+    val recordedAt: String,
+    val capturedOffline: Boolean = false,
+)
+
+@Serializable
+data class RecordContainerLocationsBatchRequest(
+    val points: List<RecordContainerLocationPointRequest>,
+)
 
 @Serializable
 data class RegisterMobilePushDeviceRequest(val expoPushToken: String, val platform: String)
@@ -173,6 +233,7 @@ data class DriverProfileDto(
     val faceVerified: Boolean = false,
     val submittedAt: String? = null,
     val approvedAt: String? = null,
+    val profilePhotoUrl: String? = null,
 )
 
 @Serializable
@@ -280,4 +341,7 @@ data class ContainerTrackDto(
     val pickup: ContainerTrackDestinationDto,
     val destination: ContainerTrackDestinationDto,
     val trail: List<ContainerLocationPointDto> = emptyList(),
+    val handoffQrAvailable: Boolean = false,
+    val deliveryComplianceHoldActive: Boolean = false,
+    val deliveryComplianceHoldReason: String? = null,
 )

@@ -5,7 +5,6 @@ import {
   Button,
   Chip,
   CircularProgress,
-  Divider,
   List,
   ListItemButton,
   ListItemText,
@@ -13,16 +12,14 @@ import {
   Typography,
 } from '@mui/material'
 import { Link as RouterLink } from 'react-router-dom'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { portalColors } from '../../../components/portal/portalTheme'
 import {
   useClearDaDeliveryComplianceHoldMutation,
-  useGetDaContainerActualRouteQuery,
   useGetDaLogisticsLiveQuery,
   type DaLiveDelivery,
 } from '../api/daApi'
-import { DaDeliveryReportPanel } from '../components/DaDeliveryReportPanel'
 import { DaLiveLogisticsMap } from '../components/DaLiveLogisticsMap'
 import { resolveDriverGpsDisplay } from '../utils/daDriverGpsStatus'
 
@@ -68,7 +65,6 @@ function DeliveryListItem({
             {delivery.entryReference} · {delivery.status}
             {delivery.driverName ? ` · ${delivery.driverName}` : ''}
             {!gps.offline && delivery.lastLocationAt ? ' · Live GPS' : ''}
-            {canShowDeliveryReport(delivery) ? ' · tap for report below' : ''}
           </>
         }
         slotProps={{
@@ -94,24 +90,7 @@ export function DaLiveLogisticsPage() {
 
   const [selectedUuid, setSelectedUuid] = useState<string | null>(null)
   const selected = allOnMap.find((d) => d.containerUuid === selectedUuid) ?? null
-  const showReport = selected != null && canShowDeliveryReport(selected)
-  const reportSectionRef = useRef<HTMLDivElement | null>(null)
-
-  const { data: routeData, isLoading: routeLoading } = useGetDaContainerActualRouteQuery(selectedUuid ?? '', {
-    skip: !selectedUuid || !showReport,
-    pollingInterval: showReport ? 15_000 : 0,
-  })
-  const actualRoute = routeData?.data
-
-  const fullTrailOnLiveMap = useMemo(() => {
-    if (!selectedUuid || !actualRoute?.trail?.length) return undefined
-    return { [selectedUuid]: actualRoute.trail }
-  }, [selectedUuid, actualRoute?.trail])
-
-  useEffect(() => {
-    if (!selectedUuid) return
-    reportSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, [selectedUuid])
+  const reportReady = selected != null && canShowDeliveryReport(selected)
 
   if (isLoading && !snapshot) {
     return (
@@ -126,7 +105,7 @@ export function DaLiveLogisticsPage() {
       <PortalPageHeader
         eyebrow="DA Secretary · Logistics"
         title="Live delivery map"
-        subtitle="Piliin ang container sa listahan — sa ibaba ng mapa lalabas ang delivery report (GPS points, coordinates, geotag photos)."
+        subtitle="Piliin ang container sa listahan. Buong delivery report (GPS trail, offline gaps, geotag) sa View report."
         actions={
           <Button
             size="small"
@@ -188,45 +167,45 @@ export function DaLiveLogisticsPage() {
         </Box>
       )}
 
-      {selected && canShowDeliveryReport(selected) && (
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={1}
-          sx={{
-            mb: 2,
-            p: 1.5,
-            borderRadius: 2,
-            bgcolor: '#ECFDF5',
-            border: `1px solid ${portalColors.primary}`,
-            alignItems: { sm: 'center' },
-          }}
-        >
-          <Typography sx={{ flex: 1, fontWeight: 700, fontSize: '0.9rem' }}>
-            {selected.containerNumber} · delivery report ready
-          </Typography>
-          <Button
-            variant="contained"
-            color="primary"
-            component={RouterLink}
-            to={`/da/logistics/containers/${selected.containerUuid}/report`}
-            target="_blank"
-            rel="noopener noreferrer"
-            startIcon={<OpenInNewOutlinedIcon />}
-          >
-            View report in new tab
-          </Button>
-        </Stack>
-      )}
-
-      <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} sx={{ mb: 2 }}>
+      <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <DaLiveLogisticsMap
             deliveries={allOnMap}
             selectedUuid={selectedUuid}
             serverTime={snapshot?.serverTime}
-            fullTrailByUuid={fullTrailOnLiveMap}
             height={520}
           />
+          {selected && (
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              sx={{
+                mt: 2,
+                p: 1.5,
+                borderRadius: 2,
+                bgcolor: reportReady ? '#ECFDF5' : portalColors.bgWhite,
+                border: `1px solid ${reportReady ? portalColors.primary : portalColors.border}`,
+                alignItems: { sm: 'center' },
+              }}
+            >
+              <Typography sx={{ flex: 1, fontWeight: 700, fontSize: '0.9rem' }}>
+                {selected.containerNumber}
+                {reportReady ? ' · bukas ang delivery report' : ' · wala pang GPS trail'}
+              </Typography>
+              <Button
+                variant="contained"
+                color="primary"
+                component={RouterLink}
+                to={`/da/logistics/containers/${selected.containerUuid}/report`}
+                target="_blank"
+                rel="noopener noreferrer"
+                startIcon={<OpenInNewOutlinedIcon />}
+                disabled={!reportReady}
+              >
+                View report
+              </Button>
+            </Stack>
+          )}
         </Box>
         <Box sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }}>
           <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: portalColors.textMuted, mb: 1 }}>
@@ -265,83 +244,6 @@ export function DaLiveLogisticsPage() {
           </List>
         </Box>
       </Stack>
-
-      <Box ref={reportSectionRef}>
-        {!selected && (
-          <Box
-            sx={{
-              p: 3,
-              borderRadius: 2,
-              border: `1px dashed ${portalColors.border}`,
-              textAlign: 'center',
-            }}
-          >
-            <Typography sx={{ fontWeight: 700, mb: 0.5 }}>Container delivery report</Typography>
-            <Typography sx={{ fontSize: '0.85rem', color: portalColors.textMuted }}>
-              Pumili ng container sa listahan sa kanan para makita ang buong GPS trail, coordinates, at geotag photos dito
-              sa page na ito.
-            </Typography>
-          </Box>
-        )}
-
-        {selected && !showReport && (
-          <Box sx={{ p: 2, borderRadius: 2, border: `1px solid ${portalColors.border}` }}>
-            <Typography sx={{ fontWeight: 800, mb: 1 }}>{selected.containerNumber}</Typography>
-            <Typography sx={{ fontSize: '0.85rem', color: portalColors.textMuted }}>
-              Wala pang GPS report. Kailangan mag-Start navigation ang driver sa AgriTrack bago lumabas ang trail at
-              coordinates.
-            </Typography>
-          </Box>
-        )}
-
-        {selected && showReport && (
-          <Box
-            sx={{
-              p: 2,
-              borderRadius: 2,
-              border: `2px solid ${portalColors.primary}`,
-              bgcolor: portalColors.bgWhite,
-            }}
-          >
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={1}
-              sx={{ mb: 2, alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
-            >
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                <Typography sx={{ fontWeight: 800, fontSize: '1.05rem' }}>
-                  Delivery report · {selected.containerNumber}
-                </Typography>
-                <Chip size="small" label={selected.status} />
-                {(() => {
-                  const gps = resolveDriverGpsDisplay(selected, snapshot?.serverTime)
-                  return (
-                    <Chip
-                      size="small"
-                      label={gps.label}
-                      color={gps.offline ? 'warning' : 'success'}
-                      variant={gps.offline ? 'filled' : 'outlined'}
-                    />
-                  )
-                })()}
-              </Stack>
-              <Button
-                size="small"
-                variant="outlined"
-                component={RouterLink}
-                to={`/da/logistics/containers/${selected.containerUuid}/report`}
-                target="_blank"
-                rel="noopener noreferrer"
-                startIcon={<OpenInNewOutlinedIcon />}
-              >
-                View report in new tab
-              </Button>
-            </Stack>
-            <Divider sx={{ mb: 2 }} />
-            <DaDeliveryReportPanel route={actualRoute} loading={routeLoading} />
-          </Box>
-        )}
-      </Box>
     </Box>
   )
 }

@@ -11,6 +11,7 @@ interface WarehouseFieldRendererProps {
   onBatchChange?: (updates: Record<string, string>) => void
   disabled?: boolean
   fieldError?: string
+  allowedWarehouseIds?: number[]
 }
 
 const fieldInputSx = {
@@ -27,9 +28,17 @@ export function WarehouseFieldRenderer({
   onBatchChange,
   disabled,
   fieldError,
+  allowedWarehouseIds,
 }: WarehouseFieldRendererProps) {
   const { data, isLoading, isError, refetch } = useGetRegisteredWarehousesQuery()
-  const warehouses = data?.data ?? []
+  const allWarehouses = data?.data ?? []
+  const warehouses = useMemo(() => {
+    if (!allowedWarehouseIds?.length) {
+      return allWarehouses
+    }
+    const allowed = new Set(allowedWarehouseIds)
+    return allWarehouses.filter((item) => allowed.has(item.id))
+  }, [allWarehouses, allowedWarehouseIds])
   const value = values[field.name] ?? ''
   const labelKey = `${field.name}_label`
   const autofillTarget = useMemo(() => getWarehouseAutofillTarget(field), [field])
@@ -94,7 +103,9 @@ export function WarehouseFieldRenderer({
       : isLoading
         ? 'Loading registered warehouses…'
         : warehouses.length === 0
-          ? 'No registered warehouses found.'
+          ? allowedWarehouseIds?.length
+            ? 'No warehouses match this agency’s regulatory scope. Link a compatible facility under My Facilities.'
+            : 'No registered warehouses found.'
           : undefined)
 
   return (

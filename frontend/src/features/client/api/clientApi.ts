@@ -288,6 +288,10 @@ export interface Entry {
   paymentStatus: string
   paymentAmount?: number
   complianceDeadlineAt?: string
+  compliancePhase?: string
+  finalWarehouseFacilityId?: number
+  finalWarehouseFacilityCode?: string
+  finalWarehouseFacilityName?: string
   formDataJson?: string
   detail?: EntryDetail
   containers?: EntryContainer[]
@@ -324,10 +328,103 @@ export interface CheckMavNoResult {
   message?: string
 }
 
+export interface ComplianceLayer {
+  layer: string
+  status: string
+  summary: string
+  reference?: string
+}
+
+export interface ComplianceBlocker {
+  code: string
+  message: string
+  layer?: string
+}
+
+export interface EntryComplianceChain {
+  entryUuid: string
+  referenceNo: string
+  entryStatus: string
+  compliancePhase: string
+  agencyId: number
+  agencyCode: string
+  accreditation: ComplianceLayer
+  agencyLicense: ComplianceLayer
+  destinationFacility: ComplianceLayer
+  spsImportClearance: ComplianceLayer
+  erfi: ComplianceLayer
+  mav: ComplianceLayer
+  blockers: ComplianceBlocker[]
+  warnings: ComplianceBlocker[]
+  nextRecommendedAction?: string
+}
+
+export interface AgencyLicenseTypeOption {
+  id: number
+  agencyId: number
+  agencyCode: string
+  agencyName: string
+  code: string
+  name: string
+  kind: string
+  isRequiredForSpsic: boolean
+  description?: string
+}
+
+export interface ClientAgencyLicenseListItem {
+  uuid: string
+  agencyId: number
+  agencyCode: string
+  agencyName: string
+  licenseTypeCode: string
+  licenseTypeName: string
+  licenseNumber: string
+  status: string
+  issuedAt: string
+  expiresAt: string
+  isActive: boolean
+}
+
+export interface ClientAgencyLicenseApplicationListItem {
+  uuid: string
+  agencyId: number
+  agencyCode: string
+  agencyName: string
+  licenseTypeCode: string
+  licenseTypeName: string
+  status: string
+  submittedAt?: string
+  createdAt: string
+}
+
+export interface ClientAgencyLicenseOverview {
+  licenses: ClientAgencyLicenseListItem[]
+  applications: ClientAgencyLicenseApplicationListItem[]
+}
+
+export interface ClientFacilityRegistrationListItem {
+  warehouseFacilityId: number
+  warehouseCode: string
+  warehouseName: string
+  warehouseLocation?: string
+  registrationUuid?: string
+  registrationStatus: string
+  rsasExternalRef?: string
+  cswStatus?: string
+  registeredAt?: string
+  expiresAt?: string
+  isBmbeExempt: boolean
+  renewalWindowOpen: boolean
+  renewalDue: boolean
+  cswLeadAgencyCode?: string | null
+  facilityAllowedCommodityClasses?: string[] | null
+  facilityScopeHint?: string | null
+}
+
 export const clientApi = createApi({
   reducerPath: 'clientApi',
   baseQuery: baseQueryWithReauth,
-  tagTypes: ['Dashboard', 'Entries', 'Accreditation', 'Certificates', 'Bookings', 'Bills', 'Profile', 'Containers', 'Inspections', 'DaBillings', 'ContainerInspections'],
+  tagTypes: ['Dashboard', 'Entries', 'Accreditation', 'AgencyLicenses', 'FacilityRegistrations', 'Certificates', 'Bookings', 'Bills', 'Profile', 'Containers', 'Inspections', 'DaBillings', 'ContainerInspections'],
   endpoints: (builder) => ({
     getDashboard: builder.query<ApiEnvelope<ClientDashboard>, void>({
       query: () => '/client/dashboard',
@@ -348,6 +445,196 @@ export const clientApi = createApi({
       query: (uuid) => `/entries/${uuid}`,
       providesTags: (_r, _e, uuid) => [{ type: 'Entries', id: uuid }],
     }),
+    getEntryComplianceChain: builder.query<ApiEnvelope<EntryComplianceChain>, string>({
+      query: (uuid) => `/entries/${uuid}/compliance-chain`,
+      providesTags: (_r, _e, uuid) => [{ type: 'Entries', id: `${uuid}-compliance` }],
+    }),
+    getAgencyLicenseTypes: builder.query<ApiEnvelope<AgencyLicenseTypeOption[]>, number | void>({
+      query: (agencyId) => ({
+        url: '/client/agency-licenses/types',
+        params: agencyId ? { agencyId } : undefined,
+      }),
+    }),
+    getAgencyLicensesOverview: builder.query<ApiEnvelope<ClientAgencyLicenseOverview>, void>({
+      query: () => '/client/agency-licenses',
+      providesTags: ['AgencyLicenses'],
+    }),
+    createAgencyLicenseApplication: builder.mutation<
+      ApiEnvelope<unknown>,
+      { agencyId: number; agencyLicenseTypeId: number; formDataJson?: string }
+    >({
+      query: (body) => ({ url: '/client/agency-licenses/applications', method: 'POST', body }),
+      invalidatesTags: ['AgencyLicenses'],
+    }),
+    submitAgencyLicenseApplication: builder.mutation<ApiEnvelope<unknown>, string>({
+      query: (uuid) => ({ url: `/client/agency-licenses/applications/${uuid}/submit`, method: 'POST' }),
+      invalidatesTags: ['AgencyLicenses'],
+    }),
+    getFacilityRegistrations: builder.query<ApiEnvelope<ClientFacilityRegistrationListItem[]>, number | void>({
+      query: (entryAgencyId) => ({
+        url: '/client/facility-registrations',
+        params: entryAgencyId ? { entryAgencyId } : undefined,
+      }),
+      providesTags: ['FacilityRegistrations'],
+    }),
+    upsertFacilityRegistration: builder.mutation<
+      ApiEnvelope<unknown>,
+      {
+        warehouseFacilityId: number
+        ownerName: string
+        maxCapacityKg?: number
+        rsasExternalRef?: string
+        productsJson?: string
+        isBmbeExempt?: boolean
+      }
+    >({
+      query: (body) => ({ url: '/client/facility-registrations', method: 'PUT', body }),
+      invalidatesTags: ['FacilityRegistrations', 'Entries'],
+    }),
+    submitFacilityRegistration: builder.mutation<ApiEnvelope<unknown>, string>({
+      query: (uuid) => ({ url: `/client/facility-registrations/${uuid}/submit`, method: 'POST' }),
+      invalidatesTags: ['FacilityRegistrations', 'Entries'],
+    }),
+    registerFacilityCsw: builder.mutation<
+      ApiEnvelope<unknown>,
+      {
+        warehouseFacilityId: number
+        certificateNumber: string
+        accreditedAt: string
+        expiresAt: string
+        leadAgencyId?: number
+      }
+    >({
+      query: (body) => ({ url: '/client/facility-registrations/csw', method: 'POST', body }),
+      invalidatesTags: ['FacilityRegistrations', 'Entries'],
+    }),
+    searchLicensedWarehousesForFacility: builder.query<
+      ApiEnvelope<ClientFacilityRegistrationListItem[]>,
+      string | void
+    >({
+      query: (q) => ({
+        url: '/client/facility-registrations/licensed-warehouses/search',
+        params: q ? { q } : undefined,
+      }),
+    }),
+    linkImporterWarehouse: builder.mutation<ApiEnvelope<ClientFacilityRegistrationListItem>, number>({
+      query: (warehouseFacilityId) => ({
+        url: `/client/facility-registrations/warehouses/${warehouseFacilityId}/link`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['FacilityRegistrations', 'Entries'],
+    }),
+    getEntrySpsApplication: builder.query<
+      ApiEnvelope<{
+        uuid: string
+        entryUuid: string
+        status: string
+        submittedAt?: string
+        reviewComments?: string
+        issuedClearance?: {
+          uuid: string
+          clearanceNumber: string
+          status: string
+          issuedAt: string
+          mustShipOutBy?: string
+          mustArriveBy?: string
+          daTradeReference?: string
+        }
+      }>,
+      string
+    >({
+      query: (uuid) => `/entries/${uuid}/sps-application`,
+      providesTags: (_r, _e, uuid) => [{ type: 'Entries', id: `${uuid}-sps` }],
+    }),
+    createEntrySpsApplication: builder.mutation<ApiEnvelope<unknown>, string>({
+      query: (uuid) => ({ url: `/entries/${uuid}/sps-application`, method: 'POST' }),
+      invalidatesTags: (_r, _e, uuid) => [
+        { type: 'Entries', id: uuid },
+        { type: 'Entries', id: `${uuid}-sps` },
+        { type: 'Entries', id: `${uuid}-sps-readiness` },
+        { type: 'Entries', id: `${uuid}-compliance` },
+      ],
+    }),
+    submitEntrySpsApplication: builder.mutation<ApiEnvelope<unknown>, string>({
+      query: (uuid) => ({ url: `/entries/${uuid}/sps-application/submit`, method: 'POST' }),
+      invalidatesTags: (_r, _e, uuid) => [{ type: 'Entries', id: uuid }, { type: 'Entries', id: `${uuid}-sps` }, { type: 'Entries', id: `${uuid}-compliance` }],
+    }),
+    getEntryErfi: builder.query<
+      ApiEnvelope<{
+        uuid: string
+        entryUuid: string
+        status: string
+        filedAt?: string
+        etaAtPoe?: string
+        bolReference?: string
+        clearanceUuid: string
+        clearanceNumber: string
+      } | null>,
+      string
+    >({
+      query: (uuid) => `/entries/${uuid}/erfi`,
+      providesTags: (_r, _e, uuid) => [{ type: 'Entries', id: `${uuid}-erfi` }],
+    }),
+    upsertEntryErfi: builder.mutation<
+      ApiEnvelope<unknown>,
+      { uuid: string; body: { etaAtPoe?: string; bolReference?: string; ifmDestinationJson?: string } }
+    >({
+      query: ({ uuid, body }) => ({ url: `/entries/${uuid}/erfi`, method: 'PUT', body }),
+      invalidatesTags: (_r, _e, { uuid }) => [
+        { type: 'Entries', id: `${uuid}-erfi` },
+        { type: 'Entries', id: `${uuid}-compliance` },
+      ],
+    }),
+    fileEntryErfi: builder.mutation<ApiEnvelope<unknown>, string>({
+      query: (uuid) => ({ url: `/entries/${uuid}/erfi/file`, method: 'POST' }),
+      invalidatesTags: (_r, _e, uuid) => [
+        { type: 'Entries', id: uuid },
+        { type: 'Entries', id: `${uuid}-erfi` },
+        { type: 'Entries', id: `${uuid}-compliance` },
+      ],
+    }),
+    attachEntrySpsDocument: builder.mutation<
+      ApiEnvelope<unknown>,
+      { entryUuid: string; code: string; entryFileUuid: string }
+    >({
+      query: ({ entryUuid, code, entryFileUuid }) => ({
+        url: `/entries/${entryUuid}/sps-application/documents/${code}`,
+        method: 'PUT',
+        body: { entryFileUuid },
+      }),
+      invalidatesTags: (_r, _e, { entryUuid }) => [
+        { type: 'Entries', id: `${entryUuid}-sps-readiness` },
+        { type: 'Entries', id: `${entryUuid}-sps` },
+      ],
+    }),
+    getEntrySpsReadiness: builder.query<
+      ApiEnvelope<{
+        entryUuid: string
+        hsCode?: string
+        suggestedIssuer?: { agencyCode: string; agencyName: string; matchedHsPrefix: string }
+        agencyMatchesEntry: boolean
+        allRequiredDocumentsReady: boolean
+        checklist: { code: string; title: string; isRequired: boolean; status: string }[]
+      }>,
+      string
+    >({
+      query: (uuid) => `/entries/${uuid}/sps-readiness`,
+      providesTags: (_r, _e, uuid) => [{ type: 'Entries', id: `${uuid}-sps-readiness` }],
+    }),
+    registerAgencyLicense: builder.mutation<
+      ApiEnvelope<ClientAgencyLicenseListItem>,
+      {
+        agencyId: number
+        agencyLicenseTypeId: number
+        licenseNumber: string
+        issuedAt: string
+        expiresAt: string
+        notes?: string
+      }
+    >({
+      query: (body) => ({ url: '/client/agency-licenses/register', method: 'POST', body }),
+      invalidatesTags: ['AgencyLicenses', 'Entries'],
+    }),
     createEntry: builder.mutation<ApiEnvelope<Entry>, Record<string, unknown>>({
       query: (body) => ({ url: '/entries', method: 'POST', body }),
       invalidatesTags: ['Entries', 'Dashboard'],
@@ -365,6 +652,31 @@ export const clientApi = createApi({
         url: '/entries/check-mav-no',
         params: { mavNo, excludeUuid },
       }),
+    }),
+    validateEntryDestination: builder.mutation<
+      ApiEnvelope<{
+        isValid: boolean
+        checks: Array<{ code: string; severity: string; message: string; detail?: string | null }>
+        capacity?: {
+          warehouseCode: string
+          warehouseName: string
+          contractAllocatedKg?: number | null
+          importerCommittedKg: number
+          importerHeadroomKg: number
+          incomingKg: number
+          incomingCommodityClass?: string | null
+        }
+      }>,
+      {
+        warehouseFacilityId: number
+        shipmentQuantity?: number
+        shipmentUnit?: string
+        excludeEntryUuid?: string
+        formDataJson?: string
+        entryAgencyId?: number
+      }
+    >({
+      query: (body) => ({ url: '/entries/validate-destination', method: 'POST', body }),
     }),
     updateEntryMav: builder.mutation<ApiEnvelope<Entry>, { uuid: string; mavNo: string }>({
       query: ({ uuid, mavNo }) => ({ url: `/entries/${uuid}/mav`, method: 'PUT', body: { mavNo } }),
@@ -805,10 +1117,31 @@ export const {
   useGetCommoditiesQuery,
   useGetEntriesQuery,
   useGetEntryQuery,
+  useGetEntryComplianceChainQuery,
+  useGetAgencyLicenseTypesQuery,
+  useGetAgencyLicensesOverviewQuery,
+  useCreateAgencyLicenseApplicationMutation,
+  useSubmitAgencyLicenseApplicationMutation,
+  useRegisterAgencyLicenseMutation,
+  useGetFacilityRegistrationsQuery,
+  useUpsertFacilityRegistrationMutation,
+  useSubmitFacilityRegistrationMutation,
+  useRegisterFacilityCswMutation,
+  useSearchLicensedWarehousesForFacilityQuery,
+  useLinkImporterWarehouseMutation,
+  useGetEntrySpsApplicationQuery,
+  useCreateEntrySpsApplicationMutation,
+  useSubmitEntrySpsApplicationMutation,
+  useGetEntrySpsReadinessQuery,
+  useAttachEntrySpsDocumentMutation,
+  useGetEntryErfiQuery,
+  useUpsertEntryErfiMutation,
+  useFileEntryErfiMutation,
   useCreateEntryMutation,
   useUpdateEntryMutation,
   useSubmitEntryMutation,
   useCheckMavNoQuery,
+  useValidateEntryDestinationMutation,
   useUpdateEntryMavMutation,
   useUtilizeEntryMicMutation,
   useGetAccreditationSubmissionsQuery,

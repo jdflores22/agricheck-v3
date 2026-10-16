@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#166534" />
+    <meta name="description" content="Download AgriTrack for Android — driver app for fleet testing." />
+    <title>AgriTrack — Android download</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --green: #166534;
+        --green-dark: #14532d;
+        --text: #1c1917;
+        --muted: #57534e;
+        --border: #e7e5e4;
+        --bg: #fafaf9;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        font-family: 'IBM Plex Sans', system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+      }
+      .wrap {
+        max-width: 32rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 3rem;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        padding: 1.75rem 1.5rem;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      }
+      h1 {
+        margin: 0 0 0.75rem;
+        font-size: 1.75rem;
+        font-weight: 800;
+        color: var(--green-dark);
+      }
+      p { margin: 0 0 1rem; color: var(--muted); }
+      .meta { font-size: 0.875rem; margin-bottom: 1.25rem; }
+      .meta code { font-size: 0.8rem; }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        width: 100%;
+        min-height: 3rem;
+        padding: 0.75rem 1.25rem;
+        border-radius: 0.625rem;
+        border: 1px solid var(--green);
+        background: var(--green);
+        color: #fff;
+        font-size: 1rem;
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .btn:hover { background: var(--green-dark); border-color: var(--green-dark); }
+      .note {
+        margin-top: 1.25rem;
+        font-size: 0.875rem;
+        color: var(--muted);
+      }
+      .back {
+        display: inline-block;
+        margin-top: 1.5rem;
+        font-size: 0.875rem;
+        color: var(--green);
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .back:hover { text-decoration: underline; }
+      .badge {
+        display: inline-block;
+        width: 3rem;
+        height: 3rem;
+        line-height: 3rem;
+        text-align: center;
+        border-radius: 0.75rem;
+        background: rgba(22, 101, 52, 0.1);
+        font-size: 1.5rem;
+        margin-bottom: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="badge" aria-hidden="true">📱</div>
+        <h1>AgriTrack for Android</h1>
+        <p>
+          Driver app for fleet operators — deliveries, QR scanning, navigation, and profile verification.
+          Use this build for field testing against the production API.
+        </p>
+        <p class="meta">
+          Version <strong>1.2.42</strong><br />
+          Package <code>com.agricheck.agritrack</code>
+        </p>
+        <a class="btn" href="/downloads/AgriTrack-1.2.42-release.apk" download="AgriTrack-1.2.42-release.apk">
+          Download APK
+        </a>
+        <p class="note">
+          On your phone: allow installs from unknown sources if prompted, then open the downloaded file.
+          Uninstall an older test build first if installation fails.
+        </p>
+      </div>
+      <a class="back" href="/">← Back to AgriCheck home</a>
+    </div>
+  </body>
+</html>

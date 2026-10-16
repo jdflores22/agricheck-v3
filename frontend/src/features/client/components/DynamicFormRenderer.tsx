@@ -59,6 +59,8 @@ interface DynamicFormRendererProps {
   mavRequired?: boolean
   showMavFields?: boolean
   showCommodityHs?: boolean
+  /** When set (e.g. BAI entry), warehouse fields only list these facility IDs. */
+  allowedWarehouseIds?: number[]
 }
 
 export type { FormFieldSchema }
@@ -77,6 +79,19 @@ function getOptions(field: FormFieldSchema): Array<{ label: string; value: strin
   )
 }
 
+function normalizeColumnWidth(columnWidth: unknown): number {
+  if (typeof columnWidth === 'number' && Number.isFinite(columnWidth)) {
+    return Math.min(12, Math.max(1, Math.round(columnWidth)))
+  }
+  if (typeof columnWidth === 'string' && columnWidth.trim()) {
+    const parsed = Number(columnWidth)
+    if (Number.isFinite(parsed)) {
+      return Math.min(12, Math.max(1, Math.round(parsed)))
+    }
+  }
+  return 12
+}
+
 function getFieldGridSize(field: FormFieldSchema) {
   if (field.type === 'section') {
     return { xs: 12 as const }
@@ -90,7 +105,7 @@ function getFieldGridSize(field: FormFieldSchema) {
     return { xs: 12 as const }
   }
 
-  const width = field.columnWidth ?? 12
+  const width = normalizeColumnWidth(field.columnWidth)
   if (width <= 3) return { xs: 12 as const, sm: 6 as const, lg: 3 as const }
   if (width <= 4) return { xs: 12 as const, sm: 6 as const, lg: 4 as const }
   if (width <= 6) return { xs: 12 as const, md: 6 as const }
@@ -302,6 +317,7 @@ export function DynamicFormRenderer({
   mavRequired = false,
   showMavFields,
   showCommodityHs,
+  allowedWarehouseIds,
 }: DynamicFormRendererProps) {
   const includeMavFields = showMavFields ?? mavRequired
   const includeCommodityHs = showCommodityHs ?? mavRequired
@@ -438,6 +454,7 @@ export function DynamicFormRenderer({
                 onBatchChange={onBatchChange}
                 disabled={disabled}
                 fieldError={fieldError}
+                allowedWarehouseIds={allowedWarehouseIds}
               />
               {sanitizeDisplayText(field.helpText) ? (
                 <FormHelperText sx={{ mx: 0, mt: 0.75, color: portalColors.textMuted }}>

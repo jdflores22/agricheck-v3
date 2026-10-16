@@ -23,7 +23,7 @@ jobs:
       - name: Build SPA
         working-directory: frontend
         run: |
-          npm install --no-audit
+          npm ci --no-audit
           npm rebuild esbuild
           npm run build
 

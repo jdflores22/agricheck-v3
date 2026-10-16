@@ -711,7 +711,8 @@ public class DriverOpsService : IDriverOpsService
                 ContainerId = container.Id,
                 Latitude = point.Latitude,
                 Longitude = point.Longitude,
-                RecordedAt = ContainerLocationTimestampHelper.NormalizeRecordedAt(point.RecordedAt)
+                RecordedAt = ContainerLocationTimestampHelper.NormalizeRecordedAt(point.RecordedAt),
+                CapturedOffline = point.CapturedOffline,
             });
         }
 

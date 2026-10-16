@@ -496,7 +496,12 @@ public record DaGeoPointDto(decimal Latitude, decimal Longitude);
 
 public record DaDeliveryStopDto(string Label, decimal Latitude, decimal Longitude);
 
-public record DaContainerTrailPointDto(decimal Latitude, decimal Longitude, DateTime RecordedAt);
+public record DaContainerTrailPointDto(
+    decimal Latitude,
+    decimal Longitude,
+    DateTime RecordedAt,
+    bool CapturedOffline = false,
+    DateTime? SyncedAtUtc = null);
 
 public record DaLiveDeliveryDto(
     Guid ContainerUuid,

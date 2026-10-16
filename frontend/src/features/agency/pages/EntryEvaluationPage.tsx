@@ -29,6 +29,7 @@ import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../componen
 import { EntryEvaluationSummary } from '../components/EntryEvaluationSummary'
 import { EntryMavEvaluationPanel } from '../components/EntryMavEvaluationPanel'
 import { EntryOutcomePanel } from '../components/EntryOutcomePanel'
+import { AgencyEntryCompliancePanel } from '../components/AgencyEntryCompliancePanel'
 import {
   buildAutoEntryComment,
   getEntryOutcomeConfirmationMessage,
@@ -240,6 +241,8 @@ export function EntryEvaluationPage() {
         </Box>
 
         <Stack spacing={3}>
+          {entry.entryType === 'Import' ? <AgencyEntryCompliancePanel entryUuid={entry.uuid} /> : null}
+
           <EntryMavEvaluationPanel entry={entry} canReview={canEvaluate} onUpdated={() => refetch()} />
 
           <PortalPanel title="Activity History">

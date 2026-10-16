@@ -270,7 +270,7 @@ public record CompleteDoctorInspectionRequest(string Decision, string? Findings)
 
 public record RecordContainerLocationRequest(decimal Latitude, decimal Longitude, DateTime? RecordedAt = null);
 
-public record RecordContainerLocationPointRequest(decimal Latitude, decimal Longitude, DateTime RecordedAt);
+public record RecordContainerLocationPointRequest(decimal Latitude, decimal Longitude, DateTime RecordedAt, bool CapturedOffline = false);
 
 public record RecordContainerLocationsBatchRequest(IReadOnlyList<RecordContainerLocationPointRequest> Points);
 
