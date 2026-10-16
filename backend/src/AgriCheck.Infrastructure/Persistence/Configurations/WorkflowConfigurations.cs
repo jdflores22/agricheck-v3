@@ -17,6 +17,7 @@ public class ContainerInspectionPhotoConfiguration : IEntityTypeConfiguration<Co
         builder.HasOne(x => x.Container).WithMany(x => x.InspectionPhotos).HasForeignKey(x => x.ContainerId);
         builder.HasOne(x => x.Entry).WithMany().HasForeignKey(x => x.EntryId);
         builder.HasOne(x => x.ReviewedBy).WithMany().HasForeignKey(x => x.ReviewedByUserId);
+        builder.HasIndex(x => x.ContainerId);
         builder.HasIndex(x => new { x.ContainerId, x.PhotoType });
     }
 }

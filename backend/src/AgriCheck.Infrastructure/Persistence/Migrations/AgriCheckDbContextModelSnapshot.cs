@@ -1193,6 +1193,8 @@ namespace AgriCheck.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ContainerId");
+
                     b.HasIndex("EntryId");
 
                     b.HasIndex("ReviewedByUserId");
