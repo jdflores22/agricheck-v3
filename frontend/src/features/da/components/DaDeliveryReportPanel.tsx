@@ -4,7 +4,7 @@ import type { DaContainerActualRoute } from '../api/daApi'
 import { DaActualRouteMap } from './DaActualRouteMap'
 import { DaDeliveryProofGallery } from './DaDeliveryProofGallery'
 import { findGpsTrailOfflineGaps } from '../utils/daGpsTrailOfflineGaps'
-import { resolveTrailPointCapturedOffline } from '../utils/daTrailPointStatus'
+import { resolveTrailPointCapturedOffline, trailLacksSyncMetadata } from '../utils/daTrailPointStatus'
 import { DaGpsTrailTable } from './DaGpsTrailTable'
 
 function formatKm(km: number | null | undefined) {
@@ -38,9 +38,26 @@ export function DaDeliveryReportPanel({ route, loading }: DaDeliveryReportPanelP
   const offlineGaps = findGpsTrailOfflineGaps(route.trail)
   const queuedOfflineCount = route.trail.filter((p) => resolveTrailPointCapturedOffline(p)).length
   const onlineCount = route.trail.length - queuedOfflineCount
+  const missingSyncMeta = trailLacksSyncMetadata(route.trail)
 
   return (
     <Stack spacing={2}>
+      {missingSyncMeta && route.trail.length > 0 && (
+        <Box
+          sx={{
+            p: 1.5,
+            borderRadius: 2,
+            border: `1px solid #FCD34D`,
+            bgcolor: '#FFFBEB',
+          }}
+        >
+          <Typography sx={{ fontSize: '0.85rem' }}>
+            This report cannot classify offline vs online yet — the API did not return sync metadata (
+            <code>syncedAtUtc</code> / <code>syncDelaySeconds</code>). Deploy the latest Railway API and refresh. Until
+            then, all coordinates may show as Online even if you drove offline during the test.
+          </Typography>
+        </Box>
+      )}
       <Typography sx={{ fontSize: '0.9rem', color: portalColors.textMuted }}>
         {route.pickup.label} → {route.destination.label}
         {route.driverName ? ` · ${route.driverName}` : ''}

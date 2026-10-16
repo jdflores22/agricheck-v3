@@ -1,16 +1,31 @@
 import type { DaContainerTrailPoint } from '../api/daApi'
 import { DRIVER_GPS_OFFLINE_GAP_MINUTES } from './daGpsTrailOfflineGaps'
 
-/** Matches backend ContainerLocationTrailHelper.BufferedSyncDelayMinutes */
-export const BUFFERED_SYNC_DELAY_MINUTES = 5
+/** Matches backend ContainerLocationTrailHelper.BufferedSyncDelaySeconds */
+export const BUFFERED_SYNC_DELAY_SECONDS = 4 * 60 + 30
 
 export type GpsTrailConnectionKind = 'online' | 'offline-buffered' | 'no-signal-gap'
 
+export function resolveSyncDelaySeconds(point: DaContainerTrailPoint): number | null {
+  if (point.syncDelaySeconds != null && Number.isFinite(point.syncDelaySeconds)) {
+    return Math.max(0, Math.round(point.syncDelaySeconds))
+  }
+  if (!point.syncedAtUtc) return null
+  const delayMs = Date.parse(point.syncedAtUtc) - Date.parse(point.recordedAt)
+  if (!Number.isFinite(delayMs)) return null
+  return Math.max(0, Math.round(delayMs / 1000))
+}
+
 export function resolveTrailPointCapturedOffline(point: DaContainerTrailPoint): boolean {
   if (point.capturedOffline) return true
-  if (!point.syncedAtUtc) return false
-  const delayMs = Date.parse(point.syncedAtUtc) - Date.parse(point.recordedAt)
-  return Number.isFinite(delayMs) && delayMs >= BUFFERED_SYNC_DELAY_MINUTES * 60_000
+  const delay = resolveSyncDelaySeconds(point)
+  return delay != null && delay >= BUFFERED_SYNC_DELAY_SECONDS
+}
+
+/** True when API trail lacks sync metadata (pre-deploy or error). */
+export function trailLacksSyncMetadata(trail: DaContainerTrailPoint[]): boolean {
+  if (trail.length === 0) return false
+  return trail.every((p) => p.syncDelaySeconds == null && !p.syncedAtUtc)
 }
 
 export function connectionBetweenPoints(

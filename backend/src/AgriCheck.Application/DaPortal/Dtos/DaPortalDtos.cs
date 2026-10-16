@@ -501,7 +501,8 @@ public record DaContainerTrailPointDto(
     decimal Longitude,
     DateTime RecordedAt,
     bool CapturedOffline = false,
-    DateTime? SyncedAtUtc = null);
+    DateTime? SyncedAtUtc = null,
+    int? SyncDelaySeconds = null);
 
 public record DaLiveDeliveryDto(
     Guid ContainerUuid,

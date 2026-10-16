@@ -14,7 +14,7 @@ import { Fragment, useMemo } from 'react'
 import { portalColors } from '../../../components/portal/portalTheme'
 import type { DaContainerTrailPoint } from '../api/daApi'
 import type { GpsTrailOfflineGap } from '../utils/daGpsTrailOfflineGaps'
-import { trailPointStatusLabel } from '../utils/daTrailPointStatus'
+import { resolveSyncDelaySeconds, trailPointStatusLabel } from '../utils/daTrailPointStatus'
 
 function formatCoord(value: number) {
   return value.toFixed(6)
@@ -33,11 +33,11 @@ export function DaGpsTrailTable({ trail, containerNumber, offlineGaps = [] }: Da
   )
 
   const csv = useMemo(() => {
-    const header = 'index,status,recorded_at_utc,latitude,longitude'
-    const rows = sorted.map(
-      (p, i) =>
-        `${i + 1},${trailPointStatusLabel(p)},${p.recordedAt},${p.latitude},${p.longitude}`,
-    )
+    const header = 'index,status,sync_delay_seconds,recorded_at_utc,latitude,longitude'
+    const rows = sorted.map((p, i) => {
+      const delay = resolveSyncDelaySeconds(p)
+      return `${i + 1},${trailPointStatusLabel(p)},${delay ?? ''},${p.recordedAt},${p.latitude},${p.longitude}`
+    })
     return [header, ...rows].join('\n')
   }, [sorted])
 
@@ -84,6 +84,7 @@ export function DaGpsTrailTable({ trail, containerNumber, offlineGaps = [] }: Da
             <TableRow>
               <TableCell sx={{ fontWeight: 700, width: 48 }}>#</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Sync delay</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Time</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Latitude</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Longitude</TableCell>
@@ -107,6 +108,14 @@ export function DaGpsTrailTable({ trail, containerNumber, offlineGaps = [] }: Da
                         sx={{ height: 22, fontSize: '0.65rem', fontWeight: 700 }}
                       />
                     </TableCell>
+                    <TableCell sx={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>
+                      {(() => {
+                        const sec = resolveSyncDelaySeconds(p)
+                        if (sec == null) return '—'
+                        if (sec < 60) return `${sec}s`
+                        return `${Math.floor(sec / 60)}m ${sec % 60}s`
+                      })()}
+                    </TableCell>
                     <TableCell sx={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
                       {new Date(p.recordedAt).toLocaleString()}
                     </TableCell>
@@ -120,7 +129,7 @@ export function DaGpsTrailTable({ trail, containerNumber, offlineGaps = [] }: Da
                   {gapAfterRecordedAt.has(p.recordedAt) && gap && (
                     <TableRow key={`gap-${gap.gapIndex}`} sx={{ bgcolor: '#FEF2F2' }}>
                       <TableCell />
-                      <TableCell colSpan={4} sx={{ fontSize: '0.75rem', color: '#991B1B', fontWeight: 600 }}>
+                      <TableCell colSpan={5} sx={{ fontSize: '0.75rem', color: '#991B1B', fontWeight: 600 }}>
                         ↳ No GPS fix ~{gap.durationMinutes} min until{' '}
                         {new Date(gap.backOnlineAt).toLocaleString()}
                       </TableCell>

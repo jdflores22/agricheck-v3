@@ -389,7 +389,8 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
                 l.Longitude!.Value,
                 l.RecordedAt,
                 ContainerLocationTrailHelper.ResolveCapturedOffline(l),
-                l.CreatedAt))
+                l.CreatedAt,
+                ContainerLocationTrailHelper.ResolveSyncDelaySeconds(l)))
             .ToList();
     }
 

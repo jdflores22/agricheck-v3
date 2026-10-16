@@ -580,6 +580,8 @@ export interface DaContainerTrailPoint {
   capturedOffline?: boolean
   /** Server insert time (UTC) — used to infer buffered offline when flag missing. */
   syncedAtUtc?: string | null
+  /** Seconds between GPS capture and server save (from API). */
+  syncDelaySeconds?: number | null
 }
 
 export interface DaLiveDelivery {
