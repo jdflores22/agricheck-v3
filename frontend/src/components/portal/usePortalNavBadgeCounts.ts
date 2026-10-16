@@ -30,13 +30,34 @@ function hasDriverAccess(roles: string[]): boolean {
   return roles.includes('ROLE_DRIVER') || roles.includes('ROLE_OPERATOR') || roles.includes('ROLE_ADMIN')
 }
 
+function hasClientPortalAccess(roles: string[]): boolean {
+  return roles.some((role) =>
+    ['ROLE_IMPORTER', 'ROLE_EXPORTER', 'ROLE_BROKER', 'ROLE_ADMIN'].includes(role),
+  )
+}
+
+/** Roles that can call /agency/dashboard and related agency badge APIs. */
+function hasAgencyStaffAccess(roles: string[]): boolean {
+  return roles.some((role) =>
+    [
+      'ROLE_EVALUATOR',
+      'ROLE_BILLING_AGENT',
+      'ROLE_ACCREDITATION_OFFICER',
+      'ROLE_INSPECTOR',
+      'ROLE_AGENCY_ADMIN',
+      'ROLE_ADMIN',
+    ].includes(role),
+  )
+}
+
 export function usePortalNavBadgeCounts(portalKey: PortalKey, navPaths: string[] = []): PortalNavBadgeCounts {
   const user = useAppSelector(selectCurrentUser)
   const roles = user?.roles ?? []
+  // DA nav links to /agency/news only — do not prefetch agency dashboard without staff roles (403).
   const needsAgency =
     portalKey === 'agency' ||
     portalKey === 'inspector' ||
-    navPaths.some((path) => path.startsWith('/agency'))
+    (hasAgencyStaffAccess(roles) && navPaths.some((path) => path.startsWith('/agency')))
   const needsContainerInspectionQueue = navPaths.includes('/inspector/inspections')
   const needsTransportTagQueue = navPaths.includes('/agency/transport-tags')
   const needsAccreditation =
@@ -44,7 +65,7 @@ export function usePortalNavBadgeCounts(portalKey: PortalKey, navPaths: string[]
     navPaths.some((path) => path.startsWith('/accreditation-officer'))
   const skipAgency = !needsAgency
   const skipAccreditation = !needsAccreditation
-  const skipClient = portalKey !== 'client'
+  const skipClient = portalKey !== 'client' || !hasClientPortalAccess(roles)
   const skipMav = portalKey !== 'mav'
   const skipWarehouse = portalKey !== 'warehouse' || !hasWarehouseAccess(roles)
   const skipDriver = portalKey !== 'driver' || !hasDriverAccess(roles)
