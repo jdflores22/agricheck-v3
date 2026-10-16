@@ -188,6 +188,36 @@ export function DaLiveLogisticsPage() {
         </Box>
       )}
 
+      {selected && canShowDeliveryReport(selected) && (
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1}
+          sx={{
+            mb: 2,
+            p: 1.5,
+            borderRadius: 2,
+            bgcolor: '#ECFDF5',
+            border: `1px solid ${portalColors.primary}`,
+            alignItems: { sm: 'center' },
+          }}
+        >
+          <Typography sx={{ flex: 1, fontWeight: 700, fontSize: '0.9rem' }}>
+            {selected.containerNumber} · delivery report ready
+          </Typography>
+          <Button
+            variant="contained"
+            color="primary"
+            component={RouterLink}
+            to={`/da/logistics/containers/${selected.containerUuid}/report`}
+            target="_blank"
+            rel="noopener noreferrer"
+            startIcon={<OpenInNewOutlinedIcon />}
+          >
+            View report in new tab
+          </Button>
+        </Stack>
+      )}
+
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} sx={{ mb: 2 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <DaLiveLogisticsMap
