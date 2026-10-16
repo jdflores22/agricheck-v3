@@ -30,6 +30,7 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
         ContainerInspectionPhotoType.DriverPickupGeotag,
         ContainerInspectionPhotoType.DriverWarehouseGeotag,
         ContainerInspectionPhotoType.DriverIncidentGeotag,
+        ContainerInspectionPhotoType.DriverIncidentGeotag2,
     };
 
     private readonly AgriCheckDbContext _db;
@@ -371,12 +372,14 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
     {
         ContainerInspectionPhotoType.DriverPickupGeotag => "Pickup arrival (geotag proof)",
         ContainerInspectionPhotoType.DriverWarehouseGeotag => "Warehouse arrival (geotag proof)",
-        ContainerInspectionPhotoType.DriverIncidentGeotag => "Driver incident report (geotag proof)",
+        ContainerInspectionPhotoType.DriverIncidentGeotag => "Driver incident report (geotag proof 1)",
+        ContainerInspectionPhotoType.DriverIncidentGeotag2 => "Driver incident report (geotag proof 2)",
         _ => photoType.ToString(),
     };
 
     private static string ResolveDeliveryProofStorageFolder(Guid containerUuid, ContainerInspectionPhotoType photoType) =>
-        photoType == ContainerInspectionPhotoType.DriverIncidentGeotag
+        photoType is ContainerInspectionPhotoType.DriverIncidentGeotag
+            or ContainerInspectionPhotoType.DriverIncidentGeotag2
             ? $"container-incident-geotag/{containerUuid}"
             : DeliveryProofPhotoTypes.Contains(photoType)
                 ? $"container-delivery-geotag/{containerUuid}"

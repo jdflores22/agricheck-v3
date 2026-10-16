@@ -51,6 +51,7 @@ public enum ContainerInspectionPhotoType
     DriverPickupGeotag,
     DriverWarehouseGeotag,
     DriverIncidentGeotag,
+    DriverIncidentGeotag2,
 }
 
 public enum DoctorInspectionStatus

@@ -1138,6 +1138,7 @@ public class DriverOpsService : IDriverOpsService
             await AddDriverIncidentGeotagPhotoAsync(
                 container,
                 storageFolder,
+                ContainerInspectionPhotoType.DriverIncidentGeotag,
                 photo1,
                 photo1FileName,
                 latitude,
@@ -1147,6 +1148,7 @@ public class DriverOpsService : IDriverOpsService
             await AddDriverIncidentGeotagPhotoAsync(
                 container,
                 storageFolder,
+                ContainerInspectionPhotoType.DriverIncidentGeotag2,
                 photo2,
                 photo2FileName,
                 latitude,
@@ -1600,6 +1602,7 @@ public class DriverOpsService : IDriverOpsService
     private async Task AddDriverIncidentGeotagPhotoAsync(
         Container container,
         string storageFolder,
+        ContainerInspectionPhotoType photoType,
         Stream photoStream,
         string fileName,
         decimal latitude,
@@ -1623,7 +1626,7 @@ public class DriverOpsService : IDriverOpsService
             Uuid = Guid.NewGuid(),
             ContainerId = container.Id,
             EntryId = container.EntryId,
-            PhotoType = ContainerInspectionPhotoType.DriverIncidentGeotag,
+            PhotoType = photoType,
             OriginalFileName = safeName,
             StoredFileName = storedFileName,
             ContentType = "image/jpeg",
