@@ -1,3 +1,4 @@
+import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined'
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
 import {
   Box,
@@ -11,6 +12,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
+import { Link as RouterLink } from 'react-router-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { portalColors } from '../../../components/portal/portalTheme'
@@ -256,7 +258,7 @@ export function DaLiveLogisticsPage() {
           <Box sx={{ p: 2, borderRadius: 2, border: `1px solid ${portalColors.border}` }}>
             <Typography sx={{ fontWeight: 800, mb: 1 }}>{selected.containerNumber}</Typography>
             <Typography sx={{ fontSize: '0.85rem', color: portalColors.textMuted }}>
-              Wala pang GPS report. Kailangan mag-**Start navigation** ang driver sa AgriTrack bago lumabas ang trail at
+              Wala pang GPS report. Kailangan mag-Start navigation ang driver sa AgriTrack bago lumabas ang trail at
               coordinates.
             </Typography>
           </Box>
@@ -271,22 +273,39 @@ export function DaLiveLogisticsPage() {
               bgcolor: portalColors.bgWhite,
             }}
           >
-            <Stack direction="row" spacing={1} sx={{ mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-              <Typography sx={{ fontWeight: 800, fontSize: '1.05rem' }}>
-                Delivery report · {selected.containerNumber}
-              </Typography>
-              <Chip size="small" label={selected.status} />
-              {(() => {
-                const gps = resolveDriverGpsDisplay(selected, snapshot?.serverTime)
-                return (
-                  <Chip
-                    size="small"
-                    label={gps.label}
-                    color={gps.offline ? 'warning' : 'success'}
-                    variant={gps.offline ? 'filled' : 'outlined'}
-                  />
-                )
-              })()}
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              sx={{ mb: 2, alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
+            >
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                <Typography sx={{ fontWeight: 800, fontSize: '1.05rem' }}>
+                  Delivery report · {selected.containerNumber}
+                </Typography>
+                <Chip size="small" label={selected.status} />
+                {(() => {
+                  const gps = resolveDriverGpsDisplay(selected, snapshot?.serverTime)
+                  return (
+                    <Chip
+                      size="small"
+                      label={gps.label}
+                      color={gps.offline ? 'warning' : 'success'}
+                      variant={gps.offline ? 'filled' : 'outlined'}
+                    />
+                  )
+                })()}
+              </Stack>
+              <Button
+                size="small"
+                variant="outlined"
+                component={RouterLink}
+                to={`/da/logistics/containers/${selected.containerUuid}/report`}
+                target="_blank"
+                rel="noopener noreferrer"
+                startIcon={<OpenInNewOutlinedIcon />}
+              >
+                View report in new tab
+              </Button>
             </Stack>
             <Divider sx={{ mb: 2 }} />
             <DaDeliveryReportPanel route={actualRoute} loading={routeLoading} />
