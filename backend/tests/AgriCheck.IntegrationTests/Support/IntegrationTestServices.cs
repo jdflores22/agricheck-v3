@@ -3,6 +3,7 @@ using AgriCheck.Infrastructure.Persistence;
 using AgriCheck.Infrastructure.Services;
 using AgriCheck.IntegrationTests.Fixtures;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace AgriCheck.IntegrationTests.Support;
@@ -27,7 +28,8 @@ internal static class IntegrationTestServices
             new ConfigurationBuilder().Build(),
             new TestFileStorageService(),
             new NoOpAgriTrackPushService(),
-            notifications);
+            notifications,
+            NullLogger<DriverOpsService>.Instance);
     }
 
     public static MavApplicationService CreateMavApplicationService(AgriCheckDbContext db, Guid userUuid, string role) =>

@@ -9,8 +9,10 @@ using AgriCheck.Domain.Entities;
 using AgriCheck.Domain.Enums;
 using AgriCheck.Infrastructure.Helpers;
 using AgriCheck.Infrastructure.Persistence;
+using AgriCheck.Infrastructure.Persistence.Seeding;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace AgriCheck.Infrastructure.Services;
 
@@ -419,6 +421,7 @@ public class DriverOpsService : IDriverOpsService
     private readonly IFileStorageService _fileStorage;
     private readonly IAgriTrackPushService _push;
     private readonly INotificationService _notifications;
+    private readonly ILogger<DriverOpsService> _logger;
 
     public DriverOpsService(
         AgriCheckDbContext db,
@@ -426,7 +429,8 @@ public class DriverOpsService : IDriverOpsService
         IConfiguration configuration,
         IFileStorageService fileStorage,
         IAgriTrackPushService push,
-        INotificationService notifications)
+        INotificationService notifications,
+        ILogger<DriverOpsService> logger)
     {
         _db = db;
         _currentUser = currentUser;
@@ -434,6 +438,7 @@ public class DriverOpsService : IDriverOpsService
         _fileStorage = fileStorage;
         _push = push;
         _notifications = notifications;
+        _logger = logger;
     }
 
     public async Task<DriverDashboardDto> GetDashboardAsync(CancellationToken cancellationToken = default)
@@ -1131,7 +1136,9 @@ public class DriverOpsService : IDriverOpsService
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
 
-        var storageFolder = $"container-incident-geotag/{container.Uuid}";
+        await DriverGeotagSchemaSeeder.EnsureAsync(_db, _logger, cancellationToken);
+
+        var storageFolder = $"container-incident-geotag/{container.Uuid}/{capturedAtUtc:yyyyMMddHHmmssfff}";
 
         try
         {
@@ -1167,11 +1174,21 @@ public class DriverOpsService : IDriverOpsService
                 cancellationToken,
                 applyHold: false);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex)
         {
+            _logger.LogError(ex, "Driver incident report save failed for container {ContainerUuid}", containerUuid);
+            var detail = ex.InnerException?.Message ?? ex.Message;
+            if (detail.Contains("Duplicate", StringComparison.OrdinalIgnoreCase) ||
+                detail.Contains("duplicate", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ClientPortalException(
+                    "INCIDENT_DUPLICATE",
+                    "This delivery already has incident photos on file. Contact DA support if you need to submit another report.");
+            }
+
             throw new ClientPortalException(
                 "INCIDENT_SAVE_FAILED",
-                "Unable to save incident photos. Please install the latest AgriTrack update and try again.");
+                "Unable to save incident photos right now. Please try again in a minute.");
         }
 
         return new DriverIncidentReportResultDto(
