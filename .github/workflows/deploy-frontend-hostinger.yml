@@ -22,7 +22,10 @@ jobs:
 
       - name: Build SPA
         working-directory: frontend
-        run: npm ci --no-audit || npm install --no-audit; npm run build
+        run: |
+          npm install --no-audit
+          npm rebuild esbuild
+          npm run build
 
       - name: FTP deploy
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
