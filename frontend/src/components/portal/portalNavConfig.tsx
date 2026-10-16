@@ -1,5 +1,4 @@
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined'
-import AssessmentOutlinedIcon from '@mui/icons-material/AssessmentOutlined'
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined'
 import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined'
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined'
@@ -96,7 +95,6 @@ const accreditationOfficerNavItems: PortalNavItem[] = [
 const daNavItems: PortalNavItem[] = [
   { label: 'Dashboard', path: '/da', icon: <DashboardOutlinedIcon /> },
   { label: 'Live delivery map', path: '/da/logistics/live', icon: <LocalShippingOutlinedIcon /> },
-  { label: 'Delivery reports', path: '/da/logistics/reports', icon: <AssessmentOutlinedIcon /> },
   { label: 'News & announcements', path: '/agency/news', icon: <ArticleOutlinedIcon /> },
   { label: 'Agencies', path: '/da/agencies', icon: <BusinessOutlinedIcon /> },
   { label: 'Warehouses', path: '/da/warehouses', icon: <WarehouseOutlinedIcon /> },

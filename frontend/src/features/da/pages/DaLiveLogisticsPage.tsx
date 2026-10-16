@@ -1,25 +1,26 @@
-import AssessmentOutlinedIcon from '@mui/icons-material/AssessmentOutlined'
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
 import {
   Box,
   Button,
   Chip,
   CircularProgress,
+  Divider,
   List,
   ListItemButton,
   ListItemText,
   Stack,
   Typography,
 } from '@mui/material'
-import { Link as RouterLink } from 'react-router-dom'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { portalColors } from '../../../components/portal/portalTheme'
 import {
   useClearDaDeliveryComplianceHoldMutation,
+  useGetDaContainerActualRouteQuery,
   useGetDaLogisticsLiveQuery,
   type DaLiveDelivery,
 } from '../api/daApi'
+import { DaDeliveryReportPanel } from '../components/DaDeliveryReportPanel'
 import { DaLiveLogisticsMap } from '../components/DaLiveLogisticsMap'
 import { resolveDriverGpsDisplay } from '../utils/daDriverGpsStatus'
 
@@ -28,7 +29,7 @@ function formatHoldReason(reason: string) {
   return reason.replace(/_/g, ' ')
 }
 
-function canOpenDeliveryReport(delivery: DaLiveDelivery) {
+function canShowDeliveryReport(delivery: DaLiveDelivery) {
   return (
     !['Pending', 'ReadyForTransport', 'Released'].includes(delivery.status) &&
     (delivery.status !== 'Assigned' ||
@@ -49,9 +50,8 @@ function DeliveryListItem({
   serverTime?: string | null
 }) {
   const gps = resolveDriverGpsDisplay(delivery, serverTime)
-  const reportHref = `/da/logistics/containers/${delivery.containerUuid}/report`
   return (
-    <ListItemButton selected={selected} onClick={onSelect} sx={{ borderRadius: 1, mb: 0.5, flexDirection: 'column', alignItems: 'stretch' }}>
+    <ListItemButton selected={selected} onClick={onSelect} sx={{ borderRadius: 1, mb: 0.5 }}>
       <ListItemText
         primary={
           <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
@@ -66,6 +66,7 @@ function DeliveryListItem({
             {delivery.entryReference} · {delivery.status}
             {delivery.driverName ? ` · ${delivery.driverName}` : ''}
             {!gps.offline && delivery.lastLocationAt ? ' · Live GPS' : ''}
+            {canShowDeliveryReport(delivery) ? ' · tap for report below' : ''}
           </>
         }
         slotProps={{
@@ -73,19 +74,6 @@ function DeliveryListItem({
           secondary: { sx: { fontSize: '0.75rem' } },
         }}
       />
-      {canOpenDeliveryReport(delivery) && (
-        <Button
-          size="small"
-          variant="text"
-          component={RouterLink}
-          to={reportHref}
-          startIcon={<AssessmentOutlinedIcon />}
-          sx={{ alignSelf: 'flex-start', mt: 0.5, fontSize: '0.75rem' }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          Open delivery report
-        </Button>
-      )}
     </ListItemButton>
   )
 }
@@ -104,6 +92,24 @@ export function DaLiveLogisticsPage() {
 
   const [selectedUuid, setSelectedUuid] = useState<string | null>(null)
   const selected = allOnMap.find((d) => d.containerUuid === selectedUuid) ?? null
+  const showReport = selected != null && canShowDeliveryReport(selected)
+  const reportSectionRef = useRef<HTMLDivElement | null>(null)
+
+  const { data: routeData, isLoading: routeLoading } = useGetDaContainerActualRouteQuery(selectedUuid ?? '', {
+    skip: !selectedUuid || !showReport,
+    pollingInterval: showReport ? 15_000 : 0,
+  })
+  const actualRoute = routeData?.data
+
+  const fullTrailOnLiveMap = useMemo(() => {
+    if (!selectedUuid || !actualRoute?.trail?.length) return undefined
+    return { [selectedUuid]: actualRoute.trail }
+  }, [selectedUuid, actualRoute?.trail])
+
+  useEffect(() => {
+    if (!selectedUuid) return
+    reportSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [selectedUuid])
 
   if (isLoading && !snapshot) {
     return (
@@ -118,22 +124,17 @@ export function DaLiveLogisticsPage() {
       <PortalPageHeader
         eyebrow="DA Secretary · Logistics"
         title="Live delivery map"
-        subtitle="Philippines map only. Blue = GPS trail. Open delivery report for full coordinates and geotag photos."
+        subtitle="Piliin ang container sa listahan — sa ibaba ng mapa lalabas ang delivery report (GPS points, coordinates, geotag photos)."
         actions={
-          <Stack direction="row" spacing={1}>
-            <Button size="small" variant="contained" component={RouterLink} to="/da/logistics/reports">
-              All delivery reports
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<RefreshOutlinedIcon />}
-              onClick={() => refetch()}
-              disabled={isFetching}
-            >
-              Refresh
-            </Button>
-          </Stack>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<RefreshOutlinedIcon />}
+            onClick={() => refetch()}
+            disabled={isFetching}
+          >
+            Refresh
+          </Button>
         }
       />
 
@@ -151,7 +152,8 @@ export function DaLiveLogisticsPage() {
               sx={{ mb: 1, alignItems: { sm: 'center' } }}
             >
               <Typography sx={{ flex: 1, fontSize: '0.85rem' }}>
-                <strong>{h.containerNumber}</strong> · {formatHoldReason(h.holdReason)} · {new Date(h.holdAt).toLocaleString()}
+                <strong>{h.containerNumber}</strong> · {formatHoldReason(h.holdReason)} ·{' '}
+                {new Date(h.holdAt).toLocaleString()}
                 {h.driverName ? ` · ${h.driverName}` : ''}
               </Typography>
               <Button
@@ -190,7 +192,8 @@ export function DaLiveLogisticsPage() {
             deliveries={allOnMap}
             selectedUuid={selectedUuid}
             serverTime={snapshot?.serverTime}
-            height={560}
+            fullTrailByUuid={fullTrailOnLiveMap}
+            height={520}
           />
         </Box>
         <Box sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }}>
@@ -231,49 +234,65 @@ export function DaLiveLogisticsPage() {
         </Box>
       </Stack>
 
-      {selected && (
-        <Box
-          sx={{
-            p: 2,
-            borderRadius: 2,
-            border: `1px solid ${portalColors.border}`,
-            bgcolor: portalColors.bgWhite,
-          }}
-        >
-          <Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Typography sx={{ fontWeight: 800 }}>{selected.containerNumber}</Typography>
-            <Chip size="small" label={selected.status} />
-            {(() => {
-              const gps = resolveDriverGpsDisplay(selected, snapshot?.serverTime)
-              return (
-                <Chip
-                  size="small"
-                  label={gps.label}
-                  color={gps.offline ? 'warning' : 'success'}
-                  variant={gps.offline ? 'filled' : 'outlined'}
-                />
-              )
-            })()}
-          </Stack>
-          <Typography sx={{ fontSize: '0.85rem', color: portalColors.textMuted, mb: 1.5 }}>
-            {selected.pickup.label} → {selected.destination.label}
-          </Typography>
-          {canOpenDeliveryReport(selected) ? (
-            <Button
-              variant="contained"
-              component={RouterLink}
-              to={`/da/logistics/containers/${selected.containerUuid}/report`}
-              startIcon={<AssessmentOutlinedIcon />}
-            >
-              Open full delivery report (GPS points & geotag photos)
-            </Button>
-          ) : (
+      <Box ref={reportSectionRef}>
+        {!selected && (
+          <Box
+            sx={{
+              p: 3,
+              borderRadius: 2,
+              border: `1px dashed ${portalColors.border}`,
+              textAlign: 'center',
+            }}
+          >
+            <Typography sx={{ fontWeight: 700, mb: 0.5 }}>Container delivery report</Typography>
             <Typography sx={{ fontSize: '0.85rem', color: portalColors.textMuted }}>
-              GPS report unlocks after the driver starts navigation in AgriTrack.
+              Pumili ng container sa listahan sa kanan para makita ang buong GPS trail, coordinates, at geotag photos dito
+              sa page na ito.
             </Typography>
-          )}
-        </Box>
-      )}
+          </Box>
+        )}
+
+        {selected && !showReport && (
+          <Box sx={{ p: 2, borderRadius: 2, border: `1px solid ${portalColors.border}` }}>
+            <Typography sx={{ fontWeight: 800, mb: 1 }}>{selected.containerNumber}</Typography>
+            <Typography sx={{ fontSize: '0.85rem', color: portalColors.textMuted }}>
+              Wala pang GPS report. Kailangan mag-**Start navigation** ang driver sa AgriTrack bago lumabas ang trail at
+              coordinates.
+            </Typography>
+          </Box>
+        )}
+
+        {selected && showReport && (
+          <Box
+            sx={{
+              p: 2,
+              borderRadius: 2,
+              border: `2px solid ${portalColors.primary}`,
+              bgcolor: portalColors.bgWhite,
+            }}
+          >
+            <Stack direction="row" spacing={1} sx={{ mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Typography sx={{ fontWeight: 800, fontSize: '1.05rem' }}>
+                Delivery report · {selected.containerNumber}
+              </Typography>
+              <Chip size="small" label={selected.status} />
+              {(() => {
+                const gps = resolveDriverGpsDisplay(selected, snapshot?.serverTime)
+                return (
+                  <Chip
+                    size="small"
+                    label={gps.label}
+                    color={gps.offline ? 'warning' : 'success'}
+                    variant={gps.offline ? 'filled' : 'outlined'}
+                  />
+                )
+              })()}
+            </Stack>
+            <Divider sx={{ mb: 2 }} />
+            <DaDeliveryReportPanel route={actualRoute} loading={routeLoading} />
+          </Box>
+        )}
+      </Box>
     </Box>
   )
 }
