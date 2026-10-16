@@ -120,15 +120,20 @@ export function DaLiveLogisticsPage() {
         title="Live delivery map"
         subtitle="Philippines map only. Blue = GPS trail. Open delivery report for full coordinates and geotag photos."
         actions={
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<RefreshOutlinedIcon />}
-            onClick={() => refetch()}
-            disabled={isFetching}
-          >
-            Refresh
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button size="small" variant="contained" component={RouterLink} to="/da/logistics/reports">
+              All delivery reports
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<RefreshOutlinedIcon />}
+              onClick={() => refetch()}
+              disabled={isFetching}
+            >
+              Refresh
+            </Button>
+          </Stack>
         }
       />
 

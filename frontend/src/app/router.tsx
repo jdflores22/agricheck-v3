@@ -143,6 +143,7 @@ import { TransportTagPage } from '../features/agency/pages/TransportTagPage'
 import { TransportTagDetailPage } from '../features/agency/pages/TransportTagDetailPage'
 import { DaDashboardPage } from '../features/da/pages/DaDashboardPage'
 import { DaDeliveryReportPage } from '../features/da/pages/DaDeliveryReportPage'
+import { DaDeliveryReportsListPage } from '../features/da/pages/DaDeliveryReportsListPage'
 import { DaLiveLogisticsPage } from '../features/da/pages/DaLiveLogisticsPage'
 import { DaAgenciesPage } from '../features/da/pages/DaAgenciesPage'
 import { DaAgencyOversightPage } from '../features/da/pages/DaAgencyOversightPage'
@@ -354,6 +355,7 @@ export const router = createBrowserRouter([
                   { index: true, element: <DaDashboardPage /> },
 
                   { path: 'logistics/live', element: <DaLiveLogisticsPage /> },
+                  { path: 'logistics/reports', element: <DaDeliveryReportsListPage /> },
                   { path: 'logistics/containers/:containerUuid/report', element: <DaDeliveryReportPage /> },
 
                   { path: 'agencies', element: <DaAgenciesPage /> },
