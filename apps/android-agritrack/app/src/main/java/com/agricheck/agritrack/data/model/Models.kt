@@ -170,6 +170,7 @@ data class RecordContainerLocationRequest(
     val latitude: Double,
     val longitude: Double,
     val recordedAt: String? = null,
+    val capturedOffline: Boolean = false,
 )
 
 @Serializable

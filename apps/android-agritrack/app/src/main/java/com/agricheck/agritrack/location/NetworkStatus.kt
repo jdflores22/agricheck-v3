@@ -9,5 +9,8 @@ fun Context.hasInternetConnectivity(): Boolean {
         ?: return false
     val network = cm.activeNetwork ?: return false
     val caps = cm.getNetworkCapabilities(network) ?: return false
-    return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    val hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    // Wi‑Fi/data icon without real reachability → treat as offline so GPS queues with capturedOffline=true.
+    return hasInternet && validated
 }

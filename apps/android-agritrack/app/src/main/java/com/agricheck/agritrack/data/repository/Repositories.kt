@@ -11,6 +11,8 @@ import com.agricheck.agritrack.data.api.AgriCheckApiService
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import retrofit2.HttpException
+import java.time.Instant
 
 class AuthRepository(
     private val container: AppContainer,
@@ -47,6 +49,35 @@ class AuthRepository(
     suspend fun logout() {
         tokenStore.clear()
         authInterceptor().resetSession()
+    }
+
+    /**
+     * Keeps the driver signed in: silently refreshes an expired access token using the refresh token.
+     * Called on cold start and when the app returns to the foreground.
+     */
+    suspend fun maintainSession() {
+        if (!tokenStore.hasUsableRefreshToken()) return
+        val user = tokenStore.getCurrentUser()
+        val accessExpired = tokenStore.isAccessTokenExpired()
+        val accessMissing = tokenStore.getAccessToken().isNullOrBlank()
+        if (user != null && !accessExpired && !accessMissing) return
+        refreshSessionQuietly()
+    }
+
+    private suspend fun refreshSessionQuietly() {
+        val refresh = tokenStore.getRefreshToken() ?: return
+        try {
+            val response = api().refresh(RefreshTokenRequest(refresh)).requireData()
+            tokenStore.saveAuth(response.tokens, response.user)
+            authInterceptor().resetSession()
+        } catch (error: HttpException) {
+            if (error.code() == 400 || error.code() == 401 || error.code() == 403) {
+                tokenStore.clear()
+                authInterceptor().resetSession()
+            }
+        } catch (_: Throwable) {
+            // Offline or server error — keep existing session.
+        }
     }
 
     suspend fun validateInvite(code: String): Result<InviteCodeValidationDto> = try {
@@ -87,9 +118,51 @@ class DriverRepository(private val container: AppContainer) {
     ).requireData()
     suspend fun confirmPickup(uuid: String, latitude: Double, longitude: Double, label: String? = null) =
         api().confirmPickup(uuid, ConfirmContainerPickupRequest(latitude, longitude, label)).requireData()
+
+    suspend fun confirmPickupWithGeotag(
+        uuid: String,
+        latitude: Double,
+        longitude: Double,
+        label: String?,
+        jpeg: ByteArray,
+        capturedAt: Instant,
+    ) = api().confirmPickupWithGeotag(
+        uuid,
+        MultipartBody.Part.createFormData(
+            "photo",
+            "pickup-geotag.jpg",
+            jpeg.toRequestBody("image/jpeg".toMediaType()),
+        ),
+        latitude.toString().toRequestBody("text/plain".toMediaType()),
+        longitude.toString().toRequestBody("text/plain".toMediaType()),
+        label?.toRequestBody("text/plain".toMediaType()),
+        capturedAt.toString().toRequestBody("text/plain".toMediaType()),
+    ).requireData()
     suspend fun deliveryHandoffQr(uuid: String) = api().deliveryHandoffQr(uuid).requireData()
-    suspend fun recordLocation(uuid: String, latitude: Double, longitude: Double) =
-        api().recordLocation(uuid, RecordContainerLocationRequest(latitude, longitude)).requireData()
+    suspend fun recordLocation(
+        uuid: String,
+        latitude: Double,
+        longitude: Double,
+        recordedAtIso: String? = null,
+        capturedOffline: Boolean = false,
+    ) = api()
+        .recordLocation(uuid, RecordContainerLocationRequest(latitude, longitude, recordedAtIso, capturedOffline))
+        .requireData()
+
+    suspend fun recordLocationsBatch(uuid: String, points: List<RecordContainerLocationPointRequest>) =
+        api().recordLocationsBatch(uuid, RecordContainerLocationsBatchRequest(points)).requireData()
+
+    suspend fun reportCompliance(
+        uuid: String,
+        eventType: String,
+        latitude: Double,
+        longitude: Double,
+        details: String? = null,
+        offRouteMeters: Double? = null,
+    ) = api().reportCompliance(
+        uuid,
+        ReportDeliveryComplianceRequest(eventType, latitude, longitude, details, offRouteMeters),
+    ).requireData()
     suspend fun track(uuid: String) = api().containerTrack(uuid).requireData()
     suspend fun healthCheck(): Boolean = runCatching { api().health().requireData() }.isSuccess
     suspend fun previewTransportQr(qrData: String) =
@@ -98,6 +171,24 @@ class DriverRepository(private val container: AppContainer) {
         api().acceptTransportQr(ScanTransportQrRequest(qrData)).requireData()
     suspend fun checkInAtWarehouse(uuid: String, latitude: Double, longitude: Double) =
         api().checkInAtWarehouse(uuid, DriverWarehouseCheckInRequest(latitude, longitude)).requireData()
+
+    suspend fun checkInAtWarehouseWithGeotag(
+        uuid: String,
+        latitude: Double,
+        longitude: Double,
+        jpeg: ByteArray,
+        capturedAt: Instant,
+    ) = api().checkInAtWarehouseWithGeotag(
+        uuid,
+        MultipartBody.Part.createFormData(
+            "photo",
+            "warehouse-geotag.jpg",
+            jpeg.toRequestBody("image/jpeg".toMediaType()),
+        ),
+        latitude.toString().toRequestBody("text/plain".toMediaType()),
+        longitude.toString().toRequestBody("text/plain".toMediaType()),
+        capturedAt.toString().toRequestBody("text/plain".toMediaType()),
+    ).requireData()
     suspend fun uploadDocument(documentType: String, bytes: ByteArray, fileName: String) {
         val part = MultipartBody.Part.createFormData(
             "file",
@@ -127,6 +218,13 @@ class OperatorRepository(private val container: AppContainer) {
     suspend fun claimByQr(qrData: String) = api().claimContainerByQr(ScanTransportQrRequest(qrData)).requireData()
     suspend fun assignDriver(uuid: String, driverUserUuid: String) =
         api().assignDriver(uuid, AssignDriverRequest(driverUserUuid)).requireData()
+
+    suspend fun claimedContainers() = api().claimedContainers().requireData()
+
+    suspend fun getDeliveryStops(uuid: String) = api().getOperatorDeliveryStops(uuid).requireData()
+
+    suspend fun bookDeliveryStops(uuid: String, request: BookOperatorDeliveryStopsRequest) =
+        api().bookOperatorDeliveryStops(uuid, request).requireData()
 }
 
 class NewsRepository(private val container: AppContainer) {

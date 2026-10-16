@@ -680,7 +680,8 @@ public class DriverOpsService : IDriverOpsService
             ContainerId = container.Id,
             Latitude = request.Latitude,
             Longitude = request.Longitude,
-            RecordedAt = ContainerLocationTimestampHelper.NormalizeRecordedAt(request.RecordedAt)
+            RecordedAt = ContainerLocationTimestampHelper.NormalizeRecordedAt(request.RecordedAt),
+            CapturedOffline = request.CapturedOffline,
         });
         await _db.SaveChangesAsync(cancellationToken);
     }

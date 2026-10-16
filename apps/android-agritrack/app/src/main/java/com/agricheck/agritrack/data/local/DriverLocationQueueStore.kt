@@ -34,6 +34,10 @@ class DriverLocationQueueStore(context: Context) {
             last.longitude == point.longitude &&
             point.recordedAtEpochMs - last.recordedAtEpochMs < 60_000L
         ) {
+            if (point.capturedOffline && !last.capturedOffline) {
+                list[list.size - 1] = last.copy(capturedOffline = true)
+                writeAll(list)
+            }
             return
         }
         list.add(point)

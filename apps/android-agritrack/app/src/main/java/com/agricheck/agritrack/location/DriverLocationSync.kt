@@ -90,7 +90,8 @@ class DriverLocationSync(private val context: Context) {
         val synced = mutableListOf<PendingDriverLocation>()
         val byContainer = pending.groupBy { it.containerUuid }
         for ((uuid, points) in byContainer) {
-            val chunks = points.chunked(BATCH_SIZE)
+            val ordered = points.sortedBy { it.recordedAtEpochMs }
+            val chunks = ordered.chunked(BATCH_SIZE)
             for (chunk in chunks) {
                 val batchOk = runCatching {
                     app.container.driverRepository.recordLocationsBatch(
@@ -130,6 +131,7 @@ class DriverLocationSync(private val context: Context) {
                     point.latitude,
                     point.longitude,
                     epochToIso(point.recordedAtEpochMs),
+                    point.capturedOffline,
                 )
             }.isSuccess
             if (!ok) return false

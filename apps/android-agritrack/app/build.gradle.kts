@@ -25,15 +25,17 @@ android {
         applicationId = "com.agricheck.agritrack"
         minSdk = 26
         targetSdk = 35
-        versionCode = 31
-        versionName = "1.2.28"
+        versionCode = 46
+        versionName = "1.2.43"
 
         val apiBaseUrl = localProperties.getProperty("API_BASE_URL") ?: "https://agricheck-v3-production.up.railway.app"
         val googleMapsApiKey = localProperties.getProperty("GOOGLE_MAPS_API_KEY") ?: ""
+        val googleRoutingApiKey = localProperties.getProperty("GOOGLE_ROUTING_API_KEY") ?: ""
         val enableGoogleMapTiles =
             localProperties.getProperty("ENABLE_GOOGLE_MAP_TILES")?.equals("true", ignoreCase = true) == true
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "GOOGLE_MAPS_API_KEY", "\"$googleMapsApiKey\"")
+        buildConfigField("String", "GOOGLE_ROUTING_API_KEY", "\"$googleRoutingApiKey\"")
         buildConfigField("boolean", "ENABLE_GOOGLE_MAP_TILES", enableGoogleMapTiles.toString())
         buildConfigField("boolean", "FIREBASE_ENABLED", firebaseEnabled.toString())
         manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = googleMapsApiKey.ifBlank { "PLACEHOLDER_SET_IN_local_properties" }
@@ -58,6 +60,30 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            // Internal QA APK — replace with release keystore before Play Store upload.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+}
+
+tasks.register("exportAgriTrackReleaseApk") {
+    dependsOn("assembleRelease")
+    doLast {
+        val version = android.defaultConfig.versionName ?: "0"
+        val src = layout.buildDirectory.file("outputs/apk/release/app-release.apk").get().asFile
+        if (!src.isFile) {
+            throw GradleException("Release APK not found at ${src.absolutePath}")
+        }
+        val destDir = rootProject.layout.projectDirectory.dir("release-dist").asFile
+        destDir.mkdirs()
+        val dest = destDir.resolve("AgriTrack-$version-release.apk")
+        src.copyTo(dest, overwrite = true)
+        logger.lifecycle("AgriTrack release APK: ${dest.absolutePath}")
+    }
 }
 
 dependencies {
@@ -75,6 +101,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

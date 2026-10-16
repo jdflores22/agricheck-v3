@@ -268,7 +268,11 @@ public record ScanTransportQrRequest([property: System.ComponentModel.DataAnnota
 
 public record CompleteDoctorInspectionRequest(string Decision, string? Findings);
 
-public record RecordContainerLocationRequest(decimal Latitude, decimal Longitude, DateTime? RecordedAt = null);
+public record RecordContainerLocationRequest(
+    decimal Latitude,
+    decimal Longitude,
+    DateTime? RecordedAt = null,
+    bool CapturedOffline = false);
 
 public record RecordContainerLocationPointRequest(decimal Latitude, decimal Longitude, DateTime RecordedAt, bool CapturedOffline = false);
 

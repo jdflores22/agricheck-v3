@@ -114,9 +114,18 @@ object AppLocationManager {
                     }
                 }
 
-                fusedClient.requestLocationUpdates(request, callback, Looper.getMainLooper())
+                var fallbackSubscription: LocationSubscription? = null
+                val task = fusedClient.requestLocationUpdates(request, callback, Looper.getMainLooper())
+                task.addOnFailureListener {
+                    // Fall back to LocationManager if GMS broker fails or throws SecurityException
+                    if (fallbackSubscription == null) {
+                        fallbackSubscription = startLocationManagerUpdates(context, intervalMs, minDistanceMeters, onLocation)
+                    }
+                }
+
                 return LocationSubscription {
                     runCatching { fusedClient.removeLocationUpdates(callback) }
+                    fallbackSubscription?.cancel()
                 }
             } catch (_: Throwable) {
                 // GMS SecurityException: Unknown calling package name 'com.google.android.gms'

@@ -9,11 +9,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.os.IBinder
+import android.widget.RemoteViews
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.agricheck.agritrack.AgriTrackApp
 import com.agricheck.agritrack.MainActivity
 import com.agricheck.agritrack.R
+import com.agricheck.agritrack.navigation.NavigationNotificationState
+import com.agricheck.agritrack.navigation.NavigationTrafficStripBitmap
 import com.agricheck.agritrack.push.PushNotificationManager
 import kotlinx.coroutines.*
 
@@ -31,6 +34,9 @@ class LocationTrackingService : Service() {
         scope.launch {
             locationSync.onLocationSample(uuid, location)
         }
+        if (navigationMode) {
+            postNavigationNotification()
+        }
     }
 
     override fun onCreate() {
@@ -41,9 +47,14 @@ class LocationTrackingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                NavigationNotificationState.clear()
                 stopTrackingInternal()
                 stopSelf()
                 return START_NOT_STICKY
+            }
+            ACTION_REFRESH_NOTIFICATION -> {
+                if (navigationMode) postNavigationNotification()
+                return START_STICKY
             }
             ACTION_START, ACTION_UPDATE -> {
                 containerUuid = intent.getStringExtra(EXTRA_CONTAINER_UUID)
@@ -60,14 +71,14 @@ class LocationTrackingService : Service() {
                 }
                 startForeground(NOTIFICATION_ID, buildTrackingNotification())
                 startLocationUpdates()
-                val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
-                manager.notify(NOTIFICATION_ID, buildTrackingNotification())
+                postNavigationNotification()
             }
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
+        NavigationNotificationState.clear()
         stopTrackingInternal()
         scope.cancel()
         super.onDestroy()
@@ -109,6 +120,11 @@ class LocationTrackingService : Service() {
         }
     }
 
+    private fun postNavigationNotification() {
+        val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+        manager.notify(NOTIFICATION_ID, buildTrackingNotification())
+    }
+
     private fun buildTrackingNotification(): Notification {
         val uuid = containerUuid
         val number = containerNumber ?: ""
@@ -139,20 +155,55 @@ class LocationTrackingService : Service() {
                 getString(R.string.nav_notification_body_active, number)
             else -> getString(R.string.tracking_notification_body)
         }
-        return NotificationCompat.Builder(this, PushNotificationManager.CHANNEL_TRACKING)
+        val builder = NotificationCompat.Builder(this, PushNotificationManager.CHANNEL_TRACKING)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setOngoing(true)
             .setContentIntent(pending)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .build()
+
+        if (navigationMode) {
+            val state = NavigationNotificationState
+            val maneuver = state.maneuverPrimary.ifBlank {
+                getString(R.string.nav_notification_maneuver_fallback)
+            }
+            val custom = buildNavigationRemoteViews(maneuver)
+            builder
+                .setContentTitle(" ")
+                .setContentText(" ")
+                .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+                .setCustomContentView(custom)
+                .setCustomBigContentView(custom)
+        } else {
+            builder
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        }
+        return builder.build()
+    }
+
+    private fun buildNavigationRemoteViews(maneuver: String): RemoteViews {
+        val views = RemoteViews(packageName, R.layout.notification_navigation)
+        val state = NavigationNotificationState
+        views.setImageViewResource(R.id.nav_notification_maneuver_icon, state.maneuverIconRes)
+        views.setTextViewText(R.id.nav_notification_maneuver, maneuver)
+        val widthPx = (resources.displayMetrics.widthPixels * 0.88f).toInt()
+        val strip = NavigationTrafficStripBitmap.create(
+            widthPx = widthPx,
+            heightPx = (14 * resources.displayMetrics.density).toInt().coerceAtLeast(28),
+            intervals = state.trafficIntervals,
+            routePointCount = state.routePointCount,
+            anchorIndex = state.anchorPointIndex,
+            hasTrafficData = state.hasGoogleTrafficLine,
+        )
+        views.setImageViewBitmap(R.id.nav_notification_traffic_strip, strip)
+        return views
     }
 
     companion object {
         const val ACTION_START = "com.agricheck.agritrack.action.START_TRACKING"
         const val ACTION_UPDATE = "com.agricheck.agritrack.action.UPDATE_TRACKING"
+        const val ACTION_REFRESH_NOTIFICATION = "com.agricheck.agritrack.action.REFRESH_NAV_NOTIFICATION"
         const val ACTION_STOP = "com.agricheck.agritrack.action.STOP_TRACKING"
         const val EXTRA_CONTAINER_UUID = "container_uuid"
         const val EXTRA_CONTAINER_NUMBER = "container_number"
@@ -199,6 +250,13 @@ class LocationTrackingService : Service() {
                 putExtra(EXTRA_NAVIGATION_MODE, true)
             }
             context.startForegroundService(intent)
+        }
+
+        fun refreshNavigationNotification(context: Context) {
+            val intent = Intent(context, LocationTrackingService::class.java).apply {
+                action = ACTION_REFRESH_NOTIFICATION
+            }
+            context.startService(intent)
         }
 
         fun stop(context: Context) {
