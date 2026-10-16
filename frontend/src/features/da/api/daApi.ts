@@ -591,6 +591,8 @@ export interface DaLiveDelivery {
   currentLongitude?: number | null
   lastLocationAt?: string | null
   recentTrail: DaContainerTrailPoint[]
+  driverGpsOffline?: boolean
+  driverOfflineMinutes?: number | null
 }
 
 export interface DaDeliveryComplianceAlert {
@@ -619,6 +621,16 @@ export interface DaLiveLogisticsSnapshot {
   activeComplianceHolds: DaDeliveryComplianceHold[]
 }
 
+export interface DaDeliveryProofPhoto {
+  photoUuid: string
+  photoType: string
+  label: string
+  captureLatitude?: number | null
+  captureLongitude?: number | null
+  capturedAtUtc?: string | null
+  originalFileName: string
+}
+
 export interface DaContainerActualRoute {
   containerUuid: string
   containerNumber: string
@@ -630,9 +642,11 @@ export interface DaContainerActualRoute {
   destination: DaDeliveryStop
   departureTime?: string | null
   arrivalTime?: string | null
+  warehouseHandoffEligibleAt?: string | null
   distanceKm?: number | null
   pointCount: number
   trail: DaContainerTrailPoint[]
+  proofPhotos: DaDeliveryProofPhoto[]
 }
 
 export const daApi = createApi({

@@ -1,9 +1,11 @@
+using AgriCheck.Application.ClientPortal;
 using AgriCheck.Application.ClientPortal.Dtos;
 using AgriCheck.Application.Common;
 using AgriCheck.Application.Compliance;
 using AgriCheck.Application.DaPortal;
 using AgriCheck.Application.DaPortal.Dtos;
 using AgriCheck.Application.OpsPortal;
+using AgriCheck.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -220,6 +222,20 @@ public class DaPortalController : AgencyPortalControllerBase
         Guid uuid,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _logisticsLiveService.GetActualRouteAsync(uuid, cancellationToken));
+
+    [HttpGet("logistics/delivery-proof-photos/{photoUuid:guid}/download")]
+    public async Task<IActionResult> DownloadDeliveryProofPhoto(Guid photoUuid, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var download = await _logisticsLiveService.DownloadDeliveryProofPhotoAsync(photoUuid, cancellationToken);
+            return PhysicalFile(download.PhysicalPath, download.ContentType, download.DownloadFileName);
+        }
+        catch (ClientPortalException ex) when (ex.Code == "NOT_FOUND")
+        {
+            return NotFound(ApiResponse<object>.Fail(ex.Code, ex.Message));
+        }
+    }
 
     [HttpPost("logistics/containers/{uuid:guid}/clear-compliance-hold")]
     public async Task<ActionResult<ApiResponse<DaDeliveryComplianceHoldDto>>> ClearComplianceHold(

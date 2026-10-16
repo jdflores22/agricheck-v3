@@ -1,5 +1,6 @@
 using AgriCheck.Application.ClientPortal;
 using AgriCheck.Application.ClientPortal.Dtos;
+using StoredFileDownload = AgriCheck.Application.ClientPortal.Dtos.StoredFileDownload;
 using AgriCheck.Application.DaPortal;
 using AgriCheck.Application.DaPortal.Dtos;
 using AgriCheck.Domain.Entities;
@@ -21,13 +22,27 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
         ContainerStatus.Inspected
     };
 
+    /// <summary>No GPS ping within this window is treated as offline (AgriTrack foreground service target ~2–4 min).</summary>
+    private const int DriverGpsOfflineThresholdMinutes = 3;
+
+    private static readonly ContainerInspectionPhotoType[] DeliveryProofPhotoTypes =
+    {
+        ContainerInspectionPhotoType.DriverPickupGeotag,
+        ContainerInspectionPhotoType.DriverWarehouseGeotag,
+    };
+
     private readonly AgriCheckDbContext _db;
     private readonly ICurrentUserService _currentUser;
+    private readonly IFileStorageService _fileStorage;
 
-    public DaLogisticsLiveService(AgriCheckDbContext db, ICurrentUserService currentUser)
+    public DaLogisticsLiveService(
+        AgriCheckDbContext db,
+        ICurrentUserService currentUser,
+        IFileStorageService fileStorage)
     {
         _db = db;
         _currentUser = currentUser;
+        _fileStorage = fileStorage;
     }
 
     public async Task<DaLiveLogisticsSnapshotDto> GetLiveSnapshotAsync(CancellationToken cancellationToken = default)
@@ -38,8 +53,11 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
         var arrivedCutoff = DateTime.UtcNow.AddHours(-48);
         var recentlyArrived = await _db.Containers
             .AsNoTracking()
-            .Where(c => c.Status == ContainerStatus.AtWarehouse && c.ArrivalTime >= arrivedCutoff)
-            .OrderByDescending(c => c.ArrivalTime)
+            .Where(c =>
+                c.AssignedDriverUserId != null &&
+                ((c.Status == ContainerStatus.AtWarehouse && c.ArrivalTime >= arrivedCutoff) ||
+                 (c.WarehouseHandoffEligibleAt >= arrivedCutoff)))
+            .OrderByDescending(c => c.ArrivalTime ?? c.WarehouseHandoffEligibleAt)
             .Take(25)
             .Select(c => c.Id)
             .ToListAsync(cancellationToken);
@@ -148,6 +166,7 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
             .Include(c => c.AssignedDriver).ThenInclude(u => u!.Profile)
             .Include(c => c.AssignedOperatorVehicle)
             .Include(c => c.Locations)
+            .Include(c => c.InspectionPhotos)
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Container not found.");
 
@@ -157,6 +176,8 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
         var distanceKm = ComputeTrailDistanceKm(trail);
 
         var driverName = FormatDriverName(container.AssignedDriver);
+
+        var proofPhotos = BuildDeliveryProofPhotos(container);
 
         return new DaContainerActualRouteDto(
             container.Uuid,
@@ -169,9 +190,35 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
             destination,
             container.DepartureTime,
             container.ArrivalTime,
+            container.WarehouseHandoffEligibleAt,
             distanceKm,
             trail.Count,
-            trail);
+            trail,
+            proofPhotos);
+    }
+
+    public async Task<StoredFileDownload> DownloadDeliveryProofPhotoAsync(
+        Guid photoUuid,
+        CancellationToken cancellationToken = default)
+    {
+        await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
+
+        var photo = await _db.ContainerInspectionPhotos
+            .AsNoTracking()
+            .Include(p => p.Container)
+            .FirstOrDefaultAsync(p => p.Uuid == photoUuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Photo not found.");
+
+        if (!DeliveryProofPhotoTypes.Contains(photo.PhotoType))
+        {
+            throw new ClientPortalException("NOT_FOUND", "Photo not found.");
+        }
+
+        var folder = ResolveDeliveryProofStorageFolder(photo.Container.Uuid, photo.PhotoType);
+        return new StoredFileDownload(
+            _fileStorage.GetPhysicalPath(folder, photo.StoredFileName),
+            photo.ContentType,
+            photo.OriginalFileName);
     }
 
     private async Task<IReadOnlyList<DaLiveDeliveryDto>> LoadDeliveriesAsync(
@@ -220,6 +267,7 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
             var trail = BuildTrail(container.Locations, recentTrailLimit);
             var last = trail.LastOrDefault();
             var driverName = FormatDriverName(container.AssignedDriver);
+            var (gpsOffline, offlineMinutes) = ResolveDriverGpsOffline(container.Status, last?.RecordedAt);
 
             results.Add(new DaLiveDeliveryDto(
                 container.Uuid,
@@ -233,10 +281,46 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
                 last?.Latitude,
                 last?.Longitude,
                 last?.RecordedAt,
-                trail));
+                trail,
+                gpsOffline,
+                offlineMinutes));
         }
 
         return results;
+    }
+
+    private static (bool Offline, int? OfflineMinutes) ResolveDriverGpsOffline(
+        ContainerStatus status,
+        DateTime? lastLocationAtUtc)
+    {
+        if (status is ContainerStatus.Released
+            or ContainerStatus.Pending
+            or ContainerStatus.AtWarehouse
+            or ContainerStatus.ReadyForTransport
+            or ContainerStatus.AwaitingConfirmation)
+        {
+            return (false, null);
+        }
+
+        if (lastLocationAtUtc is null)
+        {
+            return (true, null);
+        }
+
+        var recorded = lastLocationAtUtc.Value.Kind switch
+        {
+            DateTimeKind.Utc => lastLocationAtUtc.Value,
+            DateTimeKind.Local => lastLocationAtUtc.Value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(lastLocationAtUtc.Value, DateTimeKind.Utc)
+        };
+
+        var age = DateTime.UtcNow - recorded;
+        if (age.TotalMinutes < DriverGpsOfflineThresholdMinutes)
+        {
+            return (false, null);
+        }
+
+        return (true, (int)Math.Floor(age.TotalMinutes));
     }
 
     private static string? FormatDriverName(User? driver)
@@ -258,6 +342,34 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
 
         return string.IsNullOrWhiteSpace(driver.Email) ? null : driver.Email;
     }
+
+    private static IReadOnlyList<DaDeliveryProofPhotoDto> BuildDeliveryProofPhotos(Container container)
+    {
+        return container.InspectionPhotos
+            .Where(p => DeliveryProofPhotoTypes.Contains(p.PhotoType))
+            .OrderBy(p => p.PhotoType)
+            .Select(p => new DaDeliveryProofPhotoDto(
+                p.Uuid,
+                p.PhotoType.ToString(),
+                ResolveDeliveryProofLabel(p.PhotoType),
+                p.CaptureLatitude,
+                p.CaptureLongitude,
+                p.CapturedAtUtc,
+                p.OriginalFileName))
+            .ToList();
+    }
+
+    private static string ResolveDeliveryProofLabel(ContainerInspectionPhotoType photoType) => photoType switch
+    {
+        ContainerInspectionPhotoType.DriverPickupGeotag => "Pickup arrival (geotag proof)",
+        ContainerInspectionPhotoType.DriverWarehouseGeotag => "Warehouse arrival (geotag proof)",
+        _ => photoType.ToString(),
+    };
+
+    private static string ResolveDeliveryProofStorageFolder(Guid containerUuid, ContainerInspectionPhotoType photoType) =>
+        DeliveryProofPhotoTypes.Contains(photoType)
+            ? $"container-delivery-geotag/{containerUuid}"
+            : $"container-inspection/{containerUuid}";
 
     private static List<DaContainerTrailPointDto> BuildTrail(IEnumerable<ContainerLocation> locations, int limit)
     {

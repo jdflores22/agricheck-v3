@@ -510,7 +510,9 @@ public record DaLiveDeliveryDto(
     decimal? CurrentLatitude,
     decimal? CurrentLongitude,
     DateTime? LastLocationAt,
-    IReadOnlyList<DaContainerTrailPointDto> RecentTrail);
+    IReadOnlyList<DaContainerTrailPointDto> RecentTrail,
+    bool DriverGpsOffline = false,
+    int? DriverOfflineMinutes = null);
 
 public record DaDeliveryComplianceAlertDto(
     Guid ContainerUuid,
@@ -537,6 +539,15 @@ public record DaLiveLogisticsSnapshotDto(
     IReadOnlyList<DaDeliveryComplianceAlertDto> ComplianceAlerts,
     IReadOnlyList<DaDeliveryComplianceHoldDto> ActiveComplianceHolds);
 
+public record DaDeliveryProofPhotoDto(
+    Guid PhotoUuid,
+    string PhotoType,
+    string Label,
+    decimal? CaptureLatitude,
+    decimal? CaptureLongitude,
+    DateTime? CapturedAtUtc,
+    string OriginalFileName);
+
 public record DaContainerActualRouteDto(
     Guid ContainerUuid,
     string ContainerNumber,
@@ -548,6 +559,8 @@ public record DaContainerActualRouteDto(
     DaDeliveryStopDto Destination,
     DateTime? DepartureTime,
     DateTime? ArrivalTime,
+    DateTime? WarehouseHandoffEligibleAt,
     decimal? DistanceKm,
     int PointCount,
-    IReadOnlyList<DaContainerTrailPointDto> Trail);
+    IReadOnlyList<DaContainerTrailPointDto> Trail,
+    IReadOnlyList<DaDeliveryProofPhotoDto> ProofPhotos);
