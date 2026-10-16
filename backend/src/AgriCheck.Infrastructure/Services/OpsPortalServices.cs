@@ -1108,6 +1108,69 @@ public class DriverOpsService : IDriverOpsService
             cancellationToken);
     }
 
+    public async Task<DriverIncidentReportResultDto> SubmitDriverIncidentReportAsync(
+        Guid containerUuid,
+        string category,
+        string? notes,
+        decimal latitude,
+        decimal longitude,
+        DateTime capturedAtUtc,
+        Stream photo1,
+        Stream photo2,
+        string photo1FileName,
+        string photo2FileName,
+        CancellationToken cancellationToken = default)
+    {
+        if (!DriverIncidentCategories.TryResolve(category, out var categoryCode, out var categoryLabel))
+        {
+            throw new ClientPortalException("INVALID_CATEGORY", "Unsupported incident category.");
+        }
+
+        var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        var container = await _db.Containers
+            .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
+
+        var incidentKey = DateTime.UtcNow.Ticks;
+        var storageFolder = $"container-incident-geotag/{container.Uuid}/{incidentKey}";
+
+        await AddDriverIncidentGeotagPhotoAsync(
+            container,
+            storageFolder,
+            photo1,
+            photo1FileName,
+            latitude,
+            longitude,
+            capturedAtUtc,
+            cancellationToken);
+        await AddDriverIncidentGeotagPhotoAsync(
+            container,
+            storageFolder,
+            photo2,
+            photo2FileName,
+            latitude,
+            longitude,
+            capturedAtUtc,
+            cancellationToken);
+
+        var details = DriverIncidentCategories.FormatComplianceDetails(categoryCode, categoryLabel, notes);
+        await RecordDeliveryComplianceEventAsync(
+            container.Id,
+            driver.Id,
+            DeliveryComplianceEventTypes.DriverIncident,
+            latitude,
+            longitude,
+            details,
+            cancellationToken,
+            applyHold: false);
+
+        return new DriverIncidentReportResultDto(
+            true,
+            DeliveryComplianceEventTypes.DriverIncident,
+            categoryCode,
+            categoryLabel);
+    }
+
     private async Task RecordDeliveryComplianceEventAsync(
         long containerId,
         long? driverUserId,
@@ -1524,6 +1587,44 @@ public class DriverOpsService : IDriverOpsService
             existing.CapturedAtUtc = capturedAtUtc;
             existing.ReviewDecision = EvaluationDecision.Approved;
         }
+    }
+
+    private async Task AddDriverIncidentGeotagPhotoAsync(
+        Container container,
+        string storageFolder,
+        Stream photoStream,
+        string fileName,
+        decimal latitude,
+        decimal longitude,
+        DateTime capturedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        using var raw = new MemoryStream();
+        await photoStream.CopyToAsync(raw, cancellationToken);
+        var stamped = GeotagImageStamper.StampJpeg(raw.ToArray(), latitude, longitude, capturedAtUtc);
+        await using var stampedStream = new MemoryStream(stamped);
+        var safeName = string.IsNullOrWhiteSpace(fileName) ? "incident-geotag.jpg" : fileName.Trim();
+        var (storedFileName, _) = await _fileStorage.SaveAsync(
+            stampedStream,
+            storageFolder,
+            safeName,
+            cancellationToken);
+
+        _db.ContainerInspectionPhotos.Add(new ContainerInspectionPhoto
+        {
+            Uuid = Guid.NewGuid(),
+            ContainerId = container.Id,
+            EntryId = container.EntryId,
+            PhotoType = ContainerInspectionPhotoType.DriverIncidentGeotag,
+            OriginalFileName = safeName,
+            StoredFileName = storedFileName,
+            ContentType = "image/jpeg",
+            CaptureLatitude = latitude,
+            CaptureLongitude = longitude,
+            CapturedAtUtc = capturedAtUtc,
+            ReviewDecision = EvaluationDecision.Approved,
+        });
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
 }

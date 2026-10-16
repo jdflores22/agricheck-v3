@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using SkiaSharp;
 
 namespace AgriCheck.Infrastructure.Services;
@@ -6,6 +7,7 @@ namespace AgriCheck.Infrastructure.Services;
 public static class GeotagImageStamper
 {
     private static readonly TimeZoneInfo PhilippinesTimeZone = ResolvePhilippinesTimeZone();
+    private static readonly Lazy<SKBitmap?> BrandLogo = new(LoadBrandLogo);
 
     public static byte[] StampJpeg(byte[] jpegBytes, decimal latitude, decimal longitude, DateTime capturedAtUtc)
     {
@@ -17,6 +19,7 @@ public static class GeotagImageStamper
 
         var canvas = surface.Canvas;
         canvas.DrawBitmap(bitmap, 0, 0);
+        DrawBrandLogo(canvas, bitmap.Width, bitmap.Height);
 
         var localTime = TimeZoneInfo.ConvertTimeFromUtc(
             DateTime.SpecifyKind(capturedAtUtc, DateTimeKind.Utc),
@@ -48,6 +51,46 @@ public static class GeotagImageStamper
         using var image = surface.Snapshot();
         using var data = image.Encode(SKEncodedImageFormat.Jpeg, 90);
         return data.ToArray();
+    }
+
+    private static void DrawBrandLogo(SKCanvas canvas, int width, int height)
+    {
+        var logo = BrandLogo.Value;
+        if (logo is null)
+        {
+            return;
+        }
+
+        var maxWidth = width * 0.22f;
+        var scale = maxWidth / logo.Width;
+        var drawWidth = logo.Width * scale;
+        var drawHeight = logo.Height * scale;
+        var left = (width - drawWidth) / 2f;
+        var top = height * 0.03f;
+
+        using var backing = new SKPaint { Color = new SKColor(0, 0, 0, 140), IsAntialias = true };
+        var pad = 10f;
+        canvas.DrawRoundRect(
+            new SKRect(left - pad, top - pad, left + drawWidth + pad, top + drawHeight + pad),
+            12f,
+            12f,
+            backing);
+
+        canvas.DrawBitmap(logo, SKRect.Create(left, top, drawWidth, drawHeight));
+    }
+
+    private static SKBitmap? LoadBrandLogo()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        var resourceName = assembly.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith("agritrack_logo.png", StringComparison.OrdinalIgnoreCase));
+        if (resourceName is null)
+        {
+            return null;
+        }
+
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        return stream is null ? null : SKBitmap.Decode(stream);
     }
 
     private static TimeZoneInfo ResolvePhilippinesTimeZone()

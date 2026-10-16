@@ -403,6 +403,52 @@ public class MobileContainersController : OpsPortalControllerBase
         return Ok(ApiResponse<object>.Ok(new { recorded = true }));
     }
 
+    [HttpPost("{uuid:guid}/driver-incident-report")]
+    [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(24 * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<DriverIncidentReportResultDto>>> SubmitDriverIncidentReport(
+        Guid uuid,
+        [FromForm] string category,
+        [FromForm] string? notes,
+        [FromForm] decimal latitude,
+        [FromForm] decimal longitude,
+        [FromForm] string? capturedAt,
+        IFormFile photo1,
+        IFormFile photo2,
+        CancellationToken cancellationToken)
+    {
+        if (photo1 is null || photo1.Length == 0 || photo2 is null || photo2.Length == 0)
+        {
+            return BadRequest(ApiResponse<DriverIncidentReportResultDto>.Fail(
+                "FILES_REQUIRED",
+                "Two geotagged photos are required for an incident report."));
+        }
+
+        var capturedUtc = ParseCapturedAtUtc(capturedAt) ?? DateTime.UtcNow;
+        await using var upload1 = photo1.OpenReadStream();
+        await using var upload2 = photo2.OpenReadStream();
+        using var stream1 = new MemoryStream();
+        using var stream2 = new MemoryStream();
+        await upload1.CopyToAsync(stream1, cancellationToken);
+        await upload2.CopyToAsync(stream2, cancellationToken);
+        stream1.Position = 0;
+        stream2.Position = 0;
+        return await ExecuteAsync(() =>
+            _service.SubmitDriverIncidentReportAsync(
+                uuid,
+                category,
+                notes,
+                latitude,
+                longitude,
+                capturedUtc,
+                stream1,
+                stream2,
+                photo1.FileName,
+                photo2.FileName,
+                cancellationToken));
+    }
+
     [HttpGet("{uuid:guid}/track")]
     public async Task<ActionResult<ApiResponse<ContainerTrackDto>>> Track(
         Guid uuid,

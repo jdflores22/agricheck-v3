@@ -32,6 +32,18 @@ public interface IDriverOpsService
     Task RecordContainerLocationAsync(Guid containerUuid, RecordContainerLocationRequest request, CancellationToken cancellationToken = default);
     Task<int> RecordContainerLocationsBatchAsync(Guid containerUuid, RecordContainerLocationsBatchRequest request, CancellationToken cancellationToken = default);
     Task ReportDeliveryComplianceAsync(Guid containerUuid, ReportDeliveryComplianceRequest request, CancellationToken cancellationToken = default);
+    Task<DriverIncidentReportResultDto> SubmitDriverIncidentReportAsync(
+        Guid containerUuid,
+        string category,
+        string? notes,
+        decimal latitude,
+        decimal longitude,
+        DateTime capturedAtUtc,
+        Stream photo1,
+        Stream photo2,
+        string photo1FileName,
+        string photo2FileName,
+        CancellationToken cancellationToken = default);
     Task<ContainerTrackDto> GetContainerTrackAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<DriverDeliveryHandoffQrDto> GetDeliveryHandoffQrAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<DriverTransportQrPreviewDto> PreviewTransportQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);

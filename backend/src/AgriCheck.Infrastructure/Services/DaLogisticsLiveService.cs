@@ -29,6 +29,7 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
     {
         ContainerInspectionPhotoType.DriverPickupGeotag,
         ContainerInspectionPhotoType.DriverWarehouseGeotag,
+        ContainerInspectionPhotoType.DriverIncidentGeotag,
     };
 
     private readonly AgriCheckDbContext _db;
@@ -363,13 +364,16 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
     {
         ContainerInspectionPhotoType.DriverPickupGeotag => "Pickup arrival (geotag proof)",
         ContainerInspectionPhotoType.DriverWarehouseGeotag => "Warehouse arrival (geotag proof)",
+        ContainerInspectionPhotoType.DriverIncidentGeotag => "Driver incident report (geotag proof)",
         _ => photoType.ToString(),
     };
 
     private static string ResolveDeliveryProofStorageFolder(Guid containerUuid, ContainerInspectionPhotoType photoType) =>
-        DeliveryProofPhotoTypes.Contains(photoType)
-            ? $"container-delivery-geotag/{containerUuid}"
-            : $"container-inspection/{containerUuid}";
+        photoType == ContainerInspectionPhotoType.DriverIncidentGeotag
+            ? $"container-incident-geotag/{containerUuid}"
+            : DeliveryProofPhotoTypes.Contains(photoType)
+                ? $"container-delivery-geotag/{containerUuid}"
+                : $"container-inspection/{containerUuid}";
 
     private static List<DaContainerTrailPointDto> BuildTrail(IEnumerable<ContainerLocation> locations, int limit)
     {

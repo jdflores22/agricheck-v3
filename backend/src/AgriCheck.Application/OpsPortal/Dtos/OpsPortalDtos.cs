@@ -187,6 +187,12 @@ public record ReportDeliveryComplianceRequest(
     string? Details = null,
     double? OffRouteMeters = null);
 
+public record DriverIncidentReportResultDto(
+    bool Recorded,
+    string EventType,
+    string Category,
+    string CategoryLabel);
+
 public record SubmitFaceVerificationRequest(
     decimal? Confidence,
     string? Notes);
