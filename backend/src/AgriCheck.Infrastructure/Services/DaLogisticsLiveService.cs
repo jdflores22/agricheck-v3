@@ -49,7 +49,7 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
     {
         await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
 
-        var active = await LoadDeliveriesAsync(ActiveStatuses, recentTrailLimit: 120, cancellationToken);
+        var active = await LoadDeliveriesAsync(ActiveStatuses, recentTrailLimit: 400, cancellationToken);
         var arrivedCutoff = DateTime.UtcNow.AddHours(-48);
         var recentlyArrived = await _db.Containers
             .AsNoTracking()

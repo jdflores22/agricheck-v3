@@ -22,6 +22,7 @@ import {
 } from '../api/daApi'
 import { DaActualRouteMap } from '../components/DaActualRouteMap'
 import { DaDeliveryProofGallery } from '../components/DaDeliveryProofGallery'
+import { DaGpsTrailTable } from '../components/DaGpsTrailTable'
 import { DaLiveLogisticsMap } from '../components/DaLiveLogisticsMap'
 import { resolveDriverGpsDisplay } from '../utils/daDriverGpsStatus'
 
@@ -90,12 +91,21 @@ export function DaLiveLogisticsPage() {
   const selected = allOnMap.find((d) => d.containerUuid === selectedUuid) ?? null
   const fetchDeliveryReport =
     selected != null &&
-    !['Assigned', 'Pending', 'ReadyForTransport', 'Released'].includes(selected.status)
+    !['Pending', 'ReadyForTransport', 'Released'].includes(selected.status) &&
+    (selected.status !== 'Assigned' ||
+      Boolean(selected.lastLocationAt) ||
+      (selected.recentTrail?.length ?? 0) > 0)
 
   const { data: routeData, isLoading: routeLoading } = useGetDaContainerActualRouteQuery(selectedUuid ?? '', {
     skip: !selectedUuid || !fetchDeliveryReport,
+    pollingInterval: fetchDeliveryReport ? 15_000 : 0,
   })
   const actualRoute = routeData?.data
+
+  const fullTrailOnLiveMap = useMemo(() => {
+    if (!selectedUuid || !actualRoute?.trail?.length) return undefined
+    return { [selectedUuid]: actualRoute.trail }
+  }, [selectedUuid, actualRoute?.trail])
 
   if (isLoading && !snapshot) {
     return (
@@ -110,7 +120,7 @@ export function DaLiveLogisticsPage() {
       <PortalPageHeader
         eyebrow="DA Secretary · Logistics"
         title="Live delivery map"
-        subtitle="Philippines map only. Live: green route, blue GPS trail, gray dot = offline 3+ min. Delivery report below: full GPS path + geotagged pickup/warehouse photos from AgriTrack."
+        subtitle="Blue line = actual GPS from Start navigation (pickup leg through warehouse). Select a container for full coordinate list and geotag photos below."
         actions={
           <Button
             size="small"
@@ -177,6 +187,7 @@ export function DaLiveLogisticsPage() {
             deliveries={allOnMap}
             selectedUuid={selectedUuid}
             serverTime={snapshot?.serverTime}
+            fullTrailByUuid={fullTrailOnLiveMap}
             height={560}
           />
         </Box>
@@ -248,7 +259,8 @@ export function DaLiveLogisticsPage() {
           </Typography>
           {!fetchDeliveryReport && (
             <Typography sx={{ fontSize: '0.85rem', color: portalColors.textMuted }}>
-              Delivery report (GPS path + geotag photos) appears after the driver confirms pickup in AgriTrack.
+              Select a container with an active driver. GPS coordinates appear after the driver starts navigation in
+              AgriTrack; pickup/warehouse geotag photos appear after each stop is confirmed.
             </Typography>
           )}
           {fetchDeliveryReport && (
@@ -268,6 +280,10 @@ export function DaLiveLogisticsPage() {
                       : ''}
                   </Typography>
                   <DaActualRouteMap route={actualRoute} height={380} />
+                  <Typography sx={{ fontWeight: 700, fontSize: '0.85rem', mt: 2, mb: 1 }}>
+                    GPS coordinates (navigation start → warehouse)
+                  </Typography>
+                  <DaGpsTrailTable trail={actualRoute.trail} containerNumber={actualRoute.containerNumber} />
                   <Typography sx={{ fontWeight: 700, fontSize: '0.85rem', mt: 2, mb: 1 }}>
                     Arrival proof (geotagged photos)
                   </Typography>

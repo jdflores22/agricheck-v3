@@ -52,10 +52,12 @@ function FitAllDeliveries({
   deliveries,
   selectedUuid,
   routes,
+  fullTrailByUuid,
 }: {
   deliveries: DaLiveDelivery[]
   selectedUuid: string | null
   routes: Record<string, DeliveryRoutes>
+  fullTrailByUuid?: Record<string, DaContainerTrailPoint[]>
 }) {
   const map = useMap()
   useEffect(() => {
@@ -64,7 +66,9 @@ function FitAllDeliveries({
       if (d.currentLatitude != null && d.currentLongitude != null) {
         points.push([Number(d.currentLatitude), Number(d.currentLongitude)])
       }
-      for (const p of d.recentTrail) {
+      const full = fullTrailByUuid?.[d.containerUuid]
+      const trailPoints = full && full.length > 0 ? full : d.recentTrail
+      for (const p of trailPoints) {
         points.push([Number(p.latitude), Number(p.longitude)])
       }
       points.push([Number(d.pickup.latitude), Number(d.pickup.longitude)])
@@ -79,7 +83,7 @@ function FitAllDeliveries({
     }
     const bounds = L.latLngBounds(points)
     map.fitBounds(bounds.pad(0.15), { maxZoom: selectedUuid ? 15 : 12, animate: true })
-  }, [deliveries, map, selectedUuid, routes])
+  }, [deliveries, map, selectedUuid, routes, fullTrailByUuid])
   return null
 }
 
@@ -87,6 +91,8 @@ interface DaLiveLogisticsMapProps {
   deliveries: DaLiveDelivery[]
   selectedUuid: string | null
   serverTime?: string | null
+  /** Full GPS history for selected delivery (from actual-route API). */
+  fullTrailByUuid?: Record<string, DaContainerTrailPoint[]>
   height?: number
 }
 
@@ -94,6 +100,7 @@ export function DaLiveLogisticsMap({
   deliveries,
   selectedUuid,
   serverTime,
+  fullTrailByUuid,
   height = 520,
 }: DaLiveLogisticsMapProps) {
   const visible = useMemo(() => {
@@ -163,9 +170,16 @@ export function DaLiveLogisticsMap({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <FitAllDeliveries deliveries={visible} selectedUuid={selectedUuid} routes={routes} />
+        <FitAllDeliveries
+          deliveries={visible}
+          selectedUuid={selectedUuid}
+          routes={routes}
+          fullTrailByUuid={fullTrailByUuid}
+        />
         {visible.map((d) => {
-          const trail = d.recentTrail.map((p) => [Number(p.latitude), Number(p.longitude)] as [number, number])
+          const full = fullTrailByUuid?.[d.containerUuid]
+          const source = full && full.length > 0 ? full : d.recentTrail
+          const trail = source.map((p) => [Number(p.latitude), Number(p.longitude)] as [number, number])
           const lat = d.currentLatitude != null ? Number(d.currentLatitude) : null
           const lng = d.currentLongitude != null ? Number(d.currentLongitude) : null
           const gps = resolveDriverGpsDisplay(d, serverTime)
