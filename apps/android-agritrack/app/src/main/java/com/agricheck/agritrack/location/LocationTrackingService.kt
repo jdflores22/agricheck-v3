@@ -17,7 +17,10 @@ import com.agricheck.agritrack.MainActivity
 import com.agricheck.agritrack.R
 import com.agricheck.agritrack.navigation.NavigationNotificationState
 import com.agricheck.agritrack.navigation.NavigationTrafficStripBitmap
+import com.agricheck.agritrack.push.AgriTrackNotificationStyle
+import com.agricheck.agritrack.push.OfflineRecordingNotifier
 import com.agricheck.agritrack.push.PushNotificationManager
+import android.view.View
 import kotlinx.coroutines.*
 
 class LocationTrackingService : Service() {
@@ -32,10 +35,11 @@ class LocationTrackingService : Service() {
     private fun handleLocationUpdate(location: Location) {
         val uuid = containerUuid ?: return
         scope.launch {
-            locationSync.onLocationSample(uuid, location)
-        }
-        if (navigationMode) {
-            postNavigationNotification()
+            val showOfflineAlert = locationSync.onLocationSample(uuid, location)
+            if (showOfflineAlert) {
+                OfflineRecordingNotifier.showOfflineAlert(this@LocationTrackingService)
+            }
+            refreshForegroundNotification()
         }
     }
 
@@ -53,7 +57,7 @@ class LocationTrackingService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_REFRESH_NOTIFICATION -> {
-                if (navigationMode) postNavigationNotification()
+                refreshForegroundNotification()
                 return START_STICKY
             }
             ACTION_START, ACTION_UPDATE -> {
@@ -71,7 +75,7 @@ class LocationTrackingService : Service() {
                 }
                 startForeground(NOTIFICATION_ID, buildTrackingNotification())
                 startLocationUpdates()
-                postNavigationNotification()
+                refreshForegroundNotification()
             }
         }
         return START_STICKY
@@ -120,7 +124,7 @@ class LocationTrackingService : Service() {
         }
     }
 
-    private fun postNavigationNotification() {
+    private fun refreshForegroundNotification() {
         val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         manager.notify(NOTIFICATION_ID, buildTrackingNotification())
     }
@@ -143,23 +147,27 @@ class LocationTrackingService : Service() {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val title = if (navigationMode) {
-            getString(R.string.nav_notification_title)
-        } else {
-            getString(R.string.tracking_notification_title)
+        val offline = DriverGpsConnectivityState.isNetworkOffline
+        val title = when {
+            offline && !navigationMode -> getString(R.string.tracking_notification_offline_title)
+            navigationMode -> getString(R.string.nav_notification_title)
+            else -> getString(R.string.tracking_notification_title)
         }
         val body = when {
+            offline && !navigationMode -> getString(R.string.tracking_notification_offline_body)
             navigationMode && dest != null ->
                 getString(R.string.nav_notification_body_to, dest, number)
             navigationMode ->
                 getString(R.string.nav_notification_body_active, number)
             else -> getString(R.string.tracking_notification_body)
         }
-        val builder = NotificationCompat.Builder(this, PushNotificationManager.CHANNEL_TRACKING)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setOngoing(true)
-            .setContentIntent(pending)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+        val builder = AgriTrackNotificationStyle.applyBranding(
+            this,
+            NotificationCompat.Builder(this, PushNotificationManager.CHANNEL_TRACKING)
+                .setOngoing(true)
+                .setContentIntent(pending)
+                .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE),
+        )
 
         if (navigationMode) {
             val state = NavigationNotificationState
@@ -197,6 +205,11 @@ class LocationTrackingService : Service() {
             hasTrafficData = state.hasGoogleTrafficLine,
         )
         views.setImageViewBitmap(R.id.nav_notification_traffic_strip, strip)
+        if (DriverGpsConnectivityState.isNetworkOffline) {
+            views.setViewVisibility(R.id.nav_notification_offline_status, View.VISIBLE)
+        } else {
+            views.setViewVisibility(R.id.nav_notification_offline_status, View.GONE)
+        }
         return views
     }
 
@@ -210,6 +223,13 @@ class LocationTrackingService : Service() {
         const val EXTRA_DESTINATION_LABEL = "destination_label"
         const val EXTRA_NAVIGATION_MODE = "navigation_mode"
         private const val NOTIFICATION_ID = 4101
+
+        fun requestNotificationRefresh(context: Context) {
+            val intent = Intent(context, LocationTrackingService::class.java).apply {
+                action = ACTION_REFRESH_NOTIFICATION
+            }
+            context.startService(intent)
+        }
 
         fun start(context: Context, containerUuid: String) {
             val intent = Intent(context, LocationTrackingService::class.java).apply {

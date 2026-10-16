@@ -2,7 +2,9 @@
 <resources>
     <string name="app_name">AgriTrack</string>
     <string name="login_title">Sign in</string>
-    <string name="login_subtitle">Driver &amp; operator app for AgriCheck</string>
+    <string name="login_subtitle">Sign in with your driver or operator account.</string>
+    <string name="login_register_link">New driver? Register with invite code</string>
+    <string name="login_demo_hint">Demo: driver@agricheck.local / Driver@12345</string>
     <string name="email">Email</string>
     <string name="password">Password</string>
     <string name="sign_in">Sign in</string>
@@ -14,11 +16,20 @@
     <string name="logout">Log out</string>
     <string name="push_channel_assignments">Container assignments</string>
     <string name="push_channel_tracking">GPS tracking</string>
+    <string name="push_channel_gps_alerts">GPS &amp; offline alerts</string>
     <string name="tracking_notification_title">AgriTrack GPS active</string>
     <string name="tracking_notification_body">Recording location while in transit</string>
+    <string name="tracking_notification_offline_title">AgriTrack — recording offline</string>
+    <string name="tracking_notification_offline_body">No internet. GPS is still saved on this device and will sync when you\'re back online.</string>
+    <string name="offline_recording_alert_title">Trip still recording (offline)</string>
+    <string name="offline_recording_alert_body">No mobile data or Wi‑Fi. AgriTrack keeps capturing your GPS on this phone. Coordinates upload automatically when connection returns.</string>
+    <string name="nav_notification_offline_status">Offline — GPS still recording on device</string>
     <string name="nav_notification_title">AgriTrack navigation</string>
     <string name="nav_notification_body_to">Navigating to %1$s · %2$s</string>
     <string name="nav_notification_body_active">Map navigation active · %1$s</string>
+    <string name="nav_notification_traffic_strip_desc">Route traffic ahead</string>
+    <string name="nav_notification_maneuver_icon_desc">Next turn</string>
+    <string name="nav_notification_maneuver_fallback">Navigation in progress</string>
     <string name="assignment_notification_title">New assignment</string>
     <string name="assignment_notification_body">Container %1$s assigned to you</string>
 </resources>

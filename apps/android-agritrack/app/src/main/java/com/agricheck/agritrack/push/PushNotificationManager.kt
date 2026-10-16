@@ -20,6 +20,7 @@ import kotlinx.coroutines.tasks.await
 object PushNotificationManager {
     const val CHANNEL_ASSIGNMENTS = "agritrack_assignments"
     const val CHANNEL_TRACKING = "agritrack_tracking"
+    const val CHANNEL_GPS_ALERTS = "agritrack_gps_alerts"
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -36,6 +37,13 @@ object PushNotificationManager {
                 CHANNEL_TRACKING,
                 context.getString(R.string.push_channel_tracking),
                 NotificationManager.IMPORTANCE_LOW,
+            ),
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_GPS_ALERTS,
+                context.getString(R.string.push_channel_gps_alerts),
+                NotificationManager.IMPORTANCE_DEFAULT,
             ),
         )
     }
@@ -62,14 +70,15 @@ object PushNotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ASSIGNMENTS)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(context.getString(R.string.assignment_notification_title))
-            .setContentText(context.getString(R.string.assignment_notification_body, containerNumber))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(pending)
-            .build()
+        val notification = AgriTrackNotificationStyle.applyBranding(
+            context,
+            NotificationCompat.Builder(context, CHANNEL_ASSIGNMENTS)
+                .setContentTitle(context.getString(R.string.assignment_notification_title))
+                .setContentText(context.getString(R.string.assignment_notification_body, containerNumber))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pending),
+        ).build()
 
         NotificationManagerCompat.from(context).notify(containerNumber.hashCode(), notification)
     }

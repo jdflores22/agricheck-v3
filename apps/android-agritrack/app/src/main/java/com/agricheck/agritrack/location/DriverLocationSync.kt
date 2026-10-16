@@ -27,11 +27,12 @@ class DriverLocationSync(private val context: Context) {
      * Persists GPS on device first (works with **no internet**). Upload runs when online.
      * File: `files/pending_driver_locations.json`
      */
-    suspend fun onLocationSample(containerUuid: String, location: Location) {
+    suspend fun onLocationSample(containerUuid: String, location: Location): Boolean {
         val now = System.currentTimeMillis()
         val lat = location.latitude
         val lng = location.longitude
         val offline = !context.hasInternetConnectivity()
+        val showOfflineAlert = DriverGpsConnectivityState.onSample(offline)
 
         val localInterval = if (offline) {
             DriverTrackingPolicy.OFFLINE_LOCAL_LOG_MIN_INTERVAL_MS
@@ -62,6 +63,7 @@ class DriverLocationSync(private val context: Context) {
                 flushPendingUploads()
             }
         }
+        return showOfflineAlert
     }
 
     private suspend fun saveCoordinateOnDevice(
