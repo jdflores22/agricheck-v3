@@ -148,6 +148,12 @@ Keep last known-good API + SPA artifacts tagged in CI for 30 days.
 
 ---
 
+## 8. AgriTrack QR scanning (operator & doctor)
+
+Before production cutover for camera-based QR in the ops portal, complete [AGRITRACK-QR-SCAN-DEPLOYMENT-CHECKLIST.md](./AGRITRACK-QR-SCAN-DEPLOYMENT-CHECKLIST.md) (HTTPS, `Jwt__SecretKey` / `App__QrSigningKey`, role audit, smoke tests).
+
+---
+
 ## Sign-off
 
 | Step | Owner | Date | Done |
@@ -155,5 +161,6 @@ Keep last known-good API + SPA artifacts tagged in CI for 30 days.
 | DB migrated | | | ☐ |
 | API deployed | | | ☐ |
 | SPA deployed | | | ☐ |
+| AgriTrack QR checklist | | | ☐ |
 | Smoke test pass | | | ☐ |
 | Monitoring alerts on | | | ☐ |

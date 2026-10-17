@@ -89,6 +89,35 @@ export interface ContainerDeliveryStop {
   longitude: number
 }
 
+export interface ContainerDeliveryLegSummary {
+  leg: string
+  title: string
+  arrivedAtUtc?: string | null
+  departedAtUtc?: string | null
+  photoRelativeUrl?: string | null
+  statusLabel?: string | null
+  captureLatitude?: number | null
+  captureLongitude?: number | null
+}
+
+export interface ContainerTrack {
+  containerUuid: string
+  containerNumber: string
+  entryReference: string
+  status: string
+  currentLatitude?: number | null
+  currentLongitude?: number | null
+  pickup: ContainerDeliveryStop
+  destination: ContainerDeliveryStop
+  trail: { latitude: number; longitude: number; recordedAt: string }[]
+  handoffQrAvailable: boolean
+  deliveryComplianceHoldActive: boolean
+  deliveryComplianceHoldReason?: string | null
+  deliverySummary?: ContainerDeliveryLegSummary[] | null
+  assignedDriverName?: string | null
+  assignedVehiclePlate?: string | null
+}
+
 export interface OperatorDeliveryStops {
   containerUuid: string
   containerNumber: string
@@ -350,6 +379,10 @@ export const opsApi = createApi({
       query: () => '/ops/driver/containers',
       providesTags: ['DriverContainers'],
     }),
+    getDriverContainerTrack: builder.query<ApiEnvelope<ContainerTrack>, string>({
+      query: (uuid) => `/ops/driver/containers/${uuid}/track`,
+      providesTags: (_result, _error, uuid) => [{ type: 'DriverContainers', id: uuid }],
+    }),
     updateContainerStatus: builder.mutation<ApiEnvelope<ContainerItem>, { uuid: string; status: string }>({
       query: ({ uuid, status }) => ({ url: `/ops/driver/containers/${uuid}/status`, method: 'PUT', body: { status } }),
       invalidatesTags: ['DriverContainers', 'DriverDashboard'],
@@ -479,6 +512,7 @@ export const {
   useGetDriverProfileQuery,
   useUpdateDriverProfileMutation,
   useGetDriverContainersQuery,
+  useGetDriverContainerTrackQuery,
   useUpdateContainerStatusMutation,
   useRecordContainerLocationMutation,
   useGetClaimableContainersQuery,

@@ -735,6 +735,7 @@ public class DriverOpsService : IDriverOpsService
             .Include(c => c.Entry).ThenInclude(e => e.FinalWarehouseFacility)
             .Include(c => c.Locations)
             .Include(c => c.InspectionPhotos)
+            .Include(c => c.DoctorInspections)
             .Include(c => c.AssignedDriver!).ThenInclude(d => d.Profile)
             .Include(c => c.AssignedOperatorVehicle)
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
@@ -1821,20 +1822,69 @@ public class DriverOpsService : IDriverOpsService
                 warehousePhoto?.CaptureLongitude),
         };
 
-        if (nmisHandoffConsumedAtUtc is not null)
+        var showDaNmis = container.WarehouseHandoffEligibleAt is not null ||
+            nmisHandoffConsumedAtUtc is not null ||
+            container.Status is ContainerStatus.UnderInspection
+                or ContainerStatus.Inspected
+                or ContainerStatus.Released
+                or ContainerStatus.AtWarehouse;
+        if (showDaNmis)
         {
+            var inspections = container.DoctorInspections ?? Array.Empty<ContainerDoctorInspection>();
+            var latestInspection = inspections
+                .OrderByDescending(i => i.CompletedAt ?? i.ClaimedAt ?? i.CreatedAt)
+                .FirstOrDefault();
+            var scanAt = NormalizeApiUtc(nmisHandoffConsumedAtUtc);
+            var inspectionCompletedAt = NormalizeApiUtc(latestInspection?.CompletedAt);
+            var nmisStatus = ResolveDaNmisStatusLabel(container, nmisHandoffConsumedAtUtc, latestInspection);
+
             list.Add(new ContainerDeliveryLegSummaryDto(
-                "nmis",
-                "NMIS / Doctor",
-                NormalizeApiUtc(nmisHandoffConsumedAtUtc),
+                "da_nmis",
+                "DA NMIS",
+                scanAt,
+                inspectionCompletedAt,
                 null,
-                null,
-                "QR validated — handoff complete",
+                nmisStatus,
                 null,
                 null));
         }
 
         return list;
+    }
+
+    private static string ResolveDaNmisStatusLabel(
+        Container container,
+        DateTime? nmisHandoffConsumedAtUtc,
+        ContainerDoctorInspection? latestInspection)
+    {
+        if (container.Status is ContainerStatus.Inspected or ContainerStatus.Released &&
+            latestInspection?.Status == DoctorInspectionStatus.Approved)
+        {
+            return "Container inspection completed — confirmed";
+        }
+
+        if (latestInspection?.Status == DoctorInspectionStatus.Rejected)
+        {
+            return "Inspection rejected by doctor";
+        }
+
+        if (container.Status is ContainerStatus.UnderInspection ||
+            latestInspection?.Status == DoctorInspectionStatus.InProgress)
+        {
+            return "Inspection in progress";
+        }
+
+        if (nmisHandoffConsumedAtUtc is not null)
+        {
+            return "Arrived confirmed — delivery QR scanned (trip ended)";
+        }
+
+        if (container.WarehouseHandoffEligibleAt is not null)
+        {
+            return "Awaiting DA NMIS / Doctor delivery QR scan";
+        }
+
+        return "Pending DA NMIS handoff";
     }
 
 }

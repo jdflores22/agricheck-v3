@@ -13,6 +13,7 @@ import {
   TableRow,
   TextField,
 } from '@mui/material'
+import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner'
 import {
   useClaimDoctorContainerMutation,
   useCompleteDoctorInspectionMutation,
@@ -22,6 +23,10 @@ import {
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalTablePanel } from '../../../components/portal/PortalTablePanel'
 import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
+import {
+  PortalQrScanDialog,
+  doctorDriverHandoffQrPreset,
+} from '../../../components/portal/PortalQrScanDialog'
 
 export function DoctorContainersPage() {
   const { data, isLoading } = useGetDoctorContainersQuery()
@@ -29,7 +34,6 @@ export function DoctorContainersPage() {
   const [completeInspection, { isLoading: completing }] = useCompleteDoctorInspectionMutation()
   const [scanHandoff, { isLoading: scanningHandoff }] = useScanDoctorHandoffQrMutation()
   const [scanOpen, setScanOpen] = useState(false)
-  const [scanQrData, setScanQrData] = useState('')
   const [message, setMessage] = useState('')
   const [completeTarget, setCompleteTarget] = useState<string | null>(null)
   const [decision, setDecision] = useState<'Approved' | 'Rejected'>('Approved')
@@ -46,16 +50,13 @@ export function DoctorContainersPage() {
     }
   }
 
-  const handleScanHandoff = async () => {
-    const qrData = scanQrData.trim()
-    if (!qrData) return
+  const submitHandoffQr = async (qrData: string): Promise<boolean> => {
     try {
-      await scanHandoff({ qrData }).unwrap()
+      await scanHandoff({ qrData: qrData.trim() }).unwrap()
       setMessage('Delivery handoff QR accepted — trip ended and inspection started.')
-      setScanOpen(false)
-      setScanQrData('')
+      return true
     } catch {
-      setMessage('Handoff QR rejected — expired, reused, wrong warehouse, misroute hold, or driver not at assigned warehouse.')
+      return false
     }
   }
 
@@ -81,9 +82,15 @@ export function DoctorContainersPage() {
       <PortalPageHeader
         eyebrow="Inspection"
         title="Doctor Inspection Queue"
-        subtitle="Scan the driver’s rotating warehouse QR to end the trip, then complete inspection."
+        subtitle="Scan the driver’s live AgriTrack warehouse QR to end the trip, then complete inspection."
         actions={
-          <Button size="small" variant="contained" sx={portalPrimaryButtonSx} onClick={() => setScanOpen(true)}>
+          <Button
+            size="small"
+            variant="contained"
+            sx={portalPrimaryButtonSx}
+            startIcon={<QrCodeScannerIcon />}
+            onClick={() => setScanOpen(true)}
+          >
             Scan delivery QR
           </Button>
         }
@@ -115,27 +122,13 @@ export function DoctorContainersPage() {
         ))}
       </PortalTablePanel>
 
-      <Dialog open={scanOpen} onClose={() => !scanningHandoff && setScanOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Scan delivery handoff QR</DialogTitle>
-        <DialogContent>
-          <TextField
-            label="QR payload (from scanner)"
-            value={scanQrData}
-            onChange={(e) => setScanQrData(e.target.value)}
-            fullWidth
-            multiline
-            minRows={4}
-            sx={{ mt: 1 }}
-            helperText="Screenshots and old codes are rejected. Only the live AgriTrack code works."
-          />
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setScanOpen(false)} disabled={scanningHandoff}>Cancel</Button>
-          <Button variant="contained" sx={portalPrimaryButtonSx} onClick={handleScanHandoff} disabled={scanningHandoff || !scanQrData.trim()}>
-            Accept handoff
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <PortalQrScanDialog
+        open={scanOpen}
+        busy={scanningHandoff}
+        preset={doctorDriverHandoffQrPreset}
+        onClose={() => setScanOpen(false)}
+        onSubmit={submitHandoffQr}
+      />
 
       <Dialog open={Boolean(completeTarget)} onClose={() => !completing && setCompleteTarget(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Complete inspection</DialogTitle>

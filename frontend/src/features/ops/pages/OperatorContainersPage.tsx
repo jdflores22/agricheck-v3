@@ -36,12 +36,16 @@ import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { PortalPanel } from '../../../components/portal/PortalPanel'
 import { PortalTablePanel } from '../../../components/portal/PortalTablePanel'
 import { portalOutlinedButtonSx, portalPrimaryButtonSx } from '../../../components/portal/portalStyles'
+import {
+  PortalQrScanDialog,
+  operatorClientTransportQrPreset,
+} from '../../../components/portal/PortalQrScanDialog'
 
 export function OperatorContainersPage() {
   const [tab, setTab] = useState(0)
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
-  const [qrData, setQrData] = useState('')
+  const [scanOpen, setScanOpen] = useState(false)
   const [message, setMessage] = useState('')
   const [assignTarget, setAssignTarget] = useState<string | null>(null)
   const [driverUuid, setDriverUuid] = useState('')
@@ -79,15 +83,14 @@ export function OperatorContainersPage() {
     }
   }
 
-  const handleScanClaim = async () => {
-    if (!qrData.trim()) return
+  const submitTransportQr = async (qrData: string): Promise<boolean> => {
     try {
-      await scanAndClaim({ qrData: qrData.trim() }).unwrap()
-      setMessage('Container claimed from transport QR.')
-      setQrData('')
+      await scanAndClaim({ qrData }).unwrap()
+      setMessage('Container claimed from client transport QR.')
       setTab(1)
+      return true
     } catch {
-      setMessage('Invalid or expired transport QR. Paste the full QR payload from the agency transport tag.')
+      return false
     }
   }
 
@@ -161,8 +164,12 @@ export function OperatorContainersPage() {
 
       {tab === 0 && (
         <>
-          <PortalPanel title="Find or scan transport QR">
+          <PortalPanel title="Find or scan client transport QR">
             <Stack spacing={2} sx={{ p: 2.5 }}>
+              <Typography variant="body2" color="text.secondary">
+                Claim loads using the transport QR from the client or agency portal — not the driver&apos;s warehouse
+                handoff QR (that is for DA NMIS / doctor only).
+              </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField
                   label="Search container or entry ref"
@@ -175,23 +182,13 @@ export function OperatorContainersPage() {
                   Search
                 </Button>
               </Stack>
-              <TextField
-                label="Transport QR payload"
-                value={qrData}
-                onChange={(e) => setQrData(e.target.value)}
-                fullWidth
-                multiline
-                minRows={2}
-                placeholder="Paste scanned QR text from the agency transport tag"
-              />
               <Button
                 variant="contained"
                 startIcon={<QrCodeScannerIcon />}
                 sx={portalPrimaryButtonSx}
-                onClick={handleScanClaim}
-                disabled={scanning || !qrData.trim()}
+                onClick={() => setScanOpen(true)}
               >
-                {scanning ? 'Claiming…' : 'Scan & claim'}
+                Scan client transport QR
               </Button>
             </Stack>
           </PortalPanel>
@@ -373,6 +370,14 @@ export function OperatorContainersPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <PortalQrScanDialog
+        open={scanOpen}
+        busy={scanning}
+        preset={operatorClientTransportQrPreset}
+        onClose={() => setScanOpen(false)}
+        onSubmit={submitTransportQr}
+      />
     </Box>
   )
 }

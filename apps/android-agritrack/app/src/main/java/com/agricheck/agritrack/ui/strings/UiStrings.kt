@@ -57,13 +57,19 @@ object UiStrings {
         const val offRouteBlockedTitle = "Return to assigned route"
         const val offRouteBlockedBody =
             "You are too far from the approved directions. Continue only toward your assigned pickup or warehouse. This event is logged for DA oversight."
+        const val alertDismissCountdown = "Auto-dismiss in %d s"
+        const val alertDismissNow = "Dismiss alert"
         const val suggestedRouteHint = "Suggested route: pickup to warehouse"
         const val compass = "Compass · north up / heading up"
         const val recenter = "Recenter"
         const val routePreview = "Route preview"
+        const val googleMapsRequired =
+            "Google Maps is required. Add GOOGLE_MAPS_API_KEY, enable Navigation SDK, and set your app SHA-1 in Google Cloud."
         const val legToPickup = "Leg 1 · to pickup"
         const val legToDestination = "Leg 2 · to warehouse"
         const val startButton = "Start navigation"
+        const val inAppGoogleNavigation =
+            "Google map & routes inside AgriTrack — no switch to the Google Maps app."
         const val settingsTitle = "Map options"
         const val settingTraffic = "Show traffic on map"
         const val settingSatellite = "Satellite map"
@@ -88,6 +94,31 @@ object UiStrings {
         const val locationAccuracyPoor = "Waiting for a more accurate GPS fix. Try outdoors or enable high accuracy location."
         const val mustBeAtPickupForWarehouse = "You must be at the pickup point (accurate GPS) before navigating to the warehouse."
         const val waitingForQrScan = "Waiting for NMIS/Doctor to scan delivery QR."
+        const val tripCompleted = "This delivery is completed. No further navigation is needed."
+        const val tripSummaryTitle = "Trip summary"
+        const val tripSummarySubtitle = "Here's the status of your current trip."
+        const val bookingId = "Booking ID"
+        const val routeBadgeStart = "Start"
+        const val routeBadgeDestination = "Destination"
+        const val viewImageAction = "View image"
+        const val bookingIdCopied = "Booking ID copied"
+        const val plateNumber = "Plate"
+        const val driverLabel = "Driver"
+        const val routePickup = "Pickup"
+        const val routeWarehouse = "Warehouse"
+        const val summaryArrived = "Arrived"
+        const val summaryDeparted = "Left"
+        const val summaryViewImage = "View image"
+        const val summaryNoTimestamp = "Date & time will appear after you confirm this stop."
+        const val summaryGeneratingQr = "Generating delivery QR…"
+        const val summaryNmisValidated = "NMIS / Doctor validated your delivery QR."
+        const val daNmisTitle = "DA NMIS"
+        const val daNmisScanConfirmed = "QR scan confirmed (arrived)"
+        const val daNmisAwaitingScan = "Awaiting DA NMIS / Doctor delivery QR scan"
+        const val daNmisInspectionCompleted = "Inspection completed"
+        const val daNmisInspectionPending = "Inspection date & time will appear when the doctor completes inspection."
+        const val daNmisContainerConfirmed = "Container confirmed complete"
+        const val geotagImageTitle = "Geotag proof"
         const val tripEndsWithQr = ""
         const val overviewHint = ""
         const val routeLegendPickupFirst = ""
@@ -102,6 +133,8 @@ object UiStrings {
         const val you = "You"
         const val muteVoice = "Mute voice"
         const val unmuteVoice = "Unmute voice"
+        const val arrivalGpsSynced = "At destination — synced %d GPS point(s) to your trail."
+        const val arrivalGpsUpToDate = "At destination — GPS trail is up to date. Confirm arrival when ready."
     }
 
     object Permissions {
@@ -174,6 +207,7 @@ object UiStrings {
         const val startPhotos = "Take 2 photos"
         const val submitting = "Sending incident report…"
         const val submitted = "Incident report sent to DA."
+        const val submitFailed = "Could not send incident report. Try again or contact support."
         const val locationRequired = "GPS fix required before reporting an incident."
     }
 
@@ -207,10 +241,10 @@ object UiStrings {
         const val aboutTitle = "AgriCheck V3"
         const val aboutBody = "AgriTrack mobile app for container transport."
         const val apiSettings = "API settings"
-        const val mapsOn = "Google Directions on · in-app map: OSM"
+        const val mapsOn = "Google Maps · Directions & traffic"
         const val mapsTilesOn = "Google map tiles on"
-        const val mapsOff = "OSM map + OSRM routing"
-        const val mapsKeyOnly = "Google Directions on · OSM map (default)"
+        const val mapsOff = "Add GOOGLE_MAPS_API_KEY for Google Maps"
+        const val mapsKeyOnly = "Google Maps configured"
         fun version(name: String) = "Version $name · Android"
     }
 
@@ -293,6 +327,10 @@ object UiStrings {
         const val entryPrefix = "Entry"
         const val handoffDefault = "Show this QR at the warehouse for NMIS/Doctor to scan."
         const val rotatingHint = "Code refreshes automatically — screenshots cannot be reused."
+        const val waitingForArrival =
+            "Confirm arrival at the warehouse on the map first. This screen will load and refresh your QR automatically."
+        const val waitingForGps =
+            "Stay within the warehouse area. Waiting for GPS — your QR will appear shortly."
         const val noEndTrip = ""
     }
 

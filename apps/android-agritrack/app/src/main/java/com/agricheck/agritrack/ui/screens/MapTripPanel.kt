@@ -1,7 +1,6 @@
 package com.agricheck.agritrack.ui.screens
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -86,6 +85,7 @@ fun MapTripPanel(
     waitingAtWarehouse: Boolean,
     pickupBusy: Boolean,
     arriveBusy: Boolean,
+    tripCompleted: Boolean = false,
     startNavigationBusy: Boolean,
     startNavigationEnabled: Boolean,
     startNavigationHint: String?,
@@ -120,6 +120,8 @@ fun MapTripPanel(
                     plate = data.assignedVehiclePlate,
                 )
                 Spacer(Modifier.height(12.dp))
+                val tripLegs = summaryLegs.filter { it.leg == "pickup" || it.leg == "warehouse" }
+                val daNmisLeg = summaryLegs.firstOrNull { it.leg == "da_nmis" || it.leg == "nmis" }
                 TripSummaryCard(
                     pickupName = data.pickup.name,
                     pickupLat = data.pickup.latitude,
@@ -127,10 +129,14 @@ fun MapTripPanel(
                     warehouseName = data.destination.name,
                     warehouseLat = data.destination.latitude,
                     warehouseLng = data.destination.longitude,
-                    summaryLegs = summaryLegs,
+                    summaryLegs = tripLegs,
                     apiBaseUrl = apiBaseUrl,
                     onViewGeotag = { geotagPreviewUrl = it },
                 )
+                daNmisLeg?.let { leg ->
+                    Spacer(Modifier.height(12.dp))
+                    DaNmisHandoffCard(leg = leg, containerStatus = data.status)
+                }
                 Spacer(Modifier.height(12.dp))
             }
 
@@ -165,46 +171,56 @@ fun MapTripPanel(
             }
 
             if (!drivingMode) {
-                if (waitingAtWarehouse) {
+                if (tripCompleted) {
                     Text(
-                        UiStrings.Map.waitingForQrScan,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = AgriColors.Primary,
+                        UiStrings.Map.tripCompleted,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = RouteGreen,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.padding(top = 8.dp),
                     )
-                }
-                startNavigationHint?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = AgriColors.TextSecondary)
-                }
-                if (!waitingAtWarehouse) {
-                    Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = onStartNavigation,
-                        enabled = startNavigationEnabled && !startNavigationBusy,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = AgriColors.Primary),
-                    ) {
-                        if (startNavigationBusy) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                modifier = Modifier.size(22.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            Icon(Icons.Default.LocalShipping, contentDescription = null, tint = Color.White)
-                            Spacer(Modifier.width(8.dp))
-                            Text(UiStrings.Map.startButton, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    if (showInAppGoogleHint) {
+                } else {
+                    if (waitingAtWarehouse) {
                         Text(
-                            UiStrings.Map.inAppGoogleNavigation,
+                            UiStrings.Map.waitingForQrScan,
                             style = MaterialTheme.typography.bodySmall,
-                            color = AgriColors.TextSecondary,
+                            color = AgriColors.Primary,
+                            fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(top = 6.dp),
                         )
+                    }
+                    startNavigationHint?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = AgriColors.TextSecondary)
+                    }
+                    if (!waitingAtWarehouse) {
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = onStartNavigation,
+                            enabled = startNavigationEnabled && !startNavigationBusy,
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AgriColors.Primary),
+                        ) {
+                            if (startNavigationBusy) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    modifier = Modifier.size(22.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(Icons.Default.LocalShipping, contentDescription = null, tint = Color.White)
+                                Spacer(Modifier.width(8.dp))
+                                Text(UiStrings.Map.startButton, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (showInAppGoogleHint) {
+                            Text(
+                                UiStrings.Map.inAppGoogleNavigation,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = AgriColors.TextSecondary,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
                     }
                 }
             } else {
@@ -253,7 +269,7 @@ fun MapTripPanel(
                 )
             }
 
-            if (showQr && !waitingAtWarehouse) {
+            if (showQr && !waitingAtWarehouse && !tripCompleted) {
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(onClick = onOpenQr, modifier = Modifier.fillMaxWidth()) {
                     Text(UiStrings.Map.deliveryQr)
@@ -546,38 +562,87 @@ private fun RouteBadge(text: String, bg: Color, fg: Color) {
 }
 
 @Composable
+private fun DaNmisHandoffCard(
+    leg: ContainerDeliveryLegSummaryDto,
+    containerStatus: String,
+) {
+    val scanTime = formatLegTime(leg.arrivedAtUtc)
+    val inspectionTime = formatLegTime(leg.departedAtUtc)
+    val tripComplete = containerStatus.equals("Inspected", ignoreCase = true) ||
+        containerStatus.equals("Released", ignoreCase = true)
+    val completeGreen = Color(0xFF15803D)
+
+    ElevatedCard(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = Color.White),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Verified,
+                    contentDescription = null,
+                    tint = BlueAccent,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    UiStrings.Map.daNmisTitle,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = BlueAccent,
+                    letterSpacing = 0.4.sp,
+                )
+            }
+            leg.statusLabel?.let { status ->
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    status,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = NavyText,
+                    maxLines = 3,
+                )
+            }
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 12.dp),
+                color = CardBorder,
+            )
+            Text(
+                scanTime?.let { "${UiStrings.Map.daNmisScanConfirmed} · $it" }
+                    ?: UiStrings.Map.daNmisAwaitingScan,
+                fontSize = 12.sp,
+                color = MutedCoord,
+                maxLines = 2,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                inspectionTime?.let { "${UiStrings.Map.daNmisInspectionCompleted} · $it" }
+                    ?: UiStrings.Map.daNmisInspectionPending,
+                fontSize = 12.sp,
+                color = MutedCoord,
+                maxLines = 2,
+            )
+            if (tripComplete) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "${UiStrings.Map.daNmisContainerConfirmed} ($containerStatus)",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = completeGreen,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun TripProgressLegRow(
     leg: ContainerDeliveryLegSummaryDto,
     apiBaseUrl: String,
     onViewGeotag: (String) -> Unit,
 ) {
-    if (leg.leg == "nmis") {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Default.Verified,
-                contentDescription = null,
-                tint = BlueAccent,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(leg.title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = NavyText)
-                leg.statusLabel?.let {
-                    Text(it, fontSize = 11.sp, color = BlueAccent, maxLines = 2)
-                }
-                formatLegTime(leg.arrivedAtUtc)?.let { time ->
-                    Text(time, fontSize = 11.sp, color = MutedCoord)
-                }
-            }
-        }
-        return
-    }
-
     val photoUrl = ApiAssetUrl.resolve(apiBaseUrl, leg.photoRelativeUrl)
     val arrived = formatLegTime(leg.arrivedAtUtc)
     val departed = formatLegTime(leg.departedAtUtc)
