@@ -771,6 +771,8 @@ public class DriverOpsService : IDriverOpsService
             .Select(t => t.ConsumedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
+        await EnsureWarehouseHandoffEligibilityAsync(container, cancellationToken);
+
         return new ContainerTrackDto(
             container.Uuid,
             container.ContainerNumber,
@@ -879,11 +881,12 @@ public class DriverOpsService : IDriverOpsService
         var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
         var container = await _db.Containers
             .Include(c => c.Entry)
+            .Include(c => c.InspectionPhotos)
             .Include(c => c.Locations)
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
 
-        if (container.Status is not ContainerStatus.InTransit and not ContainerStatus.PickedUp)
+        if (!WarehouseHandoffHelper.CanIssueDeliveryHandoffQr(container))
         {
             throw new ClientPortalException("INVALID_STATUS", "Delivery QR is only available while the trip is in progress at the assigned warehouse.");
         }
@@ -894,6 +897,8 @@ public class DriverOpsService : IDriverOpsService
                 "COMPLIANCE_HOLD",
                 DeliveryComplianceHoldHelper.HoldUserMessage(container.DeliveryComplianceHoldReason));
         }
+
+        await EnsureWarehouseHandoffEligibilityAsync(container, cancellationToken);
 
         if (container.WarehouseHandoffEligibleAt is null)
         {
@@ -1713,6 +1718,42 @@ public class DriverOpsService : IDriverOpsService
             DateTimeKind.Local => value.Value.ToUniversalTime(),
             _ => DateTime.SpecifyKind(value.Value, DateTimeKind.Utc),
         };
+    }
+
+    private async Task EnsureWarehouseHandoffEligibilityAsync(
+        Container container,
+        CancellationToken cancellationToken)
+    {
+        if (container.WarehouseHandoffEligibleAt is not null)
+        {
+            return;
+        }
+
+        if (!WarehouseHandoffHelper.CanIssueDeliveryHandoffQr(container))
+        {
+            return;
+        }
+
+        var photos = container.InspectionPhotos;
+        if (photos is null || photos.Count == 0)
+        {
+            photos = await _db.ContainerInspectionPhotos
+                .Where(p => p.ContainerId == container.Id)
+                .ToListAsync(cancellationToken);
+        }
+
+        var warehousePhoto = photos
+            .Where(p => p.PhotoType == ContainerInspectionPhotoType.DriverWarehouseGeotag)
+            .OrderByDescending(p => p.CapturedAtUtc ?? p.CreatedAt)
+            .FirstOrDefault();
+        if (warehousePhoto is null)
+        {
+            return;
+        }
+
+        container.WarehouseHandoffEligibleAt =
+            warehousePhoto.CapturedAtUtc ?? warehousePhoto.CreatedAt;
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     private static string DriverGeotagPhotoRelativeUrl(Guid containerUuid, Guid photoUuid) =>

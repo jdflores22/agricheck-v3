@@ -1,14 +1,11 @@
 package com.agricheck.agritrack.data.api
 
-import android.util.Base64
+import com.agricheck.agritrack.BuildConfig
 import com.agricheck.agritrack.data.local.TokenStore
 import com.agricheck.agritrack.data.model.AuthResponseDto
-import com.agricheck.agritrack.data.model.RefreshTokenRequest
+import com.agricheck.agritrack.util.TokenExpiry
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.long
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -27,11 +24,11 @@ class AuthInterceptor(
     private val baseUrl: String,
 ) : Interceptor {
     private val lock = ReentrantLock()
-    private var refreshBlocked = false
+    private var refreshPermanentlyInvalid = false
     private val json = Json { ignoreUnknownKeys = true }
 
     fun resetSession() {
-        lock.withLock { refreshBlocked = false }
+        lock.withLock { refreshPermanentlyInvalid = false }
     }
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -42,7 +39,7 @@ class AuthInterceptor(
 
         val token = runBlocking { tokenStore.getAccessToken() }
         val authedRequest = if (!token.isNullOrBlank()) {
-            val bearer = if (isTokenExpired(token)) refreshToken() ?: token else token
+            val bearer = if (TokenExpiry.isJwtExpired(token)) refreshAccessToken() ?: token else token
             request.newBuilder().header("Authorization", "Bearer $bearer").build()
         } else {
             request
@@ -51,7 +48,7 @@ class AuthInterceptor(
         var response = chain.proceed(authedRequest)
         if (response.code == 401 && !request.url.encodedPath.contains("/auth/")) {
             response.close()
-            val refreshed = refreshToken()
+            val refreshed = refreshAccessToken()
             if (refreshed != null) {
                 val retry = request.newBuilder().header("Authorization", "Bearer $refreshed").build()
                 response = chain.proceed(retry)
@@ -60,15 +57,18 @@ class AuthInterceptor(
         return response
     }
 
-    private fun refreshToken(): String? = lock.withLock {
-        if (refreshBlocked) return null
-        val refresh = runBlocking { tokenStore.getRefreshToken() } ?: run {
-            refreshBlocked = true
-            runBlocking { tokenStore.clear() }
-            return null
-        }
+    /**
+     * Renews the access token. Only clears stored credentials when the server rejects the refresh token.
+     * Network errors leave the session intact so the user is not logged out while offline.
+     */
+    fun refreshAccessToken(): String? = lock.withLock {
+        if (refreshPermanentlyInvalid) return null
+        val refresh = runBlocking { tokenStore.getRefreshToken() } ?: return null
 
-        val client = OkHttpClient.Builder().build()
+        val client = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
         val body = """{"refreshToken":"$refresh"}"""
         val refreshRequest = Request.Builder()
             .url("${baseUrl.trimEnd('/')}/api/v1/auth/refresh")
@@ -77,42 +77,30 @@ class AuthInterceptor(
 
         return try {
             client.newCall(refreshRequest).execute().use { response ->
+                val responseBody = response.body?.string() ?: ""
                 if (!response.isSuccessful) {
-                    refreshBlocked = true
-                    runBlocking { tokenStore.clear() }
+                    if (shouldInvalidateSession(response.code, responseBody)) {
+                        refreshPermanentlyInvalid = true
+                        runBlocking { tokenStore.clear() }
+                    }
                     return null
                 }
-                val responseBody = response.body?.string() ?: return null
                 val envelope = json.decodeFromString<com.agricheck.agritrack.data.model.ApiEnvelope<AuthResponseDto>>(responseBody)
                 val auth = envelope.data ?: return null
                 runBlocking { tokenStore.saveAuth(auth.tokens, auth.user) }
                 auth.tokens.accessToken
             }
         } catch (_: Exception) {
-            refreshBlocked = true
-            runBlocking { tokenStore.clear() }
             null
         }
     }
 
-    private fun isTokenExpired(token: String, skewSeconds: Long = 30): Boolean {
-        return try {
-            val payload = token.split(".")[1]
-            val decoded = String(decodeBase64Url(payload))
-            val exp = json.parseToJsonElement(decoded).jsonObject["exp"]?.jsonPrimitive?.long ?: return false
-            System.currentTimeMillis() >= (exp * 1000) - (skewSeconds * 1000)
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun decodeBase64Url(input: String): ByteArray {
-        var base64 = input.replace('-', '+').replace('_', '/')
-        when (base64.length % 4) {
-            2 -> base64 += "=="
-            3 -> base64 += "="
-        }
-        return Base64.decode(base64, Base64.DEFAULT)
+    private fun shouldInvalidateSession(httpCode: Int, body: String): Boolean {
+        if (httpCode != 400 && httpCode != 401 && httpCode != 403) return false
+        val lower = body.lowercase()
+        return lower.contains("invalid_refresh") ||
+            lower.contains("refresh token is invalid") ||
+            lower.contains("invalid or expired")
     }
 }
 
@@ -127,7 +115,11 @@ object NetworkModule {
         val normalizedBase = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         val authInterceptor = AuthInterceptor(tokenStore, normalizedBase)
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC
+            level = if (BuildConfig.DEBUG) {
+                HttpLoggingInterceptor.Level.BODY
+            } else {
+                HttpLoggingInterceptor.Level.BASIC
+            }
         }
         val client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)

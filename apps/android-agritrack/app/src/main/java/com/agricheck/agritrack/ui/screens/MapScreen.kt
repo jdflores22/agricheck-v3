@@ -816,11 +816,11 @@ fun MapScreen(
             val delayMs = runCatching { repository.deliveryHandoffQr(containerUuid) }
                 .fold(
                     onSuccess = { dto ->
-                        if (dto.qrCodeData.isNullOrBlank() && dto.qrPayload.isBlank()) {
-                            handoffQrWaiting = UiStrings.Map.summaryGeneratingQr
-                        } else {
+                        if (dto.qrPayload.isNotBlank() || !dto.qrCodeData.isNullOrBlank()) {
                             handoffQr = dto
                             handoffQrWaiting = null
+                        } else {
+                            handoffQrWaiting = UiStrings.Map.summaryGeneratingQr
                         }
                         dto.refreshAfterSeconds.coerceIn(30, 120) * 1000L
                     },
@@ -833,6 +833,11 @@ fun MapScreen(
                             }
                             m.contains("within the assigned warehouse", ignoreCase = true) -> {
                                 handoffQrWaiting = UiStrings.DeliveryQr.waitingForGps
+                            }
+                            m.contains("COMPLIANCE_HOLD", ignoreCase = true) ||
+                                m.contains("compliance hold", ignoreCase = true) ||
+                                m.contains("DA authority", ignoreCase = true) -> {
+                                handoffQrWaiting = m
                             }
                             handoffQr == null -> {
                                 handoffQrWaiting = m.ifBlank { UiStrings.Map.summaryGeneratingQr }

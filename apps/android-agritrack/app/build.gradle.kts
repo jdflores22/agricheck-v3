@@ -25,18 +25,31 @@ android {
         applicationId = "com.agricheck.agritrack"
         minSdk = 26
         targetSdk = 35
-        versionCode = 49
-        versionName = "1.2.46"
+        versionCode = 65
+        versionName = "1.2.62"
 
         val apiBaseUrl = localProperties.getProperty("API_BASE_URL") ?: "https://agricheck-v3-production.up.railway.app"
         val googleMapsApiKey = localProperties.getProperty("GOOGLE_MAPS_API_KEY") ?: ""
         val googleRoutingApiKey = localProperties.getProperty("GOOGLE_ROUTING_API_KEY") ?: ""
-        val enableGoogleMapTiles =
-            localProperties.getProperty("ENABLE_GOOGLE_MAP_TILES")?.equals("true", ignoreCase = true) == true
+        val enableGoogleMapTiles = localProperties.getProperty("ENABLE_GOOGLE_MAP_TILES")?.let { raw ->
+            when {
+                raw.equals("true", ignoreCase = true) -> true
+                raw.equals("false", ignoreCase = true) -> false
+                else -> googleMapsApiKey.isNotBlank()
+            }
+        } ?: googleMapsApiKey.isNotBlank()
+        val useGoogleNavigationSdk = when (
+            localProperties.getProperty("USE_GOOGLE_NAVIGATION_SDK")?.trim()?.lowercase()
+        ) {
+            "false" -> false
+            "true" -> true
+            else -> true
+        }
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "GOOGLE_MAPS_API_KEY", "\"$googleMapsApiKey\"")
         buildConfigField("String", "GOOGLE_ROUTING_API_KEY", "\"$googleRoutingApiKey\"")
         buildConfigField("boolean", "ENABLE_GOOGLE_MAP_TILES", enableGoogleMapTiles.toString())
+        buildConfigField("boolean", "USE_GOOGLE_NAVIGATION_SDK", useGoogleNavigationSdk.toString())
         buildConfigField("boolean", "FIREBASE_ENABLED", firebaseEnabled.toString())
         manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = googleMapsApiKey.ifBlank { "PLACEHOLDER_SET_IN_local_properties" }
     }
@@ -47,6 +60,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -68,7 +82,22 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    val useGoogleNavigationSdk = localProperties.getProperty("USE_GOOGLE_NAVIGATION_SDK")?.trim()?.lowercase() != "false"
+    sourceSets {
+        getByName("main").java {
+            setSrcDirs(listOf("src/main/java"))
+            if (useGoogleNavigationSdk) {
+                srcDir("src/googleNav/kotlin")
+            } else {
+                srcDir("src/mapsSdk/kotlin")
+            }
+        }
+    }
 }
+
+val navSdkVersion = "6.0.0"
+val useGoogleNavigationSdkBuild = localProperties.getProperty("USE_GOOGLE_NAVIGATION_SDK")?.trim()?.lowercase() != "false"
 
 tasks.register("exportAgriTrackReleaseApk") {
     dependsOn("assembleRelease")
@@ -110,9 +139,14 @@ dependencies {
     implementation("com.jakewharton.retrofit:retrofit2-kotlinx-serialization-converter:1.0.0")
 
     implementation("com.google.android.gms:play-services-location:21.3.0")
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
-    implementation("com.google.maps.android:maps-compose:6.2.1")
-    implementation("org.osmdroid:osmdroid-android:6.1.20")
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
+    if (useGoogleNavigationSdkBuild) {
+        api("com.google.android.libraries.navigation:navigation:$navSdkVersion")
+    } else {
+        implementation("com.google.android.gms:play-services-maps:19.0.0")
+        implementation("com.google.maps.android:maps-compose:6.2.1")
+    }
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 
     val cameraxVersion = "1.4.1"
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
@@ -120,6 +154,7 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraxVersion")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("com.google.zxing:core:3.5.3")
 
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-messaging-ktx")

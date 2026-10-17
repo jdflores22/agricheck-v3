@@ -7,8 +7,15 @@ internal static class WarehouseHandoffHelper
 {
     public static bool IsHandoffQrAvailable(Container container) =>
         container.WarehouseHandoffEligibleAt is not null &&
-        container.Status is ContainerStatus.InTransit or ContainerStatus.PickedUp &&
+        (container.Status is ContainerStatus.InTransit
+            or ContainerStatus.PickedUp
+            or ContainerStatus.AtWarehouse) &&
         !DeliveryComplianceHoldHelper.HasActiveHold(container);
+
+    public static bool CanIssueDeliveryHandoffQr(Container container) =>
+        container.Status is ContainerStatus.InTransit
+            or ContainerStatus.PickedUp
+            or ContainerStatus.AtWarehouse;
 
     public static DateTime NormalizeUtc(DateTime value) =>
         value.Kind switch

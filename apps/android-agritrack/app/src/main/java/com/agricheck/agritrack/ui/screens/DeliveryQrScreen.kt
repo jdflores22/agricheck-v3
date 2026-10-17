@@ -7,11 +7,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.agricheck.agritrack.data.model.DriverDeliveryHandoffQrDto
 import com.agricheck.agritrack.data.repository.DriverRepository
 import com.agricheck.agritrack.ui.components.AgriScreenScaffold
@@ -19,7 +19,19 @@ import com.agricheck.agritrack.ui.components.ErrorState
 import com.agricheck.agritrack.ui.components.LoadingState
 import com.agricheck.agritrack.ui.strings.UiStrings
 import com.agricheck.agritrack.ui.theme.AgriColors
+import com.agricheck.agritrack.util.rememberHandoffQrImageBitmap
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+private fun Throwable.isHandoffNotReady(): Boolean {
+    val m = message.orEmpty()
+    return m.contains("Confirm arrival", ignoreCase = true) ||
+        m.contains("HANDOFF_NOT_READY", ignoreCase = true)
+}
+
+private fun Throwable.isWarehouseGeofenceRetry(): Boolean =
+    message.orEmpty().contains("within the assigned warehouse", ignoreCase = true)
 
 @Composable
 fun DeliveryQrScreen(
@@ -31,29 +43,65 @@ fun DeliveryQrScreen(
     var data by remember { mutableStateOf<DriverDeliveryHandoffQrDto?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var waitingMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    suspend fun fetchOnce(): Long {
+        return runCatching { repository.deliveryHandoffQr(containerUuid) }
+            .fold(
+                onSuccess = { dto ->
+                    data = dto
+                    error = null
+                    waitingMessage = null
+                    (dto.refreshAfterSeconds.coerceIn(30, 120) * 1000L)
+                },
+                onFailure = { e ->
+                    when {
+                        e.isHandoffNotReady() -> {
+                            waitingMessage = UiStrings.DeliveryQr.waitingForArrival
+                            error = null
+                        }
+                        e.isWarehouseGeofenceRetry() -> {
+                            waitingMessage = UiStrings.DeliveryQr.waitingForGps
+                            error = e.message
+                        }
+                        else -> {
+                            waitingMessage = null
+                            if (data == null) error = e.message
+                        }
+                    }
+                    when {
+                        e.isHandoffNotReady() -> 4_000L
+                        e.isWarehouseGeofenceRetry() -> 5_000L
+                        data != null -> 30_000L
+                        else -> 12_000L
+                    }
+                },
+            )
+    }
 
-    fun load() {
+    fun retryNow() {
         scope.launch {
-            loading = true
-            error = null
-            runCatching { repository.deliveryHandoffQr(containerUuid) }
-                .onSuccess { data = it }
-                .onFailure { error = it.message }
+            loading = data == null
+            fetchOnce()
             loading = false
         }
     }
 
-    LaunchedEffect(containerUuid) { load() }
-
-    val imageModel = data?.qrCodeData?.let { raw ->
-        if (raw.startsWith("data:")) raw else "data:image/png;base64,$raw"
+    LaunchedEffect(containerUuid) {
+        loading = data == null
+        while (isActive) {
+            val delayMs = fetchOnce()
+            loading = false
+            delay(delayMs)
+        }
     }
+
+    val qrBitmap = rememberHandoffQrImageBitmap(data?.qrPayload, data?.qrCodeData)
 
     AgriScreenScaffold(title = UiStrings.DeliveryQr.title, onBack = onBack) { padding ->
         when {
-            loading && data == null -> LoadingState()
-            error != null && data == null -> ErrorState(error ?: "Failed") { load() }
+            loading && data == null && waitingMessage == null -> LoadingState()
+            error != null && data == null && waitingMessage == null -> ErrorState(error ?: "Failed") { retryNow() }
             else -> {
                 Column(
                     Modifier
@@ -87,14 +135,14 @@ fun DeliveryQrScreen(
                         }
                     }
                     Spacer(Modifier.height(20.dp))
-                    if (imageModel != null) {
+                    if (qrBitmap != null) {
                         Surface(
                             shape = RoundedCornerShape(24.dp),
                             color = Color.White,
                             shadowElevation = 4.dp,
                         ) {
-                            AsyncImage(
-                                model = imageModel,
+                            Image(
+                                bitmap = qrBitmap,
                                 contentDescription = "Delivery QR code",
                                 modifier = Modifier
                                     .size(280.dp)
@@ -102,14 +150,41 @@ fun DeliveryQrScreen(
                                 contentScale = ContentScale.Fit,
                             )
                         }
+                    } else if (waitingMessage != null) {
+                        CircularProgressIndicator(color = AgriColors.PrimaryDark)
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            waitingMessage!!,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = AgriColors.OnSurface,
+                        )
                     }
-                    Spacer(Modifier.height(20.dp))
-                    Text(
-                        data?.handoffInstruction ?: UiStrings.DeliveryQr.handoffDefault,
-                        textAlign = TextAlign.Center,
-                        lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
-                        color = AgriColors.OnSurface,
-                    )
+                    if (data != null) {
+                        Spacer(Modifier.height(20.dp))
+                        Text(
+                            UiStrings.DeliveryQr.rotatingHint,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = AgriColors.PrimaryDark,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            data?.handoffInstruction ?: UiStrings.DeliveryQr.handoffDefault,
+                            textAlign = TextAlign.Center,
+                            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
+                            color = AgriColors.OnSurface,
+                        )
+                    }
+                    if (error != null && data != null) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            error!!,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AgriColors.TextSecondary,
+                        )
+                    }
                 }
             }
         }
