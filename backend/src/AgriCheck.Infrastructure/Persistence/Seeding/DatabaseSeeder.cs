@@ -1036,7 +1036,12 @@ public class DatabaseSeeder : IHostedService
                 PasswordHash = passwordService.Hash(password),
                 Status = UserStatus.Active,
                 EmailVerifiedAt = DateTime.UtcNow,
-                Profile = new UserProfile { FirstName = first, LastName = last }
+                Profile = new UserProfile
+                {
+                    FirstName = first,
+                    LastName = last,
+                    CompanyName = email == "operator@agricheck.local" ? "Trans-Net Trucking Services" : null,
+                },
             };
             user.UserRoles.Add(new UserRole { Role = role, AssignedAt = DateTime.UtcNow });
             db.Users.Add(user);

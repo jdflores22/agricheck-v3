@@ -28,6 +28,16 @@ public static class OperatorInviteCodeSeeder
 
         foreach (var operatorUserId in operatorUserIds)
         {
+            var operatorUser = await db.Users
+                .Include(u => u.Profile)
+                .FirstOrDefaultAsync(u => u.Id == operatorUserId, cancellationToken);
+            if (operatorUser?.Profile is not null
+                && string.IsNullOrWhiteSpace(operatorUser.Profile.CompanyName)
+                && operatorUser.Email == "operator@agricheck.local")
+            {
+                operatorUser.Profile.CompanyName = "Trans-Net Trucking Services";
+            }
+
             if (await db.OperatorInviteCodes.AnyAsync(i => i.OperatorUserId == operatorUserId, cancellationToken))
             {
                 continue;

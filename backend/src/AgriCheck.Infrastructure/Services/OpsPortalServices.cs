@@ -1579,14 +1579,37 @@ public class DriverOpsService : IDriverOpsService
         return (int)Math.Round(filled * 100.0 / fields.Length);
     }
 
-    private static Task<DriverProfileDto> MapProfileAsync(DriverProfile profile, CancellationToken cancellationToken)
+    private async Task<string?> ResolveFleetCompanyNameAsync(DriverProfile profile, CancellationToken cancellationToken)
+    {
+        var company = profile.OperatorUser?.Profile?.CompanyName?.Trim();
+        if (!string.IsNullOrWhiteSpace(company))
+        {
+            return company;
+        }
+
+        if (profile.OperatorUserId is { } operatorUserId)
+        {
+            var inviteLabel = await _db.OperatorInviteCodes
+                .AsNoTracking()
+                .Where(i => i.OperatorUserId == operatorUserId && i.IsActive)
+                .OrderByDescending(i => i.Id)
+                .Select(i => i.Label)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(inviteLabel))
+            {
+                return inviteLabel.Trim();
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<DriverProfileDto> MapProfileAsync(DriverProfile profile, CancellationToken cancellationToken)
     {
         var fullName = profile.User.Profile is null
             ? profile.User.Email
             : $"{profile.User.Profile.FirstName} {profile.User.Profile.LastName}".Trim();
-        var operatorName = profile.OperatorUser?.Profile is null
-            ? null
-            : $"{profile.OperatorUser.Profile.FirstName} {profile.OperatorUser.Profile.LastName}".Trim();
+        var operatorName = await ResolveFleetCompanyNameAsync(profile, cancellationToken);
 
         var documents = profile.Documents
             .OrderByDescending(d => d.CreatedAt)
@@ -1599,7 +1622,7 @@ public class DriverOpsService : IDriverOpsService
             profilePhotoUrl = "/api/v1/ops/driver/profile/photo";
         }
 
-        return Task.FromResult(new DriverProfileDto(
+        return new DriverProfileDto(
             fullName,
             profile.BirthDate,
             profile.LicenseNumber,
@@ -1622,7 +1645,7 @@ public class DriverOpsService : IDriverOpsService
             profile.FaceVerified,
             profile.SubmittedAt,
             profile.ApprovedAt,
-            profilePhotoUrl));
+            profilePhotoUrl);
     }
 
     private static string ResolveDriverDocumentContentType(string fileName)

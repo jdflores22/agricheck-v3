@@ -36,11 +36,10 @@ public class MobileDriverAuthService : IMobileDriverAuthService
             return new InviteCodeValidationDto(false, null, null);
         }
 
-        var operatorName = await _db.Users
+        var operatorUser = await _db.Users
             .Include(u => u.Profile)
-            .Where(u => u.Id == invite.OperatorUserId)
-            .Select(u => u.Profile == null ? u.Email : $"{u.Profile.FirstName} {u.Profile.LastName}".Trim())
-            .FirstOrDefaultAsync(cancellationToken);
+            .FirstOrDefaultAsync(u => u.Id == invite.OperatorUserId, cancellationToken);
+        var operatorName = ResolveOperatorFleetDisplayName(operatorUser, invite.Label);
 
         return new InviteCodeValidationDto(true, operatorName, invite.Label);
     }
@@ -161,4 +160,27 @@ public class MobileDriverAuthService : IMobileDriverAuthService
 
     private static string BuildAddressLine(DriverProfile profile) =>
         string.Join(", ", new[] { profile.StreetAddress, profile.ZipCode }.Where(x => !string.IsNullOrWhiteSpace(x)));
+
+    internal static string? ResolveOperatorFleetDisplayName(User? operatorUser, string? inviteLabel)
+    {
+        var company = operatorUser?.Profile?.CompanyName?.Trim();
+        if (!string.IsNullOrWhiteSpace(company))
+        {
+            return company;
+        }
+
+        var label = inviteLabel?.Trim();
+        if (!string.IsNullOrWhiteSpace(label))
+        {
+            return label;
+        }
+
+        if (operatorUser?.Profile is null)
+        {
+            return operatorUser?.Email;
+        }
+
+        var person = $"{operatorUser.Profile.FirstName} {operatorUser.Profile.LastName}".Trim();
+        return string.IsNullOrWhiteSpace(person) ? operatorUser.Email : person;
+    }
 }
