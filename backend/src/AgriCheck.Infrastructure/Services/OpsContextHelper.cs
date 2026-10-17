@@ -72,9 +72,7 @@ internal static class OpsDtoMapper
             driverUuid,
             driverName,
             vehiclePlate,
-            HandoffQrAvailable: c.WarehouseHandoffEligibleAt is not null &&
-                                c.Status is Domain.Enums.ContainerStatus.InTransit &&
-                                !DeliveryComplianceHoldHelper.HasActiveHold(c),
+            HandoffQrAvailable: WarehouseHandoffHelper.IsHandoffQrAvailable(c),
             DeliveryComplianceHoldActive: DeliveryComplianceHoldHelper.HasActiveHold(c),
             DeliveryComplianceHoldReason: DeliveryComplianceHoldHelper.HasActiveHold(c)
                 ? c.DeliveryComplianceHoldReason

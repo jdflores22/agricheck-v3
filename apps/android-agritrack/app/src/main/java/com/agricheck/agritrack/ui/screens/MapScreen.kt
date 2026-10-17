@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.SubdirectoryArrowRight
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.NearMe
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.*
@@ -24,7 +25,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -33,15 +33,19 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.agricheck.agritrack.ui.camera.GeotagCaptureScreen
+import com.agricheck.agritrack.ui.incident.DriverIncidentReportSheet
 import java.time.Instant
 import com.agricheck.agritrack.data.api.OsrmClient
+import com.agricheck.agritrack.data.api.userMessage
 import com.agricheck.agritrack.data.api.OsrmRouteResult
 import com.agricheck.agritrack.data.api.RoutingClient
 import com.agricheck.agritrack.data.model.ContainerTrackDto
+import com.agricheck.agritrack.data.model.DriverDeliveryHandoffQrDto
 import com.agricheck.agritrack.AgriTrackApp
 import com.agricheck.agritrack.data.local.PersistedNavigationSession
 import com.agricheck.agritrack.data.repository.DriverRepository
-import com.agricheck.agritrack.navigation.NavigationDriverOverlay
+import com.agricheck.agritrack.map.DriverMapLifecycle
+import com.agricheck.agritrack.navigation.NavigationMotionSmoother
 import com.agricheck.agritrack.navigation.NavigationManeuverNotificationIcons
 import com.agricheck.agritrack.navigation.NavigationNotificationState
 import com.agricheck.agritrack.navigation.NavigationPromptTracker
@@ -58,23 +62,13 @@ import com.agricheck.agritrack.location.LocationTrackingService
 import com.agricheck.agritrack.location.meetsNavigationAccuracy
 import com.agricheck.agritrack.ui.strings.UiStrings
 import com.agricheck.agritrack.ui.theme.AgriColors
-import com.agricheck.agritrack.ui.theme.MapRouteColors
 import com.agricheck.agritrack.util.*
-import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.BoundingBox
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.events.MapListener
-import org.osmdroid.events.ScrollEvent
-import org.osmdroid.events.ZoomEvent
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Polyline
 
 private val RouteGreen = Color(0xFF15803D)
 
@@ -82,6 +76,15 @@ private sealed interface PendingGeotagCapture {
     data class Pickup(val latitude: Double, val longitude: Double, val label: String?) : PendingGeotagCapture
     data class Warehouse(val latitude: Double, val longitude: Double) : PendingGeotagCapture
 }
+
+private data class PendingIncidentGeotag(
+    val step: Int,
+    val categoryCode: String,
+    val notes: String?,
+    val latitude: Double,
+    val longitude: Double,
+    val photo1: ByteArray? = null,
+)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
@@ -99,8 +102,8 @@ fun MapScreen(
     var drivingMode by remember(containerUuid) {
         mutableStateOf(restoredSession?.drivingMode == true)
     }
-    val useGoogleMaps = MapsConfig.useGoogleMapTilesInApp(context) ||
-        MapsConfig.useGoogleMapDuringNavigation(context)
+    val useGoogleNavSdk = MapsConfig.useGoogleNavigationSdk()
+    val useGoogleMaps = MapsConfig.useInAppGoogleMap(context, drivingMode)
     var recenterToken by remember { mutableIntStateOf(0) }
     var track by remember { mutableStateOf<ContainerTrackDto?>(null) }
     var route by remember { mutableStateOf<OsrmRouteResult?>(null) }
@@ -121,6 +124,12 @@ fun MapScreen(
     var arriveBusy by remember { mutableStateOf(false) }
     var pendingGeotag by remember { mutableStateOf<PendingGeotagCapture?>(null) }
     var geotagAfterCamera by remember { mutableStateOf<PendingGeotagCapture?>(null) }
+    var pendingIncidentGeotag by remember { mutableStateOf<PendingIncidentGeotag?>(null) }
+    var geotagAfterIncident by remember { mutableStateOf<PendingIncidentGeotag?>(null) }
+    var showIncidentSheet by remember { mutableStateOf(false) }
+    var incidentSubmitting by remember { mutableStateOf(false) }
+    val suspendMapForCapture =
+        pendingGeotag != null || pendingIncidentGeotag != null || showIncidentSheet
     var actionMessage by remember { mutableStateOf<String?>(null) }
     var routeLoading by remember { mutableStateOf(false) }
     var navigationBootstrapping by remember { mutableStateOf(false) }
@@ -130,6 +139,7 @@ fun MapScreen(
     var lastRouteRerouteAtMs by remember { mutableLongStateOf(0L) }
     var lastComplianceReportAtMs by remember { mutableLongStateOf(0L) }
     var routeComplianceBlocked by remember { mutableStateOf(false) }
+    var mapDriverAlert by remember { mutableStateOf<MapDriverTimedAlert?>(null) }
     var northUp by remember(containerUuid) {
         mutableStateOf(restoredSession?.northUp ?: false)
     }
@@ -146,20 +156,29 @@ fun MapScreen(
     LaunchedEffect(mapDisplaySettings.showDirections, voiceEnabled) {
         voiceAnnouncer.muted = !mapDisplaySettings.showDirections || !voiceEnabled
     }
+
+    LaunchedEffect(useGoogleNavSdk, drivingMode, mapDisplaySettings.showDirections, voiceEnabled) {
+        if (!useGoogleNavSdk || !drivingMode) return@LaunchedEffect
+        DriverMapLifecycle.applyNavigationAudio(mapDisplaySettings.showDirections && voiceEnabled)
+    }
     val promptTracker = remember { NavigationPromptTracker() }
-    val mapRef = remember { mutableStateOf<MapView?>(null) }
-    val onUserPannedMap = remember { mutableStateOf<() -> Unit>({}) }
-    onUserPannedMap.value = { followCamera = false }
+    val navMotionSmoother = remember { NavigationMotionSmoother() }
+    var navDisplayLat by remember { mutableStateOf<Double?>(null) }
+    var navDisplayLng by remember { mutableStateOf<Double?>(null) }
+    var navDisplayBearing by remember { mutableStateOf(0f) }
+    var destinationGpsSyncPrompted by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
             pendingGeotag = geotagAfterCamera
+            pendingIncidentGeotag = geotagAfterIncident
         } else {
             actionMessage = UiStrings.Permissions.cameraRequired
         }
         geotagAfterCamera = null
+        geotagAfterIncident = null
     }
 
     fun openGeotagCapture(pending: PendingGeotagCapture) {
@@ -172,12 +191,26 @@ fun MapScreen(
         }
     }
 
+    fun openIncidentGeotagCapture(pending: PendingIncidentGeotag) {
+        when (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)) {
+            PackageManager.PERMISSION_GRANTED -> pendingIncidentGeotag = pending
+            else -> {
+                geotagAfterIncident = pending
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            }
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose { voiceAnnouncer.shutdown() }
     }
 
     LaunchedEffect(drivingMode, northUp, voiceEnabled, containerUuid) {
         navSessionStore.update(containerUuid, drivingMode, northUp, voiceEnabled)
+    }
+
+    LaunchedEffect(drivingMode) {
+        if (!drivingMode) DriverMapLifecycle.onExitDrivingMode()
     }
 
     LaunchedEffect(containerUuid) {
@@ -212,6 +245,7 @@ fun MapScreen(
             containerUuid,
             containerNumber,
             towardName,
+            googleTurnByTurnActive = useGoogleNavSdk,
         )
     }
 
@@ -222,6 +256,7 @@ fun MapScreen(
             containerUuid,
             containerNumber,
             towardName,
+            googleTurnByTurnActive = useGoogleNavSdk,
         )
     }
 
@@ -268,8 +303,21 @@ fun MapScreen(
             NavigationNotificationState.clear()
             return@LaunchedEffect
         }
-        val r = route ?: return@LaunchedEffect
-        if (r.points.size < 2) return@LaunchedEffect
+        val r = route
+        if (r == null || r.points.size < 2) {
+            val fallbackLine = towardName.ifBlank { UiStrings.Home.navigationActive }
+            NavigationNotificationState.update(
+                primary = fallbackLine,
+                secondary = "",
+                pointCount = 0,
+                anchorIndex = 0,
+                intervals = emptyList(),
+                googleTraffic = false,
+                maneuverIcon = NavigationManeuverNotificationIcons.iconFor(null),
+            )
+            LocationTrackingService.refreshNavigationNotification(context)
+            return@LaunchedEffect
+        }
         val progress = routeProgressForDriver(true, r, currentLat, currentLng)
         val anchor = progress?.anchorPointIndex ?: 0
         val step = activeStep
@@ -308,6 +356,14 @@ fun MapScreen(
             maneuverIcon = NavigationManeuverNotificationIcons.iconFor(step),
         )
         LocationTrackingService.refreshNavigationNotification(context)
+    }
+
+    LaunchedEffect(drivingMode, currentLat, currentLng) {
+        if (!drivingMode) return@LaunchedEffect
+        while (isActive) {
+            delay(4_000L)
+            LocationTrackingService.refreshNavigationNotification(context)
+        }
     }
 
     val voiceStep by rememberUpdatedState(activeStep)
@@ -385,6 +441,9 @@ fun MapScreen(
 
     /** @param forceDeviceGps When true (start navigation / resume), use fresh phone GPS only. */
     suspend fun fetchNavigationRoute(data: ContainerTrackDto, forceDeviceGps: Boolean = false): Boolean {
+        if (pendingGeotag != null || pendingIncidentGeotag != null || showIncidentSheet) {
+            return false
+        }
         val origin: Pair<Double, Double>? = try {
             if (forceDeviceGps) {
                 val loc = awaitFreshDeviceLocation()
@@ -473,6 +532,7 @@ fun MapScreen(
     }
 
     suspend fun refreshPreviewRoutes(data: ContainerTrackDto) {
+        if (pendingGeotag != null || pendingIncidentGeotag != null || showIncidentSheet) return
         try {
             fetchNavigationRoute(data, forceDeviceGps = false)
             if (drivingMode) {
@@ -486,6 +546,8 @@ fun MapScreen(
     }
 
     suspend fun refreshRoute(data: ContainerTrackDto) {
+        if (pendingGeotag != null || pendingIncidentGeotag != null || showIncidentSheet) return
+        if (routeLoading) return
         try {
             fetchNavigationRoute(data, forceDeviceGps = false)
             if (drivingMode) {
@@ -507,12 +569,6 @@ fun MapScreen(
         }
     }
 
-    fun combinedRoutePointsForOverview(): List<Pair<Double, Double>> {
-        val upcoming = previewWarehouseRoute?.points ?: emptyList()
-        val active = route?.points ?: emptyList()
-        return upcoming + active
-    }
-
     suspend fun loadTrack() {
         if (track == null) loading = true
         error = null
@@ -531,197 +587,11 @@ fun MapScreen(
         loading = false
     }
 
-    fun applyOverviewCamera(map: MapView, data: ContainerTrackDto, routePoints: List<Pair<Double, Double>>) {
-        map.setMapCenterOffset(0, 0)
-        map.mapOrientation = 0f
-        var north = maxOf(data.pickup.latitude, data.destination.latitude)
-        var south = minOf(data.pickup.latitude, data.destination.latitude)
-        var east = maxOf(data.pickup.longitude, data.destination.longitude)
-        var west = minOf(data.pickup.longitude, data.destination.longitude)
-        routePoints.forEach { (lat, lng) ->
-            north = maxOf(north, lat)
-            south = minOf(south, lat)
-            east = maxOf(east, lng)
-            west = minOf(west, lng)
-        }
-        currentLat?.let { lat ->
-            currentLng?.let { lng ->
-                north = maxOf(north, lat)
-                south = minOf(south, lat)
-                east = maxOf(east, lng)
-                west = minOf(west, lng)
-            }
-        }
-        val pad = 0.02
-        val box = BoundingBox(
-            north + pad,
-            east + pad,
-            south - pad,
-            west - pad,
-        )
-        map.post { map.zoomToBoundingBox(box, true, 120) }
-    }
-
-    @SuppressLint("MissingPermission")
-    fun applyDrivingCamera(map: MapView, lat: Double, lng: Double, heading: Float) {
-        if (map.height > 0) {
-            val offsetFrac = if (northUp) 0.12 else 0.38
-            map.setMapCenterOffset(0, (map.height * offsetFrac).toInt())
-        }
-        val lookAhead = NavigationGuidance.offsetAlongBearing(lat, lng, heading, if (northUp) 40.0 else 120.0)
-        map.controller.setZoom(if (northUp) 17.5 else 19.5)
-        map.mapOrientation = if (northUp) 0f else -heading
-        map.controller.setCenter(GeoPoint(lookAhead.first, lookAhead.second))
-    }
-
-    fun addOsmRouteLine(map: MapView, points: List<Pair<Double, Double>>, primary: Boolean) {
-        if (points.size < 2) return
-        if (primary) {
-            val r = route
-            val full = r?.points?.map { LatLng(it.first, it.second) } ?: emptyList()
-            val chunks = if (full.size >= 2 && r != null) {
-                RouteTrafficStyle.buildMergedChunks(full, 0, r.trafficIntervals, r.trafficSegmentDetails)
-            } else {
-                emptyList()
-            }
-            if (chunks.isNotEmpty()) {
-                chunks.forEach { chunk ->
-                    val color = RouteTrafficStyle.speedColor(chunk.speed).toArgb()
-                    map.overlays.add(
-                        Polyline(map).apply {
-                            outlinePaint.color = color
-                            outlinePaint.strokeWidth = 18f
-                            setPoints(chunk.points.map { GeoPoint(it.latitude, it.longitude) })
-                        },
-                    )
-                }
-                return
-            }
-            val lineColor = if (r?.isOsrmFallback == true) "#F9AB00" else "#4285F4"
-            val casingColor = "#1A237E"
-            map.overlays.add(
-                Polyline(map).apply {
-                    outlinePaint.color = android.graphics.Color.parseColor(casingColor)
-                    outlinePaint.strokeWidth = 22f
-                    setPoints(points.map { (lat, lng) -> GeoPoint(lat, lng) })
-                },
-            )
-            map.overlays.add(
-                Polyline(map).apply {
-                    outlinePaint.color = android.graphics.Color.parseColor(lineColor)
-                    outlinePaint.strokeWidth = 14f
-                    setPoints(points.map { (lat, lng) -> GeoPoint(lat, lng) })
-                },
-            )
-            return
-        }
-        val casingColor = "#86EFAC"
-        val lineColor = "#4ADE80"
-        map.overlays.add(
-            Polyline(map).apply {
-                outlinePaint.color = android.graphics.Color.parseColor(casingColor)
-                outlinePaint.strokeWidth = MapRouteColors.upcomingCasingOsm
-                setPoints(points.map { (lat, lng) -> GeoPoint(lat, lng) })
-            },
-        )
-        map.overlays.add(
-            Polyline(map).apply {
-                outlinePaint.color = android.graphics.Color.parseColor(lineColor)
-                outlinePaint.strokeWidth = MapRouteColors.upcomingStrokeOsm
-                setPoints(points.map { (lat, lng) -> GeoPoint(lat, lng) })
-            },
-        )
-    }
-
-    @SuppressLint("MissingPermission")
-    fun updateMapOverlays(map: MapView, data: ContainerTrackDto) {
-        map.overlays.clear()
-        val phase = deliveryPhase(data.status)
-        if (shouldShowPickupToWarehousePreview(phase, drivingMode)) {
-            previewWarehouseRoute?.points?.let { addOsmRouteLine(map, it, primary = false) }
-        }
-        val routePointsForDisplay = routePointsForDriver(drivingMode, route, currentLat, currentLng)
-        routePointsForDisplay?.let { addOsmRouteLine(map, it, primary = true) }
-        val points = routePointsForDisplay ?: emptyList()
-
-        if (!drivingMode) {
-            if (data.trail.isNotEmpty()) {
-                map.overlays.add(
-                    Polyline(map).apply {
-                        outlinePaint.color = android.graphics.Color.parseColor("#94A3B8")
-                        outlinePaint.strokeWidth = 6f
-                        setPoints(data.trail.map { GeoPoint(it.latitude, it.longitude) })
-                    },
-                )
-            }
-            map.overlays.add(
-                Marker(map).apply {
-                    position = GeoPoint(data.pickup.latitude, data.pickup.longitude)
-                    title = "${UiStrings.Map.startPoint}: ${data.pickup.name}"
-                },
-            )
-            val leg = tripNavLeg(deliveryPhase(data.status))
-            map.overlays.add(
-                Marker(map).apply {
-                    position = GeoPoint(data.destination.latitude, data.destination.longitude)
-                    title = "${UiStrings.Map.endPoint}: ${data.destination.name}"
-                    alpha = if (leg == TripNavLeg.ToPickup) 0.65f else 1f
-                },
-            )
-        } else {
-            val leg = tripNavLeg(phase)
-            map.overlays.add(
-                Marker(map).apply {
-                    position = GeoPoint(data.pickup.latitude, data.pickup.longitude)
-                    title = "${UiStrings.Map.pickup}: ${data.pickup.name}"
-                    alpha = if (leg == TripNavLeg.ToPickup) 1f else 0.7f
-                },
-            )
-            map.overlays.add(
-                Marker(map).apply {
-                    position = GeoPoint(data.destination.latitude, data.destination.longitude)
-                    title = "${UiStrings.Map.destination}: ${data.destination.name}"
-                    alpha = if (leg == TripNavLeg.ToPickup) 0.55f else 1f
-                },
-            )
-        }
-
-        val rawDriverLat = if (drivingMode) currentLat else currentLat ?: data.currentLatitude
-        val rawDriverLng = if (drivingMode) currentLng else currentLng ?: data.currentLongitude
-        val progress = routeProgressForDriver(drivingMode, route, rawDriverLat, rawDriverLng)
-        val driverLat = if (drivingMode && progress != null) progress.snappedLatitude else rawDriverLat
-        val driverLng = if (drivingMode && progress != null) progress.snappedLongitude else rawDriverLng
-        if (driverLat != null && driverLng != null) {
-            val lookAhead = points.dropWhile { (lat, lng) ->
-                GeoUtils.distanceMeters(driverLat, driverLng, lat, lng) > 80
-            }.drop(1).firstOrNull()
-            val heading = if (bearing > 1f) {
-                bearing
-            } else if (lookAhead != null) {
-                NavigationGuidance.bearingDegrees(driverLat, driverLng, lookAhead.first, lookAhead.second)
-            } else {
-                bearing
-            }
-            map.overlays.add(
-                NavigationDriverOverlay().apply {
-                    latitude = driverLat
-                    longitude = driverLng
-                    bearingDegrees = heading
-                    showTruckIcon = drivingMode
-                },
-            )
-            if (drivingMode && followCamera) {
-                applyDrivingCamera(map, driverLat, driverLng, heading)
-            }
-        }
-        map.invalidate()
-    }
+    val trackForLocation by rememberUpdatedState(track)
+    val routeForLocation by rememberUpdatedState(route)
 
     DisposableEffect(containerUuid, drivingMode) {
         voiceAnnouncer.muted = !voiceOn
-        permissionLauncher.launch(
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-        )
         val subscription = AppLocationManager.requestLocationUpdates(
             context = context,
             intervalMs = if (drivingMode) {
@@ -736,7 +606,7 @@ fun MapScreen(
             },
             highAccuracy = true,
         ) { location ->
-            syncDriverPositionFrom(location.latitude, location.longitude, track)
+            syncDriverPositionFrom(location.latitude, location.longitude, trackForLocation)
             if (location.hasBearing() && location.bearing > 0f) {
                 bearing = location.bearing
             }
@@ -745,10 +615,9 @@ fun MapScreen(
             if (drivingMode && announceLat != null && announceLng != null) {
                 maybeAnnounceVoice(announceLat, announceLng)
             }
-            track?.let { data ->
-                mapRef.value?.let { updateMapOverlays(it, data) }
+            trackForLocation?.let { data ->
                 if (drivingMode) {
-                    val r = route
+                    val r = routeForLocation
                     if (r != null && r.points.size >= 2) {
                         val offRoute = routeProgressForDriver(
                             true,
@@ -803,7 +672,7 @@ fun MapScreen(
         onDispose { subscription.cancel() }
     }
 
-    LaunchedEffect(containerUuid) {
+    LaunchedEffect(containerUuid, drivingMode) {
         permissionLauncher.launch(
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
         )
@@ -814,27 +683,28 @@ fun MapScreen(
             }
         }
         loadTrack()
-        while (true) {
+        while (isActive) {
             delay(if (drivingMode) 120_000 else 45_000)
             loadTrack()
         }
     }
 
-    LaunchedEffect(track?.containerUuid, track?.status, drivingMode) {
+    LaunchedEffect(track?.containerUuid, track?.status, drivingMode, suspendMapForCapture) {
         val data = track ?: return@LaunchedEffect
-        if (drivingMode) return@LaunchedEffect
+        if (drivingMode || suspendMapForCapture) return@LaunchedEffect
         refreshRoute(data)
     }
 
-    LaunchedEffect(currentLat, currentLng, drivingMode, track?.containerUuid) {
-        if (drivingMode) return@LaunchedEffect
+    LaunchedEffect(currentLat, currentLng, drivingMode, track?.containerUuid, suspendMapForCapture) {
+        if (drivingMode || suspendMapForCapture) return@LaunchedEffect
         val data = track ?: return@LaunchedEffect
         if (currentLat == null || currentLng == null) return@LaunchedEffect
         delay(400)
         refreshPreviewRoutes(data)
     }
 
-    LaunchedEffect(drivingMode, track?.containerUuid, track?.status) {
+    LaunchedEffect(drivingMode, track?.containerUuid, track?.status, suspendMapForCapture) {
+        if (suspendMapForCapture) return@LaunchedEffect
         if (drivingMode) previewWarehouseRoute = null
         track?.let { refreshPreviewRoutes(it) }
     }
@@ -845,25 +715,22 @@ fun MapScreen(
         if (loc != null) {
             syncDriverPositionFrom(loc.latitude, loc.longitude, track)
             if (loc.hasBearing()) bearing = loc.bearing
-            track?.let { data -> mapRef.value?.let { updateMapOverlays(it, data) } }
         }
     }
 
-    LaunchedEffect(drivingMode) {
-        if (!drivingMode) return@LaunchedEffect
-        val trafficInterval = if (MapsConfig.isGoogleMapsConfigured()) 120_000L else 180_000L
-        while (true) {
-            delay(trafficInterval)
-            track?.let { refreshRoute(it) }
-        }
-    }
-
-    LaunchedEffect(drivingMode, track?.containerUuid) {
+    LaunchedEffect(drivingMode, track?.containerUuid, useGoogleNavSdk) {
         if (!drivingMode) {
             navigationBootstrapping = false
             return@LaunchedEffect
         }
         val data = track ?: return@LaunchedEffect
+        if (useGoogleNavSdk) {
+            navigationBootstrapping = false
+            scope.launch {
+                runCatching { fetchNavigationRoute(data, forceDeviceGps = true) }
+            }
+            return@LaunchedEffect
+        }
         val existing = route
         if (existing != null && existing.points.size >= 2) {
             navigationBootstrapping = false
@@ -879,12 +746,117 @@ fun MapScreen(
     }
 
     val complianceHoldActive = track?.deliveryComplianceHoldActive == true
-    val handoffQrAvailable = track?.handoffQrAvailable == true && !complianceHoldActive
+
+    fun alertStyleForMessage(message: String): MapDriverAlertStyle = when {
+        message == UiStrings.Map.offRouteWarning ||
+            message == UiStrings.Map.rerouting -> MapDriverAlertStyle.Warning
+        message == UiStrings.Loads.wrongWarehouseAlert ||
+            message.contains("compliance", ignoreCase = true) ||
+            message.contains("DA", ignoreCase = true) && message.contains("alert", ignoreCase = true) ->
+            MapDriverAlertStyle.Error
+        message == UiStrings.Incident.submitting -> MapDriverAlertStyle.Info
+        else -> MapDriverAlertStyle.Success
+    }
+
+    LaunchedEffect(complianceHoldActive) {
+        if (complianceHoldActive) {
+            mapDriverAlert = MapDriverTimedAlert(
+                title = UiStrings.Loads.complianceHoldTitle,
+                message = UiStrings.Loads.complianceHoldBody,
+                style = MapDriverAlertStyle.Error,
+            )
+        } else if (mapDriverAlert?.title == UiStrings.Loads.complianceHoldTitle) {
+            mapDriverAlert = null
+        }
+    }
+
+    LaunchedEffect(routeComplianceBlocked, drivingMode) {
+        if (routeComplianceBlocked && drivingMode) {
+            mapDriverAlert = MapDriverTimedAlert(
+                title = UiStrings.Map.offRouteBlockedTitle,
+                message = UiStrings.Map.offRouteBlockedBody,
+                style = MapDriverAlertStyle.Warning,
+            )
+        } else if (mapDriverAlert?.title == UiStrings.Map.offRouteBlockedTitle) {
+            mapDriverAlert = null
+        }
+    }
+
+    LaunchedEffect(actionMessage, complianceHoldActive) {
+        val msg = actionMessage
+        if (msg.isNullOrBlank() || complianceHoldActive) return@LaunchedEffect
+        mapDriverAlert = MapDriverTimedAlert(
+            title = null,
+            message = msg,
+            style = alertStyleForMessage(msg),
+        )
+    }
+    val warehouseArrived = warehouseArrivalConfirmed(track)
+    val handoffQrAvailable =
+        (track?.handoffQrAvailable == true || warehouseArrived) && !complianceHoldActive
     val showQr = phase != null && canShowDeliveryQr(phase, handoffQrAvailable) && !complianceHoldActive
     val waitingAtWarehouse =
         handoffQrAvailable ||
+            warehouseArrived ||
             phase == DeliveryPhase.AtWarehouse ||
             phase == DeliveryPhase.UnderInspection
+    var handoffQr by remember { mutableStateOf<DriverDeliveryHandoffQrDto?>(null) }
+    var handoffQrWaiting by remember { mutableStateOf<String?>(null) }
+    val storedApiBaseUrl by appContainer.settingsStore.apiBaseUrlFlow.collectAsState(initial = null)
+    val apiBaseUrl = remember(storedApiBaseUrl) {
+        appContainer.resolveApiBaseUrl(storedApiBaseUrl)
+    }
+    LaunchedEffect(containerUuid, waitingAtWarehouse, handoffQrAvailable, warehouseArrived) {
+        if (!waitingAtWarehouse && !handoffQrAvailable) {
+            handoffQr = null
+            handoffQrWaiting = null
+            return@LaunchedEffect
+        }
+        while (isActive) {
+            val delayMs = runCatching { repository.deliveryHandoffQr(containerUuid) }
+                .fold(
+                    onSuccess = { dto ->
+                        if (dto.qrCodeData.isNullOrBlank() && dto.qrPayload.isBlank()) {
+                            handoffQrWaiting = UiStrings.Map.summaryGeneratingQr
+                        } else {
+                            handoffQr = dto
+                            handoffQrWaiting = null
+                        }
+                        dto.refreshAfterSeconds.coerceIn(30, 120) * 1000L
+                    },
+                    onFailure = { e ->
+                        val m = e.message.orEmpty()
+                        when {
+                            m.contains("Confirm arrival", ignoreCase = true) ||
+                                m.contains("HANDOFF_NOT_READY", ignoreCase = true) -> {
+                                handoffQrWaiting = UiStrings.DeliveryQr.waitingForArrival
+                            }
+                            m.contains("within the assigned warehouse", ignoreCase = true) -> {
+                                handoffQrWaiting = UiStrings.DeliveryQr.waitingForGps
+                            }
+                            handoffQr == null -> {
+                                handoffQrWaiting = m.ifBlank { UiStrings.Map.summaryGeneratingQr }
+                            }
+                        }
+                        when {
+                            m.contains("Confirm arrival", ignoreCase = true) ||
+                                m.contains("HANDOFF_NOT_READY", ignoreCase = true) -> 4_000L
+                            m.contains("within the assigned warehouse", ignoreCase = true) -> 5_000L
+                            handoffQr != null -> 30_000L
+                            else -> 8_000L
+                        }
+                    },
+                )
+            delay(delayMs)
+        }
+    }
+    LaunchedEffect(containerUuid, waitingAtWarehouse) {
+        if (!waitingAtWarehouse) return@LaunchedEffect
+        while (isActive) {
+            delay(15_000)
+            loadTrack()
+        }
+    }
     val showPickupButton = drivingMode && navLeg == TripNavLeg.ToPickup && canConfirmPickup(phase)
     val distanceToPickupM = remember(currentLat, currentLng, track?.pickup) {
         val lat = currentLat
@@ -929,17 +901,61 @@ fun MapScreen(
         routeProgressForDriver(drivingMode, route, currentLat, currentLng)
     }
 
-    LaunchedEffect(track, route, previewWarehouseRoute, drivingMode, followCamera, currentLat, currentLng, bearing, northUp) {
-        val data = track ?: return@LaunchedEffect
-        val map = mapRef.value ?: return@LaunchedEffect
-        updateMapOverlays(map, data)
+    LaunchedEffect(drivingMode) {
+        if (!drivingMode) {
+            navMotionSmoother.reset()
+            navDisplayLat = null
+            navDisplayLng = null
+            return@LaunchedEffect
+        }
+        while (isActive) {
+            val frameMs = 32L
+            val step = navMotionSmoother.step(frameMs)
+            if (step != null) {
+                navDisplayLat = step.latitude
+                navDisplayLng = step.longitude
+                navDisplayBearing = step.bearing
+            }
+            delay(frameMs)
+        }
     }
 
-    LaunchedEffect(track?.containerUuid, route?.points, previewWarehouseRoute?.points, drivingMode) {
-        if (drivingMode) return@LaunchedEffect
-        val data = track ?: return@LaunchedEffect
-        val map = mapRef.value ?: return@LaunchedEffect
-        applyOverviewCamera(map, data, combinedRoutePointsForOverview())
+    LaunchedEffect(currentLat, currentLng, bearing, route, drivingMode) {
+        if (!drivingMode) return@LaunchedEffect
+        val lat = currentLat ?: return@LaunchedEffect
+        val lng = currentLng ?: return@LaunchedEffect
+        val progress = routeProgressForDriver(true, route, lat, lng)
+        val tLat = progress?.snappedLatitude ?: lat
+        val tLng = progress?.snappedLongitude ?: lng
+        val points = progress?.displayPoints ?: route?.points ?: emptyList()
+        val lookAhead = points.dropWhile { (plat, plng) ->
+            GeoUtils.distanceMeters(tLat, tLng, plat, plng) > 80
+        }.drop(1).firstOrNull()
+        val heading = if (bearing > 1f) {
+            bearing
+        } else if (lookAhead != null) {
+            NavigationGuidance.bearingDegrees(tLat, tLng, lookAhead.first, lookAhead.second)
+        } else {
+            bearing
+        }
+        navMotionSmoother.setTarget(tLat, tLng, heading)
+    }
+
+    LaunchedEffect(nearDestination, drivingMode, navLeg) {
+        if (!drivingMode || navLeg != TripNavLeg.ToDestination) {
+            if (!nearDestination) destinationGpsSyncPrompted = false
+            return@LaunchedEffect
+        }
+        if (!nearDestination || destinationGpsSyncPrompted) return@LaunchedEffect
+        destinationGpsSyncPrompted = true
+        scope.launch {
+            val synced = DriverLocationSync(context).flushPendingUploads()
+            actionMessage = if (synced > 0) {
+                UiStrings.Map.arrivalGpsSynced.format(synced)
+            } else {
+                UiStrings.Map.arrivalGpsUpToDate
+            }
+        }
     }
 
     val trafficJamMinutes = remember(route) {
@@ -954,10 +970,15 @@ fun MapScreen(
             ?.sumOf { it.durationSeconds }
             ?.let { (it / 60.0).toInt().coerceAtLeast(0) } ?: 0
     }
-
+    val showDeliverySheet = track != null && !navigationBootstrapping
+    val deliverySheetPeek = when {
+        waitingAtWarehouse -> 188.dp
+        drivingMode -> 120.dp
+        else -> 168.dp
+    }
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
-        if (drivingMode && mapDisplaySettings.showDirections) {
+        if (drivingMode && mapDisplaySettings.showDirections && !useGoogleNavSdk) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -996,12 +1017,32 @@ fun MapScreen(
                         tint = Color.White,
                     )
                 }
+                IconButton(onClick = { showIncidentSheet = true }) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = UiStrings.Incident.reportFab,
+                        tint = Color(0xFFFFB454),
+                    )
+                }
             }
         } else {
             AgriScreenTopBar(
                 title = containerNumber,
-                subtitle = previewLegLabel,
+                subtitle = if (drivingMode) towardName.ifBlank { previewLegLabel } else previewLegLabel,
                 onBack = onBack,
+                trailingActions = if (drivingMode) {
+                    {
+                        IconButton(onClick = { showIncidentSheet = true }) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = UiStrings.Incident.reportFab,
+                                tint = Color(0xFFEA580C),
+                            )
+                        }
+                    }
+                } else {
+                    null
+                },
             )
         }
 
@@ -1011,6 +1052,7 @@ fun MapScreen(
                 .fillMaxWidth()
                 .background(Color(0xFFE8EEF2)),
         ) {
+            val mapLayer: @Composable BoxScope.() -> Unit = {
             when {
                 loading && track == null -> LoadingState()
                 error != null && track == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1018,9 +1060,24 @@ fun MapScreen(
                 }
                 else -> {
                     val data = track
-                    if (useGoogleMaps && data != null) {
-                        DeliveryGoogleMap(
+                    if (suspendMapForCapture) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(Color.Black),
+                        )
+                    } else if (!useGoogleMaps && data != null) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                UiStrings.Map.googleMapsRequired,
+                                color = AgriColors.Error,
+                                modifier = Modifier.padding(16.dp),
+                            )
+                        }
+                    } else if (data != null) {
+                        MapScreenDriverMapLayer(
                             modifier = Modifier.fillMaxSize(),
+                            containerUuid = containerUuid,
                             track = data,
                             route = route,
                             previewWarehouseRoute = previewWarehouseRoute,
@@ -1029,44 +1086,19 @@ fun MapScreen(
                             currentLat = currentLat,
                             currentLng = currentLng,
                             bearing = bearing,
+                            navDisplayLat = if (drivingMode) navDisplayLat else null,
+                            navDisplayLng = if (drivingMode) navDisplayLng else null,
+                            navDisplayBearing = if (drivingMode) navDisplayBearing else 0f,
                             recenterToken = recenterToken,
                             northUp = northUp,
                             mapSettings = mapDisplaySettings,
+                            voiceEnabled = voiceEnabled,
                             onUserInteracted = {
                                 followCamera = false
                                 selectedTrafficSegment = null
                             },
                             onTrafficSegmentClick = { selectedTrafficSegment = it },
-                        )
-                    } else {
-                        AndroidView(
-                            modifier = Modifier.fillMaxSize(),
-                            factory = {
-                                MapView(context).apply {
-                                    setTileSource(TileSourceFactory.MAPNIK)
-                                    setMultiTouchControls(true)
-                                    controller.setZoom(17.0)
-                                    addMapListener(
-                                        object : MapListener {
-                                            override fun onScroll(event: ScrollEvent?): Boolean {
-                                                onUserPannedMap.value.invoke()
-                                                return true
-                                            }
-
-                                            override fun onZoom(event: ZoomEvent?): Boolean {
-                                                onUserPannedMap.value.invoke()
-                                                return true
-                                            }
-                                        },
-                                    )
-                                    mapRef.value = this
-                                }
-                            },
-                            update = { map ->
-                                mapRef.value = map
-                                val t = track ?: return@AndroidView
-                                updateMapOverlays(map, t)
-                            },
+                            onRouteError = { msg -> actionMessage = msg },
                         )
                     }
                 }
@@ -1094,6 +1126,31 @@ fun MapScreen(
                         .padding(top = 12.dp),
                 )
             }
+            if (!navigationBootstrapping && track != null && !drivingMode) {
+                SmallFloatingActionButton(
+                    onClick = { showIncidentSheet = true },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 12.dp, end = 12.dp),
+                    containerColor = Color(0xFFEA580C),
+                    contentColor = Color.White,
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = UiStrings.Incident.reportFab,
+                    )
+                }
+            }
+            MapDriverTimedAlertCard(
+                alert = mapDriverAlert,
+                onDismiss = {
+                    mapDriverAlert = null
+                    actionMessage = null
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            )
             if (!navigationBootstrapping) {
                 MapFloatingControls(
                 drivingMode = drivingMode,
@@ -1102,37 +1159,24 @@ fun MapScreen(
                 onRecenter = {
                     followCamera = true
                     recenterToken++
-                    val data = track
-                    val map = mapRef.value
-                    if (map == null) return@MapFloatingControls
-                    if (drivingMode) {
-                        val lat = currentLat
-                        val lng = currentLng
-                        if (lat != null && lng != null) {
-                            applyDrivingCamera(map, lat, lng, bearing)
-                        }
-                    } else if (data != null) {
-                        applyOverviewCamera(map, data, combinedRoutePointsForOverview())
-                    }
                 },
                 onToggleNorthUp = {
                     northUp = !northUp
                     followCamera = true
                     recenterToken++
-                    val lat = currentLat
-                    val lng = currentLng
-                    mapRef.value?.let { map ->
-                        if (drivingMode && lat != null && lng != null) {
-                            applyDrivingCamera(map, lat, lng, bearing)
-                        }
-                    }
                 },
-                modifier = Modifier.align(Alignment.BottomEnd),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 8.dp, bottom = 8.dp),
             )
             }
-        }
-
-        MapTripPanel(
+            }
+            if (showDeliverySheet) {
+                MapDeliverySheetScaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    sheetPeekHeight = deliverySheetPeek,
+                    sheetContent = {
+                        MapTripPanel(
             drivingMode = drivingMode,
             route = route,
             remainingDurationSeconds = activeRouteProgress?.remainingDurationSeconds,
@@ -1155,7 +1199,11 @@ fun MapScreen(
             startNavigationBusy = navigationBootstrapping,
             startNavigationEnabled = startNavigationEnabled,
             startNavigationHint = startNavigationHint,
-            actionMessage = actionMessage,
+            showInAppGoogleHint = MapsConfig.canShowTrafficLayer(context),
+            hideEtaWhenGoogleNavigation = useGoogleNavSdk,
+            apiBaseUrl = apiBaseUrl,
+            handoffQr = handoffQr,
+            handoffQrWaitingMessage = handoffQrWaiting,
             onBack = onBack,
             onStartNavigation = {
                 scope.launch {
@@ -1187,10 +1235,23 @@ fun MapScreen(
                             }
                         }
                         previewWarehouseRoute = null
-                        val routeReady = fetchNavigationRoute(track ?: data, forceDeviceGps = true)
-                        if (!routeReady) {
-                            actionMessage = UiStrings.Loads.locationRequired
-                            return@launch
+                        if (!useGoogleNavSdk) {
+                            val routeReady = fetchNavigationRoute(track ?: data, forceDeviceGps = true)
+                            if (!routeReady) {
+                                actionMessage = UiStrings.Loads.locationRequired
+                                return@launch
+                            }
+                        } else {
+                            val loc = awaitFreshDeviceLocation()
+                            if (loc == null) {
+                                actionMessage = UiStrings.Loads.locationRequired
+                                return@launch
+                            }
+                            syncDriverPositionFrom(loc.latitude, loc.longitude, track)
+                            if (loc.hasBearing()) bearing = loc.bearing
+                            scope.launch {
+                                runCatching { fetchNavigationRoute(data, forceDeviceGps = false) }
+                            }
                         }
                         northUp = false
                         drivingMode = true
@@ -1245,7 +1306,14 @@ fun MapScreen(
                 }
             },
             onOpenQr = onOpenQr,
-        )
+                        )
+                    },
+                    mapContent = mapLayer,
+                )
+            } else {
+                mapLayer()
+            }
+        }
     }
 
     pendingGeotag?.let { pending ->
@@ -1280,7 +1348,7 @@ fun MapScreen(
                                 pickupBusy = true
                                 actionMessage = null
                                 runCatching {
-                                    repository.confirmPickupWithGeotag(
+                                    val container = repository.confirmPickupWithGeotag(
                                         containerUuid,
                                         pending.latitude,
                                         pending.longitude,
@@ -1288,6 +1356,7 @@ fun MapScreen(
                                         jpeg,
                                         capturedAt,
                                     )
+                                    track = track?.applyContainerListUpdate(container)
                                     navSessionStore.clear(containerUuid)
                                     drivingMode = false
                                     followCamera = false
@@ -1311,6 +1380,14 @@ fun MapScreen(
                                         jpeg,
                                         capturedAt,
                                     )
+                                    track = track?.applyContainerListUpdate(result.container)
+                                    runCatching {
+                                        handoffQr = repository.deliveryHandoffQr(containerUuid)
+                                        handoffQrWaiting = null
+                                    }.onFailure { e ->
+                                        handoffQrWaiting = e.message?.ifBlank { null }
+                                            ?: UiStrings.Map.summaryGeneratingQr
+                                    }
                                     navSessionStore.clear(containerUuid)
                                     drivingMode = false
                                     followCamera = false
@@ -1346,28 +1423,75 @@ fun MapScreen(
             )
         }
 
-    if (complianceHoldActive) {
-        AlertDialog(
-            onDismissRequest = { },
-            title = { Text(UiStrings.Loads.complianceHoldTitle) },
-            text = { Text(UiStrings.Loads.complianceHoldBody) },
-            confirmButton = {
-                TextButton(onClick = { scope.launch { loadTrack() } }) {
-                    Text("OK")
+    pendingIncidentGeotag?.let { pending ->
+        key(pending.step) {
+        GeotagCaptureScreen(
+            latitude = pending.latitude,
+            longitude = pending.longitude,
+            title = UiStrings.Geotag.incidentPhotoTitle,
+            hint = UiStrings.Geotag.incidentPhotoHint(pending.step),
+            captureSessionKey = pending.step,
+            onCancel = { pendingIncidentGeotag = null },
+            onCaptured = { jpeg ->
+                val capturedAt = Instant.now()
+                if (pending.step == 1) {
+                    pendingIncidentGeotag = pending.copy(step = 2, photo1 = jpeg)
+                } else {
+                    val photo1 = pending.photo1
+                    if (photo1 == null) {
+                        pendingIncidentGeotag = null
+                        actionMessage = UiStrings.Incident.locationRequired
+                        return@GeotagCaptureScreen
+                    }
+                    pendingIncidentGeotag = null
+                    scope.launch {
+                        incidentSubmitting = true
+                        actionMessage = UiStrings.Incident.submitting
+                        runCatching {
+                            repository.submitDriverIncidentReport(
+                                containerUuid,
+                                pending.categoryCode,
+                                pending.notes,
+                                pending.latitude,
+                                pending.longitude,
+                                photo1,
+                                jpeg,
+                                capturedAt,
+                            )
+                            actionMessage = UiStrings.Incident.submitted
+                        }.onFailure {
+                            actionMessage = it.userMessage(UiStrings.Incident.submitFailed)
+                        }
+                        incidentSubmitting = false
+                    }
                 }
             },
         )
+        }
     }
 
-    if (routeComplianceBlocked && drivingMode) {
-        AlertDialog(
-            onDismissRequest = { },
-            title = { Text(UiStrings.Map.offRouteBlockedTitle) },
-            text = { Text(UiStrings.Map.offRouteBlockedBody) },
-            confirmButton = {
-                TextButton(onClick = { routeComplianceBlocked = false }) {
-                    Text("OK")
+    if (showIncidentSheet) {
+        DriverIncidentReportSheet(
+            onDismiss = { showIncidentSheet = false },
+            onStartPhotos = { categoryCode, notes ->
+                val lat = currentLat
+                val lng = currentLng
+                if (lat == null || lng == null) {
+                    actionMessage = UiStrings.Incident.locationRequired
+                    return@DriverIncidentReportSheet
                 }
+                // Set pending capture before dismissing sheet so the map stays suspended
+                // (no Google Maps re-init competing with CameraX on Vivo/OEM devices).
+                openIncidentGeotagCapture(
+                    PendingIncidentGeotag(
+                        step = 1,
+                        categoryCode = categoryCode,
+                        notes = notes,
+                        latitude = lat,
+                        longitude = lng,
+                    ),
+                )
+                showIncidentSheet = false
             },
         )
     }

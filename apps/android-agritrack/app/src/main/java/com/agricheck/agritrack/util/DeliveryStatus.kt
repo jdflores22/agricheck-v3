@@ -37,18 +37,41 @@ fun canConfirmWarehouseArrival(phase: DeliveryPhase) =
 /** Max distance from pickup / warehouse to enable confirm actions (matches API `DeliveryStopGeofenceMeters`). */
 const val DELIVERY_STOP_GEOFENCE_METERS = 100.0
 
+/** Show "Arrived at warehouse" only when driver is this close (button enables at [DELIVERY_STOP_GEOFENCE_METERS]). */
+const val ARRIVE_BUTTON_APPROACH_METERS = 200.0
+
 fun isWithinDeliveryStopGeofence(distanceMeters: Double?): Boolean =
     distanceMeters != null && distanceMeters <= DELIVERY_STOP_GEOFENCE_METERS
+
+fun isWithinArriveButtonApproach(distanceMeters: Double?): Boolean =
+    distanceMeters != null && distanceMeters <= ARRIVE_BUTTON_APPROACH_METERS
 
 /** Leg 2: warehouse navigation may start only after a verified pickup at the planned stop. */
 fun requiresPickupGeofenceToStartWarehouseNavigation(phase: DeliveryPhase): Boolean =
     phase == DeliveryPhase.PickedUp
 
-fun canShowDeliveryQr(phase: DeliveryPhase) =
-    phase == DeliveryPhase.PickedUp ||
-        phase == DeliveryPhase.InTransit ||
+/** QR is for warehouse handoff — only after driver confirms arrival at the assigned warehouse. */
+fun canShowDeliveryQr(phase: DeliveryPhase, handoffQrAvailable: Boolean = false) =
+    handoffQrAvailable ||
         phase == DeliveryPhase.AtWarehouse ||
         phase == DeliveryPhase.UnderInspection
+
+fun warehouseArrivalConfirmed(track: com.agricheck.agritrack.data.model.ContainerTrackDto?): Boolean {
+    val leg = track?.deliverySummary?.firstOrNull { it.leg == "warehouse" } ?: return false
+    if (!leg.arrivedAtUtc.isNullOrBlank()) return true
+    val label = leg.statusLabel.orEmpty()
+    return label.contains("arrived", ignoreCase = true) ||
+        label.contains("present delivery", ignoreCase = true)
+}
+
+fun com.agricheck.agritrack.data.model.ContainerTrackDto.applyContainerListUpdate(
+    container: com.agricheck.agritrack.data.model.ContainerListItemDto,
+): com.agricheck.agritrack.data.model.ContainerTrackDto = copy(
+    status = container.status,
+    handoffQrAvailable = handoffQrAvailable || container.handoffQrAvailable,
+    deliveryComplianceHoldActive = container.deliveryComplianceHoldActive,
+    deliveryComplianceHoldReason = container.deliveryComplianceHoldReason,
+)
 
 fun pickActiveDelivery(containers: List<ContainerListItemDto>): ContainerListItemDto? {
     containers.firstOrNull { deliveryPhase(it.status) == DeliveryPhase.InTransit }?.let { return it }

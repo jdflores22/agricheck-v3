@@ -781,7 +781,7 @@ public class DriverOpsService : IDriverOpsService
             pickup,
             destination,
             trail,
-            IsHandoffQrAvailable(container),
+            WarehouseHandoffHelper.IsHandoffQrAvailable(container),
             DeliveryComplianceHoldHelper.HasActiveHold(container),
             DeliveryComplianceHoldHelper.HasActiveHold(container)
                 ? container.DeliveryComplianceHoldReason
@@ -824,7 +824,7 @@ public class DriverOpsService : IDriverOpsService
             mapped.VolumeKg,
             new ContainerDeliveryStopDto(pickup.Label, pickup.Latitude, pickup.Longitude),
             new ContainerDeliveryStopDto(destination.Name, destination.Latitude, destination.Longitude),
-            IsHandoffQrAvailable(container),
+            WarehouseHandoffHelper.IsHandoffQrAvailable(container),
             DeliveryComplianceHoldHelper.HasActiveHold(container),
             DeliveryComplianceHoldHelper.HasActiveHold(container)
                 ? container.DeliveryComplianceHoldReason
@@ -903,27 +903,6 @@ public class DriverOpsService : IDriverOpsService
         }
 
         var now = DateTime.UtcNow;
-        var destination = await ResolveTrackDestinationAsync(container, cancellationToken);
-        var last = container.Locations
-            .Where(l => l.Latitude is not null && l.Longitude is not null)
-            .OrderByDescending(l => l.RecordedAt)
-            .FirstOrDefault();
-        var recentlyEligible = container.WarehouseHandoffEligibleAt is not null &&
-            (now - container.WarehouseHandoffEligibleAt.Value) <= TimeSpan.FromMinutes(45);
-        if (!recentlyEligible && last is not null)
-        {
-            var dist = GeoDistanceHelper.DistanceMeters(
-                last.Latitude!.Value,
-                last.Longitude!.Value,
-                destination.Latitude,
-                destination.Longitude);
-            if (dist > GeoDistanceHelper.DeliveryStopGeofenceMeters)
-            {
-                throw new ClientPortalException(
-                    "OUTSIDE_GEOFENCE",
-                    "You must stay within the assigned warehouse area. Mis-warehouse delivery is not allowed.");
-            }
-        }
 
         var expiresAt = now.Add(DeliveryHandoffQrCodec.MaxAge);
         var nonce = Guid.NewGuid();
@@ -1097,6 +1076,7 @@ public class DriverOpsService : IDriverOpsService
         if (container.Status is ContainerStatus.InTransit or ContainerStatus.PickedUp)
         {
             container.WarehouseHandoffEligibleAt = DateTime.UtcNow;
+            container.ArrivalTime ??= DateTime.UtcNow;
         }
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -1735,11 +1715,6 @@ public class DriverOpsService : IDriverOpsService
         };
     }
 
-    private static bool IsHandoffQrAvailable(Container container) =>
-        container.WarehouseHandoffEligibleAt is not null &&
-        container.Status is ContainerStatus.InTransit or ContainerStatus.PickedUp &&
-        !DeliveryComplianceHoldHelper.HasActiveHold(container);
-
     private static string DriverGeotagPhotoRelativeUrl(Guid containerUuid, Guid photoUuid) =>
         $"/api/mobile/containers/{containerUuid:D}/geotag-photos/{photoUuid:D}";
 
@@ -1764,6 +1739,13 @@ public class DriverOpsService : IDriverOpsService
             ?? warehousePhoto?.CapturedAtUtc
             ?? warehousePhoto?.CreatedAt);
 
+        var pickupConfirmed = container.Status is not ContainerStatus.Assigned
+            and not ContainerStatus.ReadyForTransport
+            and not ContainerStatus.AwaitingConfirmation;
+        var pickupStatusLabel = pickupPhoto is null
+            ? pickupConfirmed ? "Pickup confirmed" : "Awaiting geotag"
+            : null;
+
         var list = new List<ContainerDeliveryLegSummaryDto>
         {
             new(
@@ -1772,7 +1754,7 @@ public class DriverOpsService : IDriverOpsService
                 pickupArrived,
                 pickupDeparted,
                 pickupPhoto is null ? null : DriverGeotagPhotoRelativeUrl(container.Uuid, pickupPhoto.Uuid),
-                pickupPhoto is null ? "Awaiting geotag" : null,
+                pickupStatusLabel,
                 pickupPhoto?.CaptureLatitude,
                 pickupPhoto?.CaptureLongitude),
             new(
