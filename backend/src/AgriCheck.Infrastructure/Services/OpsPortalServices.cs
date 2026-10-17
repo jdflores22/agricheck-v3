@@ -729,17 +729,34 @@ public class DriverOpsService : IDriverOpsService
     public async Task<ContainerTrackDto> GetContainerTrackAsync(Guid containerUuid, CancellationToken cancellationToken = default)
     {
         var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        await _db.Entry(driver).Reference(u => u.Profile).LoadAsync(cancellationToken);
         var container = await _db.Containers
             .Include(c => c.Entry).ThenInclude(e => e.Detail)
             .Include(c => c.Entry).ThenInclude(e => e.FinalWarehouseFacility)
             .Include(c => c.Locations)
             .Include(c => c.InspectionPhotos)
-            .Include(c => c.AssignedDriver)
+            .Include(c => c.AssignedDriver!).ThenInclude(d => d.Profile)
             .Include(c => c.AssignedOperatorVehicle)
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
 
-        var mappedContainer = OpsDtoMapper.MapContainer(container);
+        var driverProfile = await _db.DriverProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == driver.Id, cancellationToken);
+        var mappedContainer = OpsDtoMapper.MapContainer(container, includeAssignment: true);
+        var driverDisplayName = mappedContainer.AssignedDriverName;
+        if (string.IsNullOrWhiteSpace(driverDisplayName))
+        {
+            driverDisplayName = OpsDtoMapper.FormatUserName(
+                driver.Profile ?? container.AssignedDriver?.Profile,
+                driver.Email);
+        }
+
+        var vehiclePlate = mappedContainer.AssignedVehiclePlate;
+        if (string.IsNullOrWhiteSpace(vehiclePlate))
+        {
+            vehiclePlate = driverProfile?.VehicleRegistration;
+        }
         var pickup = ResolveTrackPickup(container);
         var destination = await ResolveTrackDestinationAsync(container, cancellationToken);
         var trail = container.Locations
@@ -770,8 +787,8 @@ public class DriverOpsService : IDriverOpsService
                 ? container.DeliveryComplianceHoldReason
                 : null,
             BuildDeliveryLegSummaries(container, nmisScanAt),
-            mappedContainer.AssignedDriverName,
-            mappedContainer.AssignedVehiclePlate);
+            driverDisplayName,
+            vehiclePlate);
     }
 
     private static ContainerTrackDestinationDto ResolveTrackPickup(Container container)
@@ -1703,6 +1720,21 @@ public class DriverOpsService : IDriverOpsService
         return (File.OpenRead(path), contentType, downloadName);
     }
 
+    private static DateTime? NormalizeApiUtc(DateTime? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        return value.Value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.Value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value.Value, DateTimeKind.Utc),
+        };
+    }
+
     private static bool IsHandoffQrAvailable(Container container) =>
         container.WarehouseHandoffEligibleAt is not null &&
         container.Status is ContainerStatus.InTransit or ContainerStatus.PickedUp &&
@@ -1725,10 +1757,12 @@ public class DriverOpsService : IDriverOpsService
             .OrderByDescending(p => p.CapturedAtUtc ?? p.CreatedAt)
             .FirstOrDefault();
 
-        var pickupArrived = pickupPhoto?.CapturedAtUtc ?? pickupPhoto?.CreatedAt;
-        var warehouseArrived = container.WarehouseHandoffEligibleAt
+        var pickupArrived = NormalizeApiUtc(pickupPhoto?.CapturedAtUtc ?? pickupPhoto?.CreatedAt);
+        var pickupDeparted = NormalizeApiUtc(container.DepartureTime);
+        var warehouseArrived = NormalizeApiUtc(
+            container.WarehouseHandoffEligibleAt
             ?? warehousePhoto?.CapturedAtUtc
-            ?? warehousePhoto?.CreatedAt;
+            ?? warehousePhoto?.CreatedAt);
 
         var list = new List<ContainerDeliveryLegSummaryDto>
         {
@@ -1736,7 +1770,7 @@ public class DriverOpsService : IDriverOpsService
                 "pickup",
                 "Pickup point",
                 pickupArrived,
-                container.DepartureTime,
+                pickupDeparted,
                 pickupPhoto is null ? null : DriverGeotagPhotoRelativeUrl(container.Uuid, pickupPhoto.Uuid),
                 pickupPhoto is null ? "Awaiting geotag" : null,
                 pickupPhoto?.CaptureLatitude,
@@ -1757,7 +1791,7 @@ public class DriverOpsService : IDriverOpsService
             list.Add(new ContainerDeliveryLegSummaryDto(
                 "nmis",
                 "NMIS / Doctor",
-                nmisHandoffConsumedAtUtc,
+                NormalizeApiUtc(nmisHandoffConsumedAtUtc),
                 null,
                 null,
                 "QR validated — handoff complete",
