@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Place
