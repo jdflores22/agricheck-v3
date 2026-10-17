@@ -462,6 +462,24 @@ public class MobileContainersController : OpsPortalControllerBase
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.GetDeliveryHandoffQrAsync(uuid, cancellationToken));
 
+    [HttpGet("{uuid:guid}/geotag-photos/{photoUuid:guid}")]
+    [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    public async Task<IActionResult> GeotagPhoto(
+        Guid uuid,
+        Guid photoUuid,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var file = await _service.GetDriverGeotagPhotoAsync(uuid, photoUuid, cancellationToken);
+            return File(file.Stream, file.ContentType, file.FileName);
+        }
+        catch (ClientPortalException ex)
+        {
+            return BadRequest(ApiResponse<object>.Fail(ex.Code, ex.Message));
+        }
+    }
+
     [HttpPost("scan/preview")]
     [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
     public async Task<ActionResult<ApiResponse<DriverTransportQrPreviewDto>>> PreviewTransportQr(

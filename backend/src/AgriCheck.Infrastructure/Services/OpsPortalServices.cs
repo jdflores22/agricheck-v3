@@ -733,6 +733,7 @@ public class DriverOpsService : IDriverOpsService
             .Include(c => c.Entry).ThenInclude(e => e.Detail)
             .Include(c => c.Entry).ThenInclude(e => e.FinalWarehouseFacility)
             .Include(c => c.Locations)
+            .Include(c => c.InspectionPhotos)
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
 
@@ -744,6 +745,11 @@ public class DriverOpsService : IDriverOpsService
             .Select(l => new ContainerLocationPointDto(l.Latitude!.Value, l.Longitude!.Value, l.RecordedAt))
             .ToList();
         var last = trail.LastOrDefault();
+        var nmisScanAt = await _db.ContainerHandoffTokens
+            .Where(t => t.ContainerId == container.Id && t.ConsumedAt != null)
+            .OrderByDescending(t => t.ConsumedAt)
+            .Select(t => t.ConsumedAt)
+            .FirstOrDefaultAsync(cancellationToken);
 
         return new ContainerTrackDto(
             container.Uuid,
@@ -755,13 +761,12 @@ public class DriverOpsService : IDriverOpsService
             pickup,
             destination,
             trail,
-            container.WarehouseHandoffEligibleAt is not null &&
-            container.Status is ContainerStatus.InTransit &&
-            !DeliveryComplianceHoldHelper.HasActiveHold(container),
+            IsHandoffQrAvailable(container),
             DeliveryComplianceHoldHelper.HasActiveHold(container),
             DeliveryComplianceHoldHelper.HasActiveHold(container)
                 ? container.DeliveryComplianceHoldReason
-                : null);
+                : null,
+            BuildDeliveryLegSummaries(container, nmisScanAt));
     }
 
     private static ContainerTrackDestinationDto ResolveTrackPickup(Container container)
@@ -797,9 +802,7 @@ public class DriverOpsService : IDriverOpsService
             mapped.VolumeKg,
             new ContainerDeliveryStopDto(pickup.Label, pickup.Latitude, pickup.Longitude),
             new ContainerDeliveryStopDto(destination.Name, destination.Latitude, destination.Longitude),
-            container.WarehouseHandoffEligibleAt is not null &&
-            container.Status == ContainerStatus.InTransit &&
-            !DeliveryComplianceHoldHelper.HasActiveHold(container),
+            IsHandoffQrAvailable(container),
             DeliveryComplianceHoldHelper.HasActiveHold(container),
             DeliveryComplianceHoldHelper.HasActiveHold(container)
                 ? container.DeliveryComplianceHoldReason
@@ -877,12 +880,15 @@ public class DriverOpsService : IDriverOpsService
                 "Confirm arrival at your assigned warehouse first. The QR code is generated only when you are at the correct warehouse.");
         }
 
+        var now = DateTime.UtcNow;
         var destination = await ResolveTrackDestinationAsync(container, cancellationToken);
         var last = container.Locations
             .Where(l => l.Latitude is not null && l.Longitude is not null)
             .OrderByDescending(l => l.RecordedAt)
             .FirstOrDefault();
-        if (last is not null)
+        var recentlyEligible = container.WarehouseHandoffEligibleAt is not null &&
+            (now - container.WarehouseHandoffEligibleAt.Value) <= TimeSpan.FromMinutes(45);
+        if (!recentlyEligible && last is not null)
         {
             var dist = GeoDistanceHelper.DistanceMeters(
                 last.Latitude!.Value,
@@ -897,7 +903,6 @@ public class DriverOpsService : IDriverOpsService
             }
         }
 
-        var now = DateTime.UtcNow;
         var expiresAt = now.Add(DeliveryHandoffQrCodec.MaxAge);
         var nonce = Guid.NewGuid();
         var signingKey = TransportQrSigningKeyResolver.Resolve(_configuration);
@@ -1652,6 +1657,104 @@ public class DriverOpsService : IDriverOpsService
             CapturedAtUtc = capturedAtUtc,
             ReviewDecision = EvaluationDecision.Approved,
         });
+    }
+
+    public async Task<(Stream Stream, string ContentType, string FileName)> GetDriverGeotagPhotoAsync(
+        Guid containerUuid,
+        Guid photoUuid,
+        CancellationToken cancellationToken = default)
+    {
+        var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        var container = await _db.Containers.FirstOrDefaultAsync(
+            c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id,
+            cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
+
+        var photo = await _db.ContainerInspectionPhotos.FirstOrDefaultAsync(
+            p => p.Uuid == photoUuid && p.ContainerId == container.Id,
+            cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Geotag photo not found.");
+
+        if (photo.PhotoType is not (
+            ContainerInspectionPhotoType.DriverPickupGeotag or
+            ContainerInspectionPhotoType.DriverWarehouseGeotag))
+        {
+            throw new ClientPortalException("FORBIDDEN", "This photo is not available to the driver app.");
+        }
+
+        var folder = $"container-delivery-geotag/{container.Uuid}";
+        var path = _fileStorage.GetPhysicalPath(folder, photo.StoredFileName);
+        if (!File.Exists(path))
+        {
+            throw new ClientPortalException("NOT_FOUND", "Geotag photo file not found.");
+        }
+
+        var contentType = string.IsNullOrWhiteSpace(photo.ContentType)
+            ? "image/jpeg"
+            : photo.ContentType;
+        var downloadName = string.IsNullOrWhiteSpace(photo.OriginalFileName)
+            ? "geotag.jpg"
+            : photo.OriginalFileName;
+        return (File.OpenRead(path), contentType, downloadName);
+    }
+
+    private static bool IsHandoffQrAvailable(Container container) =>
+        container.WarehouseHandoffEligibleAt is not null &&
+        container.Status is ContainerStatus.InTransit or ContainerStatus.PickedUp &&
+        !DeliveryComplianceHoldHelper.HasActiveHold(container);
+
+    private static string DriverGeotagPhotoRelativeUrl(Guid containerUuid, Guid photoUuid) =>
+        $"/api/mobile/containers/{containerUuid:D}/geotag-photos/{photoUuid:D}";
+
+    private static IReadOnlyList<ContainerDeliveryLegSummaryDto> BuildDeliveryLegSummaries(
+        Container container,
+        DateTime? nmisHandoffConsumedAtUtc)
+    {
+        var photos = container.InspectionPhotos ?? Array.Empty<ContainerInspectionPhoto>();
+        var pickupPhoto = photos
+            .Where(p => p.PhotoType == ContainerInspectionPhotoType.DriverPickupGeotag)
+            .OrderByDescending(p => p.CapturedAtUtc ?? p.CreatedAt)
+            .FirstOrDefault();
+        var warehousePhoto = photos
+            .Where(p => p.PhotoType == ContainerInspectionPhotoType.DriverWarehouseGeotag)
+            .OrderByDescending(p => p.CapturedAtUtc ?? p.CreatedAt)
+            .FirstOrDefault();
+
+        var pickupArrived = pickupPhoto?.CapturedAtUtc ?? pickupPhoto?.CreatedAt;
+        var warehouseArrived = container.WarehouseHandoffEligibleAt
+            ?? warehousePhoto?.CapturedAtUtc
+            ?? warehousePhoto?.CreatedAt;
+
+        var list = new List<ContainerDeliveryLegSummaryDto>
+        {
+            new(
+                "pickup",
+                "Pickup point",
+                pickupArrived,
+                container.DepartureTime,
+                pickupPhoto is null ? null : DriverGeotagPhotoRelativeUrl(container.Uuid, pickupPhoto.Uuid),
+                pickupPhoto is null ? "Awaiting geotag" : null),
+            new(
+                "warehouse",
+                "Assigned warehouse",
+                warehouseArrived,
+                null,
+                warehousePhoto is null ? null : DriverGeotagPhotoRelativeUrl(container.Uuid, warehousePhoto.Uuid),
+                container.WarehouseHandoffEligibleAt is null ? "Not arrived" : "Arrived — present delivery QR"),
+        };
+
+        if (nmisHandoffConsumedAtUtc is not null)
+        {
+            list.Add(new ContainerDeliveryLegSummaryDto(
+                "nmis",
+                "NMIS / Doctor",
+                nmisHandoffConsumedAtUtc,
+                null,
+                null,
+                "QR validated — handoff complete"));
+        }
+
+        return list;
     }
 
 }

@@ -309,6 +309,14 @@ public record MobileSyncPullResultDto(
 
 public record ContainerLocationPointDto(decimal Latitude, decimal Longitude, DateTime RecordedAt);
 
+public record ContainerDeliveryLegSummaryDto(
+    string Leg,
+    string Title,
+    DateTime? ArrivedAtUtc,
+    DateTime? DepartedAtUtc,
+    string? PhotoRelativeUrl,
+    string? StatusLabel);
+
 public record ContainerTrackDestinationDto(
     string Name,
     decimal Latitude,
@@ -326,6 +334,7 @@ public record ContainerTrackDto(
     IReadOnlyList<ContainerLocationPointDto> Trail,
     bool HandoffQrAvailable = false,
     bool DeliveryComplianceHoldActive = false,
-    string? DeliveryComplianceHoldReason = null);
+    string? DeliveryComplianceHoldReason = null,
+    IReadOnlyList<ContainerDeliveryLegSummaryDto>? DeliverySummary = null);
 
 public record RegisterMobilePushDeviceRequest(string ExpoPushToken, string Platform);

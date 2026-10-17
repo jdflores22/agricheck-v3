@@ -45,6 +45,10 @@ public interface IDriverOpsService
         string photo2FileName,
         CancellationToken cancellationToken = default);
     Task<ContainerTrackDto> GetContainerTrackAsync(Guid containerUuid, CancellationToken cancellationToken = default);
+    Task<(Stream Stream, string ContentType, string FileName)> GetDriverGeotagPhotoAsync(
+        Guid containerUuid,
+        Guid photoUuid,
+        CancellationToken cancellationToken = default);
     Task<DriverDeliveryHandoffQrDto> GetDeliveryHandoffQrAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<DriverTransportQrPreviewDto> PreviewTransportQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> AcceptDeliveryFromQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
