@@ -1,19 +1,15 @@
 package com.agricheck.agritrack.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,8 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.Image
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -34,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.agricheck.agritrack.data.model.ContainerDeliveryLegSummaryDto
 import com.agricheck.agritrack.data.api.OsrmClient
 import com.agricheck.agritrack.data.api.OsrmRouteResult
@@ -52,12 +49,9 @@ import java.util.Locale
 
 private val RouteGreen = Color(0xFF15803D)
 private val MutedCoord = Color(0xFF9CA3AF)
-private val SheetMutedBg = Color(0xFFF1F5F9)
 private val CardBorder = Color(0xFFE2E8F0)
 private val NavyText = Color(0xFF0F172A)
 private val BlueAccent = Color(0xFF2563EB)
-private val BlueChipBg = Color(0xFFEFF6FF)
-private val GreenChipBg = Color(0xFFECFDF5)
 private val PhilippinesZone = ZoneId.of("Asia/Manila")
 private val LegTimeFormat = DateTimeFormatter.ofPattern("MMM d, yyyy · h:mm a", Locale.ENGLISH)
 
@@ -110,7 +104,6 @@ fun MapTripPanel(
 ) {
     val hideTripMetrics = hideEtaWhenGoogleNavigation && (drivingMode || waitingAtWarehouse)
     val summaryLegs = track?.deliverySummary.orEmpty()
-    val showLegDetails = summaryLegs.isNotEmpty()
     var geotagPreviewUrl by remember { mutableStateOf<String?>(null) }
 
     Column(
@@ -125,16 +118,19 @@ fun MapTripPanel(
                     driverName = data.assignedDriverName,
                     plate = data.assignedVehiclePlate,
                 )
-                Spacer(Modifier.height(10.dp))
-                TripRouteTimelineCard(
+                Spacer(Modifier.height(12.dp))
+                TripSummaryCard(
                     pickupName = data.pickup.name,
                     pickupLat = data.pickup.latitude,
                     pickupLng = data.pickup.longitude,
                     warehouseName = data.destination.name,
                     warehouseLat = data.destination.latitude,
                     warehouseLng = data.destination.longitude,
+                    summaryLegs = summaryLegs,
+                    apiBaseUrl = apiBaseUrl,
+                    onViewGeotag = { geotagPreviewUrl = it },
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
             }
 
             if (routeLoading && route == null && !hideTripMetrics) {
@@ -256,45 +252,6 @@ fun MapTripPanel(
                 )
             }
 
-            if (showLegDetails && summaryLegs.isNotEmpty()) {
-                Spacer(Modifier.height(14.dp))
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(SheetMutedBg)
-                        .padding(12.dp),
-                ) {
-                TripSummarySectionHeader()
-                Spacer(Modifier.height(10.dp))
-                val trip = track
-                summaryLegs.forEach { leg ->
-                    if (leg.leg == "nmis") {
-                        NmisLegRow(leg)
-                    } else {
-                        val fallbackLat = when (leg.leg) {
-                            "pickup" -> trip?.pickup?.latitude
-                            "warehouse" -> trip?.destination?.latitude
-                            else -> null
-                        }
-                        val fallbackLng = when (leg.leg) {
-                            "pickup" -> trip?.pickup?.longitude
-                            "warehouse" -> trip?.destination?.longitude
-                            else -> null
-                        }
-                        DeliveryLegSummaryCard(
-                            leg = leg,
-                            apiBaseUrl = apiBaseUrl,
-                            fallbackLatitude = fallbackLat,
-                            fallbackLongitude = fallbackLng,
-                            onViewImage = { url -> geotagPreviewUrl = url },
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-                }
-            }
-
             if (showQr && !waitingAtWarehouse) {
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(onClick = onOpenQr, modifier = Modifier.fillMaxWidth()) {
@@ -375,38 +332,6 @@ private fun BookingIdCard(
 }
 
 @Composable
-private fun TripSummarySectionHeader() {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = BlueChipBg,
-            modifier = Modifier.size(40.dp),
-        ) {
-            Icon(
-                Icons.Default.Route,
-                contentDescription = null,
-                tint = BlueAccent,
-                modifier = Modifier.padding(9.dp),
-            )
-        }
-        Spacer(Modifier.width(10.dp))
-        Column {
-            Text(
-                UiStrings.Map.tripSummaryTitle,
-                fontWeight = FontWeight.Bold,
-                color = NavyText,
-                fontSize = 16.sp,
-            )
-            Text(
-                UiStrings.Map.tripSummarySubtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = AgriColors.TextSecondary,
-            )
-        }
-    }
-}
-
-@Composable
 private fun TripEtaRow(
     durationLabel: String,
     metaLabel: String,
@@ -431,97 +356,106 @@ private fun TripEtaRow(
 }
 
 private fun abbrevStopLabel(name: String): String {
-    val parts = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-    if (parts.isEmpty()) return "—"
-    if (parts.size == 1) return parts[0].take(6).uppercase(Locale.ENGLISH)
-    return parts.take(2).map { it.first().uppercaseChar() }.joinToString("")
+    val trimmed = name.trim()
+    if (trimmed.isEmpty()) return "—"
+    val parts = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
+    if (parts.size == 1) return parts[0].take(8).uppercase(Locale.ENGLISH)
+    if (parts.size == 2 && parts[0].length <= 6) {
+        return parts[0].uppercase(Locale.ENGLISH)
+    }
+    return parts.take(3).map { it.first().uppercaseChar() }.joinToString("")
 }
 
 @Composable
-private fun TripRouteTimelineCard(
+private fun TripSummaryCard(
     pickupName: String,
     pickupLat: Double,
     pickupLng: Double,
     warehouseName: String,
     warehouseLat: Double,
     warehouseLng: Double,
+    summaryLegs: List<ContainerDeliveryLegSummaryDto>,
+    apiBaseUrl: String,
+    onViewGeotag: (String) -> Unit,
 ) {
-    val pickupSub = formatCoordinates(pickupLat, pickupLng)
-    val warehouseSub = formatCoordinates(warehouseLat, warehouseLng)
+    val pickupCoords = formatCoordinates(pickupLat, pickupLng)
+    val warehouseCoords = formatCoordinates(warehouseLat, warehouseLng)
+    val destinationRed = Color(0xFFEF4444)
+    val startBadgeBg = Color(0xFFEFF6FF)
+    val destBadgeBg = Color(0xFFFEE2E2)
+    val destBadgeFg = Color(0xFFDC2626)
+
     ElevatedCard(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = Color.White),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.padding(14.dp)) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(top = 4.dp),
-            ) {
-                Box(
-                    Modifier
-                        .size(11.dp)
-                        .clip(CircleShape)
-                        .background(BlueAccent),
-                )
-                Box(
-                    Modifier
-                        .width(2.dp)
-                        .height(44.dp)
-                        .background(Color(0xFFCBD5E1)),
-                )
-                Icon(
-                    Icons.Default.Place,
-                    contentDescription = null,
-                    tint = Color(0xFFEF4444),
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.Top) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            abbrevStopLabel(pickupName),
-                            fontWeight = FontWeight.Bold,
-                            color = NavyText,
-                            fontSize = 14.sp,
-                        )
-                        Text(
-                            pickupName,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = AgriColors.TextSecondary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        pickupSub?.let {
-                            Text(it, fontSize = 11.sp, color = MutedCoord, modifier = Modifier.padding(top = 2.dp))
-                        }
-                    }
-                    RouteBadge(UiStrings.Map.routeBadgeStart, Color(0xFFDCFCE7), RouteGreen)
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
+            Row(Modifier.fillMaxWidth()) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .width(28.dp)
+                        .padding(top = 4.dp),
+                ) {
+                    RouteStartMarker()
+                    DashedVerticalLine(
+                        modifier = Modifier
+                            .width(2.dp)
+                            .height(40.dp)
+                            .padding(vertical = 4.dp),
+                        color = Color(0xFFD1D5DB),
+                    )
+                    Icon(
+                        Icons.Default.Place,
+                        contentDescription = null,
+                        tint = destinationRed,
+                        modifier = Modifier.size(22.dp),
+                    )
                 }
-                Spacer(Modifier.height(14.dp))
-                Row(verticalAlignment = Alignment.Top) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            abbrevStopLabel(warehouseName),
-                            fontWeight = FontWeight.Bold,
-                            color = NavyText,
-                            fontSize = 14.sp,
-                        )
-                        Text(
-                            warehouseName,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = AgriColors.TextSecondary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        warehouseSub?.let {
-                            Text(it, fontSize = 11.sp, color = MutedCoord, modifier = Modifier.padding(top = 2.dp))
-                        }
-                    }
-                    RouteBadge(UiStrings.Map.routeBadgeDestination, Color(0xFFFEE2E2), Color(0xFFDC2626))
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .padding(start = 6.dp),
+                ) {
+                    TripRouteStopContent(
+                        title = abbrevStopLabel(pickupName),
+                        coordinates = pickupCoords,
+                        badgeLabel = UiStrings.Map.routeBadgeStart,
+                        badgeBg = startBadgeBg,
+                        badgeFg = BlueAccent,
+                    )
+                    Spacer(Modifier.height(22.dp))
+                    TripRouteStopContent(
+                        title = abbrevStopLabel(warehouseName),
+                        coordinates = warehouseCoords,
+                        badgeLabel = UiStrings.Map.routeBadgeDestination,
+                        badgeBg = destBadgeBg,
+                        badgeFg = destBadgeFg,
+                    )
+                }
+            }
+
+            if (summaryLegs.isNotEmpty()) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(top = 16.dp, bottom = 12.dp),
+                    color = CardBorder,
+                )
+                Text(
+                    UiStrings.Map.tripSummaryTitle,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MutedCoord,
+                    letterSpacing = 0.3.sp,
+                )
+                Spacer(Modifier.height(8.dp))
+                summaryLegs.forEach { leg ->
+                    TripProgressLegRow(
+                        leg = leg,
+                        apiBaseUrl = apiBaseUrl,
+                        onViewGeotag = onViewGeotag,
+                    )
                 }
             }
         }
@@ -529,15 +463,161 @@ private fun TripRouteTimelineCard(
 }
 
 @Composable
+private fun RouteStartMarker() {
+    Box(
+        Modifier.size(14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .background(BlueAccent),
+        )
+        Box(
+            Modifier
+                .size(5.dp)
+                .clip(CircleShape)
+                .background(Color.White),
+        )
+    }
+}
+
+@Composable
+private fun DashedVerticalLine(modifier: Modifier, color: Color) {
+    Canvas(modifier) {
+        val stroke = 2.5f
+        val pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+        drawLine(
+            color = color,
+            start = Offset(size.width / 2f, 0f),
+            end = Offset(size.width / 2f, size.height),
+            strokeWidth = stroke,
+            pathEffect = pathEffect,
+        )
+    }
+}
+
+@Composable
+private fun TripRouteStopContent(
+    title: String,
+    coordinates: String?,
+    badgeLabel: String,
+    badgeBg: Color,
+    badgeFg: Color,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(
+                title,
+                fontWeight = FontWeight.Bold,
+                color = NavyText,
+                fontSize = 15.sp,
+                letterSpacing = 0.2.sp,
+            )
+            coordinates?.let {
+                Text(
+                    it,
+                    fontSize = 12.sp,
+                    color = MutedCoord,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+        RouteBadge(badgeLabel, badgeBg, badgeFg)
+    }
+}
+
+@Composable
 private fun RouteBadge(text: String, bg: Color, fg: Color) {
-    Surface(shape = RoundedCornerShape(8.dp), color = bg) {
+    Surface(shape = RoundedCornerShape(10.dp), color = bg) {
         Text(
             text,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            fontSize = 11.sp,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             color = fg,
         )
+    }
+}
+
+@Composable
+private fun TripProgressLegRow(
+    leg: ContainerDeliveryLegSummaryDto,
+    apiBaseUrl: String,
+    onViewGeotag: (String) -> Unit,
+) {
+    if (leg.leg == "nmis") {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.Verified,
+                contentDescription = null,
+                tint = BlueAccent,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(leg.title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = NavyText)
+                leg.statusLabel?.let {
+                    Text(it, fontSize = 11.sp, color = BlueAccent, maxLines = 2)
+                }
+                formatLegTime(leg.arrivedAtUtc)?.let { time ->
+                    Text(time, fontSize = 11.sp, color = MutedCoord)
+                }
+            }
+        }
+        return
+    }
+
+    val photoUrl = ApiAssetUrl.resolve(apiBaseUrl, leg.photoRelativeUrl)
+    val arrived = formatLegTime(leg.arrivedAtUtc)
+    val departed = formatLegTime(leg.departedAtUtc)
+    val status = leg.statusLabel
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                leg.title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = NavyText,
+            )
+            when {
+                status != null -> Text(status, fontSize = 11.sp, color = MutedCoord, maxLines = 2)
+                arrived != null -> Text(arrived, fontSize = 11.sp, color = MutedCoord)
+                else -> Text(UiStrings.Map.summaryNoTimestamp, fontSize = 11.sp, color = MutedCoord)
+            }
+            if (departed != null && leg.leg == "pickup") {
+                Text(
+                    "${UiStrings.Map.summaryDeparted}: $departed",
+                    fontSize = 11.sp,
+                    color = MutedCoord,
+                )
+            }
+        }
+        if (!photoUrl.isNullOrBlank()) {
+            TextButton(
+                onClick = { onViewGeotag(photoUrl) },
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+            ) {
+                Icon(Icons.Default.Photo, contentDescription = null, modifier = Modifier.size(16.dp), tint = BlueAccent)
+                Spacer(Modifier.width(4.dp))
+                Text(UiStrings.Map.viewImageAction, fontSize = 11.sp, color = BlueAccent)
+            }
+        }
     }
 }
 
@@ -584,209 +664,6 @@ private fun MapInlineHandoffQr(
                     CircularProgressIndicator(color = AgriColors.PrimaryDark, modifier = Modifier.size(32.dp))
                     Spacer(Modifier.height(8.dp))
                     Text(UiStrings.Map.summaryGeneratingQr, color = AgriColors.TextSecondary, fontSize = 12.sp)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DeliveryLegSummaryCard(
-    leg: ContainerDeliveryLegSummaryDto,
-    apiBaseUrl: String,
-    fallbackLatitude: Double? = null,
-    fallbackLongitude: Double? = null,
-    onViewImage: (String) -> Unit,
-) {
-    val photoUrl = ApiAssetUrl.resolve(apiBaseUrl, leg.photoRelativeUrl)
-    val isWarehouse = leg.leg == "warehouse"
-    val accent = if (isWarehouse) RouteGreen else BlueAccent
-    val chipBg = if (isWarehouse) GreenChipBg else BlueChipBg
-    val coords = formatCoordinates(
-        leg.captureLatitude ?: fallbackLatitude,
-        leg.captureLongitude ?: fallbackLongitude,
-    )
-    val hasPhoto = !photoUrl.isNullOrBlank()
-    ElevatedCard(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = Color.White),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.height(IntrinsicSize.Min)) {
-            if (isWarehouse) {
-                Box(
-                    Modifier
-                        .width(4.dp)
-                        .fillMaxHeight()
-                        .background(RouteGreen),
-                )
-            }
-            Row(
-                Modifier
-                    .weight(1f)
-                    .padding(12.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Surface(shape = RoundedCornerShape(12.dp), color = chipBg, modifier = Modifier.size(44.dp)) {
-                    Icon(
-                        imageVector = if (isWarehouse) Icons.Default.LocalShipping else Icons.Default.Inventory2,
-                        contentDescription = null,
-                        tint = accent,
-                        modifier = Modifier.padding(10.dp),
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(leg.title, fontWeight = FontWeight.Bold, color = NavyText, fontSize = 15.sp)
-                    leg.statusLabel?.let { status ->
-                        StatusPill(
-                            text = status,
-                            positive = !status.contains("not", ignoreCase = true) &&
-                                !status.contains("awaiting", ignoreCase = true),
-                        )
-                        Spacer(Modifier.height(4.dp))
-                    }
-                    LegTimestampBlock(leg)
-                    coords?.let {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                            Icon(Icons.Default.Place, contentDescription = null, tint = MutedCoord, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(it, fontSize = 11.sp, color = MutedCoord)
-                        }
-                    }
-                }
-                if (hasPhoto) {
-                    VerticalDivider(
-                        modifier = Modifier
-                            .padding(horizontal = 10.dp)
-                            .height(72.dp),
-                        color = CardBorder,
-                    )
-                    Surface(
-                        onClick = { onViewImage(photoUrl!!) },
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color.White,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder),
-                        modifier = Modifier.width(88.dp),
-                    ) {
-                        Column(
-                            Modifier.padding(vertical = 12.dp, horizontal = 6.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Icon(Icons.Default.Photo, contentDescription = null, tint = accent, modifier = Modifier.size(22.dp))
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                UiStrings.Map.viewImageAction,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = accent,
-                            )
-                            Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = null,
-                                tint = accent,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                    }
-                } else if (isWarehouse) {
-                    Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        tint = MutedCoord,
-                        modifier = Modifier
-                            .padding(start = 4.dp, top = 12.dp)
-                            .size(24.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LegTimestampBlock(leg: ContainerDeliveryLegSummaryDto) {
-    val arrived = formatLegTime(leg.arrivedAtUtc)
-    val departed = formatLegTime(leg.departedAtUtc)
-    if (arrived != null) {
-        Text(
-            arrived,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = NavyText,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-    }
-    if (departed != null) {
-        Text(
-            "${UiStrings.Map.summaryDeparted}: $departed",
-            style = MaterialTheme.typography.bodySmall,
-            color = AgriColors.TextSecondary,
-            modifier = Modifier.padding(top = 2.dp),
-        )
-    }
-    if (arrived == null && departed == null) {
-        Text(
-            UiStrings.Map.summaryNoTimestamp,
-            style = MaterialTheme.typography.bodySmall,
-            color = AgriColors.TextSecondary,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-    }
-}
-
-@Composable
-private fun StatusPill(text: String, positive: Boolean) {
-    val bg = if (positive) Color(0xFFDCFCE7) else Color(0xFFF1F5F9)
-    val fg = if (positive) RouteGreen else MutedCoord
-    Surface(shape = RoundedCornerShape(20.dp), color = bg) {
-        Row(
-            Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(fg),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(text, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = fg)
-        }
-    }
-}
-
-@Composable
-private fun NmisLegRow(leg: ContainerDeliveryLegSummaryDto) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFFEFF6FF),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Verified, contentDescription = null, tint = Color(0xFF1D4ED8), modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
-            Column {
-                Text(leg.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                leg.statusLabel?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF1D4ED8))
-                }
-                formatLegTime(leg.arrivedAtUtc)?.let { validatedAt ->
-                    Text(
-                        UiStrings.Map.summaryArrived,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = AgriColors.TextSecondary,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    Text(
-                        validatedAt,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = AgriColors.OnSurface,
-                    )
                 }
             }
         }
