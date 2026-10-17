@@ -115,8 +115,9 @@ object NetworkModule {
         val normalizedBase = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         val authInterceptor = AuthInterceptor(tokenStore, normalizedBase)
         val logging = HttpLoggingInterceptor().apply {
+            // HEADERS only: BODY logging consumes the response stream and breaks API error parsing.
             level = if (BuildConfig.DEBUG) {
-                HttpLoggingInterceptor.Level.BODY
+                HttpLoggingInterceptor.Level.HEADERS
             } else {
                 HttpLoggingInterceptor.Level.BASIC
             }

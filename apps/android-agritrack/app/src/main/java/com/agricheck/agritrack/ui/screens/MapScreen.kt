@@ -36,6 +36,8 @@ import com.agricheck.agritrack.ui.camera.GeotagCaptureScreen
 import com.agricheck.agritrack.ui.incident.DriverIncidentReportSheet
 import java.time.Instant
 import com.agricheck.agritrack.data.api.OsrmClient
+import com.agricheck.agritrack.data.api.apiErrorCode
+import com.agricheck.agritrack.data.api.apiErrorMessage
 import com.agricheck.agritrack.data.api.userMessage
 import com.agricheck.agritrack.data.api.OsrmRouteResult
 import com.agricheck.agritrack.data.api.RoutingClient
@@ -791,31 +793,31 @@ fun MapScreen(
             style = alertStyleForMessage(msg),
         )
     }
-    val warehouseArrived = warehouseArrivalConfirmed(track)
-    val handoffQrAvailable =
-        (track?.handoffQrAvailable == true || warehouseArrived) && !complianceHoldActive
-    val showQr = phase != null && canShowDeliveryQr(phase, handoffQrAvailable) && !complianceHoldActive
-    val waitingAtWarehouse =
-        handoffQrAvailable ||
-            warehouseArrived ||
-            phase == DeliveryPhase.AtWarehouse ||
-            phase == DeliveryPhase.UnderInspection
+    val serverHandoffReady = track?.handoffQrAvailable == true && !complianceHoldActive
+    val atWarehousePhase =
+        phase == DeliveryPhase.AtWarehouse || phase == DeliveryPhase.UnderInspection
+    val handoffQrAvailable = serverHandoffReady
+    val showQr = phase != null && canShowDeliveryQr(phase, serverHandoffReady) && !complianceHoldActive
+    val waitingAtWarehouse = serverHandoffReady || atWarehousePhase
+    val shouldPollHandoffQr = waitingAtWarehouse
     var handoffQr by remember { mutableStateOf<DriverDeliveryHandoffQrDto?>(null) }
     var handoffQrWaiting by remember { mutableStateOf<String?>(null) }
     val storedApiBaseUrl by appContainer.settingsStore.apiBaseUrlFlow.collectAsState(initial = null)
     val apiBaseUrl = remember(storedApiBaseUrl) {
         appContainer.resolveApiBaseUrl(storedApiBaseUrl)
     }
-    LaunchedEffect(containerUuid, waitingAtWarehouse, handoffQrAvailable, warehouseArrived) {
-        if (!waitingAtWarehouse && !handoffQrAvailable) {
+    LaunchedEffect(containerUuid, shouldPollHandoffQr) {
+        if (!shouldPollHandoffQr) {
             handoffQr = null
             handoffQrWaiting = null
             return@LaunchedEffect
         }
+        var errorBackoffMs = 8_000L
         while (isActive) {
             val delayMs = runCatching { repository.deliveryHandoffQr(containerUuid) }
                 .fold(
                     onSuccess = { dto ->
+                        errorBackoffMs = 8_000L
                         if (dto.qrPayload.isNotBlank() || !dto.qrCodeData.isNullOrBlank()) {
                             handoffQr = dto
                             handoffQrWaiting = null
@@ -825,30 +827,35 @@ fun MapScreen(
                         dto.refreshAfterSeconds.coerceIn(30, 120) * 1000L
                     },
                     onFailure = { e ->
-                        val m = e.message.orEmpty()
+                        val code = e.apiErrorCode()
+                        val m = e.apiErrorMessage(UiStrings.Map.summaryGeneratingQr)
                         when {
-                            m.contains("Confirm arrival", ignoreCase = true) ||
-                                m.contains("HANDOFF_NOT_READY", ignoreCase = true) -> {
+                            code == "HANDOFF_NOT_READY" ||
+                                m.contains("Confirm arrival", ignoreCase = true) -> {
                                 handoffQrWaiting = UiStrings.DeliveryQr.waitingForArrival
                             }
-                            m.contains("within the assigned warehouse", ignoreCase = true) -> {
+                            code == "OUTSIDE_GEOFENCE" ||
+                                m.contains("within the assigned warehouse", ignoreCase = true) -> {
                                 handoffQrWaiting = UiStrings.DeliveryQr.waitingForGps
                             }
-                            m.contains("COMPLIANCE_HOLD", ignoreCase = true) ||
+                            code == "COMPLIANCE_HOLD" ||
                                 m.contains("compliance hold", ignoreCase = true) ||
                                 m.contains("DA authority", ignoreCase = true) -> {
                                 handoffQrWaiting = m
                             }
+                            code == "QR_UNAVAILABLE" -> {
+                                handoffQrWaiting = m
+                            }
                             handoffQr == null -> {
-                                handoffQrWaiting = m.ifBlank { UiStrings.Map.summaryGeneratingQr }
+                                handoffQrWaiting = m
                             }
                         }
+                        errorBackoffMs = (errorBackoffMs * 2).coerceAtMost(60_000L)
                         when {
-                            m.contains("Confirm arrival", ignoreCase = true) ||
-                                m.contains("HANDOFF_NOT_READY", ignoreCase = true) -> 4_000L
-                            m.contains("within the assigned warehouse", ignoreCase = true) -> 5_000L
+                            code == "HANDOFF_NOT_READY" -> 12_000L
+                            e is retrofit2.HttpException && e.code() in 502..504 -> errorBackoffMs
                             handoffQr != null -> 30_000L
-                            else -> 8_000L
+                            else -> errorBackoffMs
                         }
                     },
                 )

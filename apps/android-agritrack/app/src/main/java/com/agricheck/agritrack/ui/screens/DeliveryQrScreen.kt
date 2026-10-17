@@ -13,6 +13,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.agricheck.agritrack.data.model.DriverDeliveryHandoffQrDto
+import com.agricheck.agritrack.data.api.apiErrorMessage
 import com.agricheck.agritrack.data.repository.DriverRepository
 import com.agricheck.agritrack.ui.components.AgriScreenScaffold
 import com.agricheck.agritrack.ui.components.ErrorState
@@ -66,7 +67,9 @@ fun DeliveryQrScreen(
                         }
                         else -> {
                             waitingMessage = null
-                            if (data == null) error = e.message
+                            if (data == null) {
+                                error = e.apiErrorMessage("Could not load delivery QR.")
+                            }
                         }
                     }
                     when {

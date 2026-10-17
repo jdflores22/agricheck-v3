@@ -911,15 +911,27 @@ public class DriverOpsService : IDriverOpsService
 
         var expiresAt = now.Add(DeliveryHandoffQrCodec.MaxAge);
         var nonce = Guid.NewGuid();
-        var signingKey = TransportQrSigningKeyResolver.Resolve(_configuration);
-        var handoffPayload = new DeliveryHandoffQrPayload(
-            nonce,
-            container.Uuid,
-            container.ContainerNumber,
-            container.Entry.ReferenceNo,
-            now);
-        var qrPayload = DeliveryHandoffQrCodec.Encode(handoffPayload, signingKey);
-        var qrCodeData = QrCodeGenerator.ToBase64Png(qrPayload);
+        string signingKey;
+        string qrPayload;
+        string qrCodeData;
+        try
+        {
+            signingKey = TransportQrSigningKeyResolver.Resolve(_configuration);
+            var handoffPayload = new DeliveryHandoffQrPayload(
+                nonce,
+                container.Uuid,
+                container.ContainerNumber,
+                container.Entry.ReferenceNo,
+                now);
+            qrPayload = DeliveryHandoffQrCodec.Encode(handoffPayload, signingKey);
+            qrCodeData = QrCodeGenerator.ToBase64Png(qrPayload);
+        }
+        catch (InvalidOperationException)
+        {
+            throw new ClientPortalException(
+                "QR_UNAVAILABLE",
+                "Delivery QR cannot be generated right now. Please try again in a few minutes.");
+        }
 
         var staleTokens = await _db.ContainerHandoffTokens
             .Where(t => t.ContainerId == container.Id && t.ConsumedAt == null && t.ExpiresAt > now)
