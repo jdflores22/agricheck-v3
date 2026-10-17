@@ -315,7 +315,9 @@ public record ContainerDeliveryLegSummaryDto(
     DateTime? ArrivedAtUtc,
     DateTime? DepartedAtUtc,
     string? PhotoRelativeUrl,
-    string? StatusLabel);
+    string? StatusLabel,
+    decimal? CaptureLatitude = null,
+    decimal? CaptureLongitude = null);
 
 public record ContainerTrackDestinationDto(
     string Name,
@@ -335,6 +337,8 @@ public record ContainerTrackDto(
     bool HandoffQrAvailable = false,
     bool DeliveryComplianceHoldActive = false,
     string? DeliveryComplianceHoldReason = null,
-    IReadOnlyList<ContainerDeliveryLegSummaryDto>? DeliverySummary = null);
+    IReadOnlyList<ContainerDeliveryLegSummaryDto>? DeliverySummary = null,
+    string? AssignedDriverName = null,
+    string? AssignedVehiclePlate = null);
 
 public record RegisterMobilePushDeviceRequest(string ExpoPushToken, string Platform);

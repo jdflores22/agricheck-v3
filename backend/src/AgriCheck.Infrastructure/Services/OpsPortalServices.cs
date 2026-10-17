@@ -734,9 +734,12 @@ public class DriverOpsService : IDriverOpsService
             .Include(c => c.Entry).ThenInclude(e => e.FinalWarehouseFacility)
             .Include(c => c.Locations)
             .Include(c => c.InspectionPhotos)
+            .Include(c => c.AssignedDriver)
+            .Include(c => c.AssignedOperatorVehicle)
             .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
 
+        var mappedContainer = OpsDtoMapper.MapContainer(container);
         var pickup = ResolveTrackPickup(container);
         var destination = await ResolveTrackDestinationAsync(container, cancellationToken);
         var trail = container.Locations
@@ -766,7 +769,9 @@ public class DriverOpsService : IDriverOpsService
             DeliveryComplianceHoldHelper.HasActiveHold(container)
                 ? container.DeliveryComplianceHoldReason
                 : null,
-            BuildDeliveryLegSummaries(container, nmisScanAt));
+            BuildDeliveryLegSummaries(container, nmisScanAt),
+            mappedContainer.AssignedDriverName,
+            mappedContainer.AssignedVehiclePlate);
     }
 
     private static ContainerTrackDestinationDto ResolveTrackPickup(Container container)
@@ -1733,14 +1738,18 @@ public class DriverOpsService : IDriverOpsService
                 pickupArrived,
                 container.DepartureTime,
                 pickupPhoto is null ? null : DriverGeotagPhotoRelativeUrl(container.Uuid, pickupPhoto.Uuid),
-                pickupPhoto is null ? "Awaiting geotag" : null),
+                pickupPhoto is null ? "Awaiting geotag" : null,
+                pickupPhoto?.CaptureLatitude,
+                pickupPhoto?.CaptureLongitude),
             new(
                 "warehouse",
                 "Assigned warehouse",
                 warehouseArrived,
                 null,
                 warehousePhoto is null ? null : DriverGeotagPhotoRelativeUrl(container.Uuid, warehousePhoto.Uuid),
-                container.WarehouseHandoffEligibleAt is null ? "Not arrived" : "Arrived — present delivery QR"),
+                container.WarehouseHandoffEligibleAt is null ? "Not arrived" : "Arrived — present delivery QR",
+                warehousePhoto?.CaptureLatitude,
+                warehousePhoto?.CaptureLongitude),
         };
 
         if (nmisHandoffConsumedAtUtc is not null)
@@ -1751,7 +1760,9 @@ public class DriverOpsService : IDriverOpsService
                 nmisHandoffConsumedAtUtc,
                 null,
                 null,
-                "QR validated — handoff complete"));
+                "QR validated — handoff complete",
+                null,
+                null));
         }
 
         return list;
