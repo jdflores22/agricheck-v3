@@ -117,6 +117,8 @@ object UiStrings {
         const val summaryNmisValidated = "NMIS / Doctor validated your delivery QR."
         const val daNmisTitle = "DA NMIS"
         const val daNmisScanConfirmed = "QR scan confirmed (arrived)"
+        const val daNmisDoctorEndTrip = "Doctor end trip (delivery QR scanned)"
+        const val daNmisDoctorEndTripConfirmed = "Doctor end trip confirmed"
         const val daNmisAwaitingScan = "Awaiting DA NMIS / Doctor delivery QR scan"
         const val daNmisInspectionCompleted = "Inspection completed"
         const val daNmisInspectionPending = "Inspection date & time will appear when the doctor completes inspection."

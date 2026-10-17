@@ -34,6 +34,17 @@ function isDriverTripComplete(status: string) {
   return status === 'Inspected' || status === 'Released'
 }
 
+function isPostDoctorHandoff(status: string) {
+  return status === 'UnderInspection' || status === 'Inspected' || status === 'Released'
+}
+
+function doctorEndTripLine(leg: ContainerDeliveryLegSummary, containerStatus: string) {
+  const at = formatLegTime(leg.arrivedAtUtc)
+  if (at) return `Doctor end trip (delivery QR scanned) · ${at}`
+  if (isPostDoctorHandoff(containerStatus)) return 'Doctor end trip confirmed'
+  return 'Awaiting DA NMIS / Doctor delivery QR scan'
+}
+
 export function DriverDeliveryTrackCards({ track }: { track: ContainerTrack }) {
   const summary = track.deliverySummary ?? []
   const tripLegs = summary.filter((leg) => leg.leg === 'pickup' || leg.leg === 'warehouse')
@@ -103,9 +114,7 @@ export function DriverDeliveryTrackCards({ track }: { track: ContainerTrack }) {
             <Divider sx={{ my: 1.5 }} />
             <Stack spacing={0.75}>
               <Typography variant="body2" color="text.secondary">
-                {formatLegTime(daNmis.arrivedAtUtc)
-                  ? `QR scan confirmed (arrived) · ${formatLegTime(daNmis.arrivedAtUtc)}`
-                  : 'Awaiting DA NMIS / Doctor delivery QR scan'}
+                {doctorEndTripLine(daNmis, track.status)}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 {formatLegTime(daNmis.departedAtUtc)

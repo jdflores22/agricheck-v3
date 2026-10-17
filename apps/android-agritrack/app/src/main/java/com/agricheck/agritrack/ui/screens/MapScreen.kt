@@ -1007,10 +1007,12 @@ fun MapScreen(
             ?.let { (it / 60.0).toInt().coerceAtLeast(0) } ?: 0
     }
     val showDeliverySheet = track != null && !navigationBootstrapping
+    // Peek: minimal drag handle + booking card + pinned powered-by footer (see MapDeliverySheetScaffold).
     val deliverySheetPeek = when {
-        waitingAtWarehouse -> 188.dp
-        drivingMode -> 120.dp
-        else -> 168.dp
+        waitingAtWarehouse -> 204.dp
+        drivingMode -> 124.dp
+        transitEnded || tripCompleted -> 136.dp
+        else -> 132.dp
     }
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {

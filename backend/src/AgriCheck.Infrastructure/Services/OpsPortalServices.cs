@@ -1892,9 +1892,9 @@ public class DriverOpsService : IDriverOpsService
             var latestInspection = inspections
                 .OrderByDescending(i => i.CompletedAt ?? i.ClaimedAt ?? i.CreatedAt)
                 .FirstOrDefault();
-            var scanAt = NormalizeApiUtc(nmisHandoffConsumedAtUtc);
+            var scanAt = ResolveDoctorHandoffScanAtUtc(container, nmisHandoffConsumedAtUtc);
             var inspectionCompletedAt = NormalizeApiUtc(latestInspection?.CompletedAt);
-            var nmisStatus = ResolveDaNmisStatusLabel(container, nmisHandoffConsumedAtUtc, latestInspection);
+            var nmisStatus = ResolveDaNmisStatusLabel(container, scanAt, latestInspection);
 
             list.Add(new ContainerDeliveryLegSummaryDto(
                 "da_nmis",
@@ -1910,9 +1910,31 @@ public class DriverOpsService : IDriverOpsService
         return list;
     }
 
+    private static DateTime? ResolveDoctorHandoffScanAtUtc(
+        Container container,
+        DateTime? nmisHandoffConsumedAtUtc)
+    {
+        var fromToken = NormalizeApiUtc(nmisHandoffConsumedAtUtc);
+        if (fromToken is not null)
+        {
+            return fromToken;
+        }
+
+        var inspections = container.DoctorInspections ?? Array.Empty<ContainerDoctorInspection>();
+        var latest = inspections
+            .OrderByDescending(i => i.ClaimedAt ?? i.CreatedAt)
+            .FirstOrDefault();
+        if (latest is null)
+        {
+            return null;
+        }
+
+        return NormalizeApiUtc(latest.ClaimedAt ?? latest.CreatedAt);
+    }
+
     private static string ResolveDaNmisStatusLabel(
         Container container,
-        DateTime? nmisHandoffConsumedAtUtc,
+        DateTime? doctorHandoffScanAtUtc,
         ContainerDoctorInspection? latestInspection)
     {
         if (container.Status is ContainerStatus.Inspected or ContainerStatus.Released &&
@@ -1932,9 +1954,9 @@ public class DriverOpsService : IDriverOpsService
             return "Inspection in progress";
         }
 
-        if (nmisHandoffConsumedAtUtc is not null)
+        if (doctorHandoffScanAtUtc is not null)
         {
-            return "Arrived confirmed — delivery QR scanned (trip ended)";
+            return "Doctor end trip — delivery QR scanned";
         }
 
         if (container.WarehouseHandoffEligibleAt is not null)

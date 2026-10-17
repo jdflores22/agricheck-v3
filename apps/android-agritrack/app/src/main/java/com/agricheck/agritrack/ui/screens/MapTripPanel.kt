@@ -58,6 +58,26 @@ private val LegTimeFormat = DateTimeFormatter.ofPattern("MMM d, yyyy · h:mm a",
 private fun formatLegTime(iso: String?): String? =
     formatApiInstantForDisplay(iso, PhilippinesZone, LegTimeFormat)
 
+private fun isPostDoctorHandoffContainerStatus(status: String): Boolean =
+    status.equals("UnderInspection", ignoreCase = true) ||
+        status.equals("Inspected", ignoreCase = true) ||
+        status.equals("Released", ignoreCase = true)
+
+private fun daNmisDoctorEndTripLine(
+    leg: ContainerDeliveryLegSummaryDto,
+    containerStatus: String,
+): String {
+    val scanTime = formatLegTime(leg.arrivedAtUtc)
+    if (scanTime != null) {
+        return "${UiStrings.Map.daNmisDoctorEndTrip} · $scanTime"
+    }
+    return if (isPostDoctorHandoffContainerStatus(containerStatus)) {
+        UiStrings.Map.daNmisDoctorEndTripConfirmed
+    } else {
+        UiStrings.Map.daNmisAwaitingScan
+    }
+}
+
 private fun formatCoordinates(lat: Double?, lng: Double?): String? {
     if (lat == null || lng == null) return null
     return String.format(Locale.US, "%.5f, %.5f", lat, lng)
@@ -108,15 +128,16 @@ fun MapTripPanel(
     trafficSlowMinutes: Int = 0,
     modifier: Modifier = Modifier,
 ) {
-    val hideTripMetrics = hideEtaWhenGoogleNavigation && (drivingMode || waitingAtWarehouse)
+    // ETA/distance come from Google Navigation SDK while driving; no OSRM/in-app ETA row.
+    val hideTripMetrics = hideEtaWhenGoogleNavigation || tripCompleted
     val summaryLegs = track?.deliverySummary.orEmpty()
     var geotagPreviewUrl by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 4.dp),
     ) {
             track?.let { data ->
                 BookingIdCard(
@@ -586,8 +607,8 @@ private fun DaNmisHandoffCard(
     leg: ContainerDeliveryLegSummaryDto,
     containerStatus: String,
 ) {
-    val scanTime = formatLegTime(leg.arrivedAtUtc)
     val inspectionTime = formatLegTime(leg.departedAtUtc)
+    val doctorEndTripLine = daNmisDoctorEndTripLine(leg, containerStatus)
     val tripComplete = containerStatus.equals("Inspected", ignoreCase = true) ||
         containerStatus.equals("Released", ignoreCase = true)
     val completeGreen = Color(0xFF15803D)
@@ -630,8 +651,7 @@ private fun DaNmisHandoffCard(
                 color = CardBorder,
             )
             Text(
-                scanTime?.let { "${UiStrings.Map.daNmisScanConfirmed} · $it" }
-                    ?: UiStrings.Map.daNmisAwaitingScan,
+                doctorEndTripLine,
                 fontSize = 12.sp,
                 color = MutedCoord,
                 maxLines = 2,
