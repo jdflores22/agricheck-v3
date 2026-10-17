@@ -5,12 +5,31 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import retrofit2.HttpException
+import java.net.UnknownHostException
 
 private val apiErrorJson = Json { ignoreUnknownKeys = true }
+
+private fun Throwable.isDnsOrConnectivityFailure(): Boolean {
+    var current: Throwable? = this
+    while (current != null) {
+        if (current is UnknownHostException) return true
+        val msg = current.message.orEmpty()
+        if (msg.contains("Unable to resolve host", ignoreCase = true) ||
+            msg.contains("No address associated with hostname", ignoreCase = true)
+        ) {
+            return true
+        }
+        current = current.cause
+    }
+    return false
+}
 
 private data class ParsedApiError(val code: String?, val message: String?)
 
 fun Throwable.apiErrorMessage(fallback: String): String {
+    if (isDnsOrConnectivityFailure()) {
+        return "Cannot reach the AgriCheck server. Turn on mobile data or Wi‑Fi, then open Settings and confirm the API URL is https://agricheck-v3-production.up.railway.app"
+    }
     if (this is HttpException) {
         when (code()) {
             502, 503, 504 -> return "Server is temporarily unavailable. Please try again in a moment."

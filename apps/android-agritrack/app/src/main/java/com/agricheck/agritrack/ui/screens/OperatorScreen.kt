@@ -18,8 +18,13 @@ import com.agricheck.agritrack.ui.theme.AgriColors
 import kotlinx.coroutines.launch
 
 @Composable
-fun OperatorScreen(repository: OperatorRepository) {
+fun OperatorScreen(
+    repository: OperatorRepository,
+    onOpenManualRouteTest: () -> Unit,
+    onOpenRouteBooking: (containerUuid: String, containerNumber: String) -> Unit,
+) {
     var containers by remember { mutableStateOf<List<ContainerListItemDto>>(emptyList()) }
+    var claimed by remember { mutableStateOf<List<ContainerListItemDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var assignTarget by remember { mutableStateOf<ContainerListItemDto?>(null) }
@@ -32,9 +37,10 @@ fun OperatorScreen(repository: OperatorRepository) {
         scope.launch {
             loading = true
             error = null
-            runCatching { repository.claimableContainers() }
-                .onSuccess { containers = it }
-                .onFailure { error = it.message }
+            runCatching {
+                containers = repository.claimableContainers()
+                claimed = repository.claimedContainers()
+            }.onFailure { error = it.message }
             loading = false
         }
     }
@@ -54,7 +60,62 @@ fun OperatorScreen(repository: OperatorRepository) {
             message?.let {
                 item { Text(it, color = AgriColors.Success, fontWeight = FontWeight.SemiBold) }
             }
-            if (error != null && containers.isEmpty()) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = AgriColors.Primary.copy(alpha = 0.08f),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(UiStrings.Operator.manualTestTitle, fontWeight = FontWeight.Bold, color = AgriColors.PrimaryDark)
+                        Text(UiStrings.Operator.manualTestHint, style = MaterialTheme.typography.bodySmall, color = AgriColors.TextSecondary)
+                        Button(
+                            onClick = onOpenManualRouteTest,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AgriColors.Primary),
+                        ) {
+                            Text(UiStrings.Operator.manualTestOpen, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+            if (claimed.isNotEmpty()) {
+                item {
+                    Text(
+                        UiStrings.Operator.claimedSection,
+                        fontWeight = FontWeight.Bold,
+                        color = AgriColors.OnSurface,
+                    )
+                    Text(
+                        UiStrings.Operator.bookRouteHint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AgriColors.TextSecondary,
+                    )
+                }
+                items(claimed, key = { "claimed-${it.uuid}" }) { container ->
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.White,
+                        shadowElevation = 1.dp,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(container.containerNumber, fontWeight = FontWeight.Bold)
+                            StatusChip(container.status)
+                            Button(
+                                onClick = { onOpenRouteBooking(container.uuid, container.containerNumber) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = AgriColors.PrimaryDark),
+                            ) {
+                                Text(UiStrings.Operator.bookRouteStops, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+            if (error != null && containers.isEmpty() && claimed.isEmpty()) {
                 item { ErrorState(error ?: "Failed") { load() } }
             }
             if (!loading && containers.isEmpty() && error == null) {
@@ -93,6 +154,13 @@ fun OperatorScreen(repository: OperatorRepository) {
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = AgriColors.Primary),
                             ) { Text(UiStrings.Operator.claim) }
+                            OutlinedButton(
+                                onClick = { onOpenRouteBooking(container.uuid, container.containerNumber) },
+                                enabled = !busy,
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Text(UiStrings.Operator.testRoutePins)
+                            }
                             OutlinedButton(
                                 onClick = { assignTarget = container },
                                 enabled = !busy,
@@ -176,7 +244,10 @@ fun SettingsScreen(
                     AgriPrimaryButton(
                         text = UiStrings.Settings.save,
                         onClick = {
-                            onSaveApiUrl(apiUrl.trim())
+                            val normalized = com.agricheck.agritrack.util.ApiUrlNormalizer.normalize(apiUrl)
+                                ?: apiUrl.trim().trimEnd('/')
+                            apiUrl = normalized
+                            onSaveApiUrl(normalized)
                             saved = true
                         },
                         enabled = apiUrl.isNotBlank(),

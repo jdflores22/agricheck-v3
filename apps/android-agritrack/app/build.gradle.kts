@@ -28,7 +28,11 @@ android {
         versionCode = 65
         versionName = "1.2.62"
 
-        val apiBaseUrl = localProperties.getProperty("API_BASE_URL") ?: "https://agricheck-v3-production.up.railway.app"
+        val apiBaseUrl = localProperties.getProperty("API_BASE_URL")
+            ?.replace("\\", "")
+            ?.trim()
+            ?.trimEnd('/')
+            ?: "https://agricheck-v3-production.up.railway.app"
         val googleMapsApiKey = localProperties.getProperty("GOOGLE_MAPS_API_KEY") ?: ""
         val googleRoutingApiKey = localProperties.getProperty("GOOGLE_ROUTING_API_KEY") ?: ""
         val enableGoogleMapTiles = localProperties.getProperty("ENABLE_GOOGLE_MAP_TILES")?.let { raw ->
