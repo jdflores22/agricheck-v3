@@ -1,8 +1,9 @@
-# Build AgriCheck SPA and upload to Hostinger public_html via FTP.
+# Build AgriCheck SPA and upload to Hostinger public_html.
 #
 # Setup (one time):
 #   Copy scripts/hostinger.deploy.example.json -> scripts/hostinger.deploy.local.json
-#   Fill ftpUser / ftpPassword from Hostinger hPanel -> Websites -> FTP Accounts
+#   Preferred: sshHost, sshPort (65002), sshUser, sshPassword from hPanel -> SSH Access
+#   Optional fallback: ftpHost, ftpUser, ftpPassword
 #
 # Run:
 #   powershell -ExecutionPolicy Bypass -File scripts/deploy-frontend-hostinger.ps1
@@ -18,6 +19,10 @@ $dist = Join-Path $frontend 'dist'
 $configPath = Join-Path $PSScriptRoot 'hostinger.deploy.local.json'
 
 if (-not $SkipBuild) {
+    $prepareApk = Join-Path $repoRoot 'scripts\prepare-agritrack-download.mjs'
+    if (Test-Path $prepareApk) {
+        node $prepareApk
+    }
     Push-Location $frontend
     npm run build
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -30,8 +35,9 @@ if (-not (Test-Path $dist)) {
 
 if (-not (Test-Path $configPath)) {
     Write-Host ''
-    Write-Host 'FTP config not found.' -ForegroundColor Yellow
-    Write-Host "Copy scripts/hostinger.deploy.example.json to scripts/hostinger.deploy.local.json and set FTP credentials."
+    Write-Host 'Deploy config not found.' -ForegroundColor Yellow
+    Write-Host "Copy scripts/hostinger.deploy.example.json to scripts/hostinger.deploy.local.json"
+    Write-Host 'Set sshHost, sshPort, sshUser, sshPassword (Hostinger hPanel -> SSH Access).'
     Write-Host ''
     Write-Host 'Build is ready at:' $dist
     Write-Host 'Manual: upload ALL files inside dist/ to Hostinger File Manager -> public_html'
@@ -41,13 +47,37 @@ if (-not (Test-Path $configPath)) {
 }
 
 $config = Get-Content $configPath -Raw | ConvertFrom-Json
+$remotePath = ([string]$config.remotePath).TrimEnd('/')
+$sshHost = [string]$config.sshHost
+$sshPort = if ($config.sshPort) { [string]$config.sshPort } else { '65002' }
+$sshUser = [string]$config.sshUser
+$sshPassword = [string]$config.sshPassword
 $ftpHost = [string]$config.ftpHost
 $ftpUser = [string]$config.ftpUser
 $ftpPassword = [string]$config.ftpPassword
-$remotePath = ([string]$config.remotePath).TrimEnd('/')
+
+$useSsh = -not [string]::IsNullOrWhiteSpace($sshHost) `
+    -and -not [string]::IsNullOrWhiteSpace($sshUser) `
+    -and -not [string]::IsNullOrWhiteSpace($sshPassword)
+
+if ($useSsh) {
+    $env:HOSTINGER_SSH_HOST = $sshHost
+    $env:HOSTINGER_SSH_PORT = $sshPort
+    $env:HOSTINGER_SSH_USER = $sshUser
+    $env:HOSTINGER_SSH_PASSWORD = $sshPassword
+    if ($remotePath) { $env:HOSTINGER_SSH_REMOTE_DIR = $remotePath }
+    $sftpScript = Join-Path $PSScriptRoot 'deploy-hostinger-sftp.mjs'
+    Write-Host "Uploading via SFTP (SSH) to ${sshHost}:${sshPort} ..."
+    node $sftpScript
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Write-Host ''
+    Write-Host 'Deploy complete (SFTP).'
+    Write-Host 'Verify: https://dimgrey-hummingbird-677957.hostingersite.com/operator/containers'
+    exit 0
+}
 
 if ([string]::IsNullOrWhiteSpace($ftpHost) -or [string]::IsNullOrWhiteSpace($ftpUser) -or [string]::IsNullOrWhiteSpace($ftpPassword)) {
-    throw 'hostinger.deploy.local.json must set ftpHost, ftpUser, and ftpPassword.'
+    throw 'hostinger.deploy.local.json must set SSH (sshHost, sshUser, sshPassword) or FTP (ftpHost, ftpUser, ftpPassword).'
 }
 
 function Get-FtpUri([string]$path) {

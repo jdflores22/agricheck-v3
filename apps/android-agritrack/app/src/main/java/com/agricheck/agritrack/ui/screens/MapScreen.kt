@@ -77,6 +77,7 @@ private val RouteGreen = Color(0xFF15803D)
 private sealed interface PendingGeotagCapture {
     data class Pickup(val latitude: Double, val longitude: Double, val label: String?) : PendingGeotagCapture
     data class Warehouse(val latitude: Double, val longitude: Double) : PendingGeotagCapture
+    data class EmptyContainer(val latitude: Double, val longitude: Double) : PendingGeotagCapture
 }
 
 private data class PendingIncidentGeotag(
@@ -124,6 +125,7 @@ fun MapScreen(
     }
     var pickupBusy by remember { mutableStateOf(false) }
     var arriveBusy by remember { mutableStateOf(false) }
+    var emptyContainerBusy by remember { mutableStateOf(false) }
     var pendingGeotag by remember { mutableStateOf<PendingGeotagCapture?>(null) }
     var geotagAfterCamera by remember { mutableStateOf<PendingGeotagCapture?>(null) }
     var pendingIncidentGeotag by remember { mutableStateOf<PendingIncidentGeotag?>(null) }
@@ -794,12 +796,11 @@ fun MapScreen(
         )
     }
     val serverHandoffReady = track?.handoffQrAvailable == true && !complianceHoldActive
-    val atWarehousePhase =
-        phase == DeliveryPhase.AtWarehouse || phase == DeliveryPhase.UnderInspection
+    val atWarehousePhase = phase == DeliveryPhase.AtWarehouse
     val handoffQrAvailable = serverHandoffReady
     val showQr = phase != null && canShowDeliveryQr(phase, serverHandoffReady) && !complianceHoldActive
-    val waitingAtWarehouse = serverHandoffReady || atWarehousePhase
-    val shouldPollHandoffQr = waitingAtWarehouse
+    val waitingAtWarehouse = (serverHandoffReady || atWarehousePhase) && !isDriverTransitEnded(phase)
+    val shouldPollHandoffQr = waitingAtWarehouse && !isDriverTransitEnded(phase)
     var handoffQr by remember { mutableStateOf<DriverDeliveryHandoffQrDto?>(null) }
     var handoffQrWaiting by remember { mutableStateOf<String?>(null) }
     val storedApiBaseUrl by appContainer.settingsStore.apiBaseUrlFlow.collectAsState(initial = null)
@@ -891,15 +892,38 @@ fun MapScreen(
             navLeg == TripNavLeg.ToDestination &&
             canConfirmWarehouseArrival(phase) &&
             isWithinArriveButtonApproach(distanceToDestinationM)
+    val showEmptyContainerButton =
+        !drivingMode &&
+            phase != null &&
+            canSubmitEmptyContainerProof(phase) &&
+            isWithinArriveButtonApproach(distanceToDestinationM)
     fun stopDistanceHint(label: String, meters: Double?): String? {
         if (meters == null) return UiStrings.Loads.locationRequired
         if (isWithinDeliveryStopGeofence(meters)) return null
         return UiStrings.Map.nearStopHint.format(label, OsrmClient.formatDistance(meters))
     }
+    val tripCompleted = isDeliveryTripComplete(phase)
+    val transitEnded = isDriverTransitEnded(phase)
+    LaunchedEffect(transitEnded, containerUuid) {
+        if (!transitEnded) return@LaunchedEffect
+        if (drivingMode) {
+            drivingMode = false
+            followCamera = false
+            voiceAnnouncer.stop()
+            promptTracker.resetAll()
+            LocationTrackingService.stop(context)
+            appContainer.trackingStore.clearNavigationSession(containerUuid)
+        } else {
+            LocationTrackingService.stop(context)
+        }
+    }
     val warehouseNavNeedsPickup =
         !drivingMode && phase != null && requiresPickupGeofenceToStartWarehouseNavigation(phase)
     val startNavigationEnabled =
-        !waitingAtWarehouse && (!warehouseNavNeedsPickup || nearPickup)
+        !transitEnded &&
+            !tripCompleted &&
+            !waitingAtWarehouse &&
+            (!warehouseNavNeedsPickup || nearPickup)
     val startNavigationHint = when {
         warehouseNavNeedsPickup && !nearPickup ->
             stopDistanceHint(UiStrings.Map.pickup, distanceToPickupM) ?: UiStrings.Map.mustBeAtPickupForWarehouse
@@ -1208,7 +1232,16 @@ fun MapScreen(
             waitingAtWarehouse = waitingAtWarehouse,
             pickupBusy = pickupBusy,
             arriveBusy = arriveBusy,
+            showEmptyContainerButton = showEmptyContainerButton,
+            emptyContainerEnabled = nearDestination,
+            emptyContainerBusy = emptyContainerBusy,
             startNavigationBusy = navigationBootstrapping,
+            tripCompleted = tripCompleted || transitEnded,
+            tripEndedMessage = when {
+                tripCompleted -> UiStrings.Map.tripCompleted
+                transitEnded -> UiStrings.Map.tripEndedUnderInspection
+                else -> null
+            },
             startNavigationEnabled = startNavigationEnabled,
             startNavigationHint = startNavigationHint,
             showInAppGoogleHint = MapsConfig.canShowTrafficLayer(context),
@@ -1317,6 +1350,24 @@ fun MapScreen(
                     )
                 }
             },
+            onEmptyContainerProof = {
+                val destination = track?.destination
+                if (destination == null) {
+                    actionMessage = UiStrings.Loads.locationRequired
+                    return@MapTripPanel
+                }
+                scope.launch {
+                    actionMessage = null
+                    val loc = validateFreshGpsAtStop(
+                        destination.latitude,
+                        destination.longitude,
+                        UiStrings.Map.destination,
+                    ) ?: return@launch
+                    openGeotagCapture(
+                        PendingGeotagCapture.EmptyContainer(loc.latitude, loc.longitude),
+                    )
+                }
+            },
             onOpenQr = onOpenQr,
                         )
                     },
@@ -1332,18 +1383,22 @@ fun MapScreen(
             val title = when (pending) {
                 is PendingGeotagCapture.Pickup -> UiStrings.Geotag.pickupTitle
                 is PendingGeotagCapture.Warehouse -> UiStrings.Geotag.warehouseTitle
+                is PendingGeotagCapture.EmptyContainer -> UiStrings.Geotag.emptyContainerTitle
             }
             val hint = when (pending) {
                 is PendingGeotagCapture.Pickup -> UiStrings.Geotag.pickupHint
                 is PendingGeotagCapture.Warehouse -> UiStrings.Geotag.warehouseHint
+                is PendingGeotagCapture.EmptyContainer -> UiStrings.Geotag.emptyContainerHint
             }
             val lat = when (pending) {
                 is PendingGeotagCapture.Pickup -> pending.latitude
                 is PendingGeotagCapture.Warehouse -> pending.latitude
+                is PendingGeotagCapture.EmptyContainer -> pending.latitude
             }
             val lng = when (pending) {
                 is PendingGeotagCapture.Pickup -> pending.longitude
                 is PendingGeotagCapture.Warehouse -> pending.longitude
+                is PendingGeotagCapture.EmptyContainer -> pending.longitude
             }
             GeotagCaptureScreen(
                 latitude = lat,
@@ -1428,6 +1483,23 @@ fun MapScreen(
                                     loadTrack()
                                 }
                                 arriveBusy = false
+                            }
+                            is PendingGeotagCapture.EmptyContainer -> {
+                                emptyContainerBusy = true
+                                actionMessage = null
+                                runCatching {
+                                    val container = repository.submitEmptyContainerGeotag(
+                                        containerUuid,
+                                        pending.latitude,
+                                        pending.longitude,
+                                        jpeg,
+                                        capturedAt,
+                                    )
+                                    track = track?.applyContainerListUpdate(container)
+                                    loadTrack()
+                                    actionMessage = UiStrings.Loads.emptyContainerProofSaved
+                                }.onFailure { actionMessage = it.message }
+                                emptyContainerBusy = false
                             }
                         }
                     }

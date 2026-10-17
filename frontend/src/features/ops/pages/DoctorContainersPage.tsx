@@ -27,6 +27,7 @@ import {
   PortalQrScanDialog,
   doctorDriverHandoffQrPreset,
 } from '../../../components/portal/PortalQrScanDialog'
+import { DoctorBorderInspectionPhotos } from '../components/DoctorBorderInspectionPhotos'
 
 export function DoctorContainersPage() {
   const { data, isLoading } = useGetDoctorContainersQuery()
@@ -152,6 +153,9 @@ export function DoctorContainersPage() {
               multiline
               minRows={3}
             />
+            {completeTarget && decision === 'Approved' && (
+              <DoctorBorderInspectionPhotos containerUuid={completeTarget} />
+            )}
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>

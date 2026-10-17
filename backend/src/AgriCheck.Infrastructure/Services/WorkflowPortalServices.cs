@@ -1,3 +1,4 @@
+using AgriCheck.Application.ClientPortal;
 using AgriCheck.Application.Notifications;
 using AgriCheck.Application.OpsPortal;
 using AgriCheck.Application.AgencyPortal.Dtos;
@@ -1730,21 +1731,26 @@ public class OperatorOpsService : IOperatorOpsService
 
 public class DoctorInspectionService : IDoctorInspectionService
 {
+    public const int MinimumBorderInspectionGeotagPhotos = 5;
+
     private readonly AgriCheckDbContext _db;
     private readonly ICurrentUserService _currentUser;
     private readonly IConfiguration _configuration;
     private readonly IAgriTrackPushService _push;
+    private readonly IFileStorageService _fileStorage;
 
     public DoctorInspectionService(
         AgriCheckDbContext db,
         ICurrentUserService currentUser,
         IConfiguration configuration,
-        IAgriTrackPushService push)
+        IAgriTrackPushService push,
+        IFileStorageService fileStorage)
     {
         _db = db;
         _currentUser = currentUser;
         _configuration = configuration;
         _push = push;
+        _fileStorage = fileStorage;
     }
 
     public async Task<IReadOnlyList<ContainerListItemDto>> ListInspectableContainersAsync(CancellationToken cancellationToken = default)
@@ -1753,7 +1759,9 @@ public class DoctorInspectionService : IDoctorInspectionService
         var containers = await _db.Containers
             .Include(c => c.Entry)
             .Include(c => c.Locations)
-            .Where(c => c.Status == ContainerStatus.InTransit || c.Status == ContainerStatus.UnderInspection)
+            .Where(c => c.Status == ContainerStatus.AtWarehouse
+                || c.Status == ContainerStatus.InTransit
+                || c.Status == ContainerStatus.UnderInspection)
             .OrderByDescending(c => c.ArrivalTime ?? c.UpdatedAt)
             .ToListAsync(cancellationToken);
         return containers.Select(OpsDtoMapper.MapContainer).ToList();
@@ -1815,7 +1823,9 @@ public class DoctorInspectionService : IDoctorInspectionService
             throw new ClientPortalException("INVALID_QR", "Handoff QR does not match this container.");
         }
 
-        if (container.Status is not ContainerStatus.InTransit and not ContainerStatus.PickedUp)
+        if (container.Status is not ContainerStatus.InTransit
+            and not ContainerStatus.PickedUp
+            and not ContainerStatus.AtWarehouse)
         {
             throw new ClientPortalException("INVALID_STATUS", "Container is not awaiting warehouse handoff.");
         }
@@ -1932,13 +1942,96 @@ public class DoctorInspectionService : IDoctorInspectionService
         }
 
         var approved = string.Equals(request.Decision, "Approved", StringComparison.OrdinalIgnoreCase);
+        if (approved)
+        {
+            var geotagCount = await _db.ContainerInspectionPhotos.CountAsync(
+                p => p.ContainerId == container.Id &&
+                     p.PhotoType == ContainerInspectionPhotoType.DoctorBorderInspectionGeotag,
+                cancellationToken);
+            if (geotagCount < MinimumBorderInspectionGeotagPhotos)
+            {
+                throw new ClientPortalException(
+                    "INSPECTION_PHOTOS_REQUIRED",
+                    $"Upload at least {MinimumBorderInspectionGeotagPhotos} geotagged border inspection photos before approving.");
+            }
+        }
+
         inspection.Status = approved ? DoctorInspectionStatus.Approved : DoctorInspectionStatus.Rejected;
         inspection.Findings = request.Findings?.Trim();
         inspection.CompletedAt = DateTime.UtcNow;
         inspection.DoctorUserId = doctor.Id;
-        container.Status = approved ? ContainerStatus.Inspected : ContainerStatus.InTransit;
+        container.Status = approved ? ContainerStatus.Inspected : ContainerStatus.AtWarehouse;
         await _db.SaveChangesAsync(cancellationToken);
         return OpsDtoMapper.MapContainer(container);
+    }
+
+    public async Task<DoctorBorderInspectionPhotoDto> UploadBorderInspectionPhotoAsync(
+        Guid containerUuid,
+        Stream photoStream,
+        string fileName,
+        decimal latitude,
+        decimal longitude,
+        DateTime? capturedAtUtc = null,
+        CancellationToken cancellationToken = default)
+    {
+        var doctor = await RequireDoctorAsync(cancellationToken);
+        var container = await _db.Containers
+            .Include(c => c.Entry)
+            .FirstOrDefaultAsync(c => c.Uuid == containerUuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Container not found.");
+
+        if (container.Status is not ContainerStatus.UnderInspection)
+        {
+            throw new ClientPortalException("INVALID_STATUS", "Border inspection photos can only be uploaded while the container is under inspection.");
+        }
+
+        var capturedUtc = capturedAtUtc ?? DateTime.UtcNow;
+        using var raw = new MemoryStream();
+        await photoStream.CopyToAsync(raw, cancellationToken);
+        var stamped = GeotagStampHelper.PrepareDriverGeotagJpeg(raw.ToArray(), latitude, longitude, capturedUtc);
+        await using var stampedStream = new MemoryStream(stamped);
+        var safeName = string.IsNullOrWhiteSpace(fileName) ? "doctor-inspection.jpg" : fileName.Trim();
+        var (storedFileName, _) = await _fileStorage.SaveAsync(
+            stampedStream,
+            $"container-doctor-border/{container.Uuid}",
+            safeName,
+            cancellationToken);
+
+        var photo = new ContainerInspectionPhoto
+        {
+            Uuid = Guid.NewGuid(),
+            ContainerId = container.Id,
+            EntryId = container.EntryId,
+            PhotoType = ContainerInspectionPhotoType.DoctorBorderInspectionGeotag,
+            OriginalFileName = safeName,
+            StoredFileName = storedFileName,
+            ContentType = "image/jpeg",
+            CaptureLatitude = latitude,
+            CaptureLongitude = longitude,
+            CapturedAtUtc = capturedUtc,
+            ReviewDecision = EvaluationDecision.Approved,
+        };
+        _db.ContainerInspectionPhotos.Add(photo);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var total = await _db.ContainerInspectionPhotos.CountAsync(
+            p => p.ContainerId == container.Id &&
+                 p.PhotoType == ContainerInspectionPhotoType.DoctorBorderInspectionGeotag,
+            cancellationToken);
+        return new DoctorBorderInspectionPhotoDto(photo.Uuid, total, MinimumBorderInspectionGeotagPhotos);
+    }
+
+    public async Task<int> CountBorderInspectionPhotosAsync(Guid containerUuid, CancellationToken cancellationToken = default)
+    {
+        await RequireDoctorAsync(cancellationToken);
+        var container = await _db.Containers
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Uuid == containerUuid, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Container not found.");
+        return await _db.ContainerInspectionPhotos.CountAsync(
+            p => p.ContainerId == container.Id &&
+                 p.PhotoType == ContainerInspectionPhotoType.DoctorBorderInspectionGeotag,
+            cancellationToken);
     }
 
     private async Task<User> RequireDoctorAsync(CancellationToken cancellationToken)

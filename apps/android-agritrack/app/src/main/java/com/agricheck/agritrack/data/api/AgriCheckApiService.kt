@@ -2,6 +2,7 @@ package com.agricheck.agritrack.data.api
 
 import com.agricheck.agritrack.data.model.*
 import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -28,6 +29,9 @@ interface AgriCheckApiService {
     @GET("api/mobile/health")
     suspend fun health(): ApiEnvelope<Map<String, String>>
 
+    @GET("api/v1/system/branding")
+    suspend fun getSystemBranding(): ApiEnvelope<SystemBrandingDto>
+
     @GET("api/mobile/containers/assigned")
     suspend fun assignedContainers(): ApiEnvelope<List<ContainerListItemDto>>
 
@@ -43,6 +47,17 @@ interface AgriCheckApiService {
         @Body request: ConfirmContainerPickupRequest,
     ): ApiEnvelope<ContainerListItemDto>
 
+    @Multipart
+    @POST("api/mobile/containers/{uuid}/pickup")
+    suspend fun confirmPickupWithGeotag(
+        @Path("uuid") uuid: String,
+        @Part photo: MultipartBody.Part,
+        @Part("latitude") latitude: RequestBody,
+        @Part("longitude") longitude: RequestBody,
+        @Part("label") label: RequestBody?,
+        @Part("capturedAt") capturedAt: RequestBody,
+    ): ApiEnvelope<ContainerListItemDto>
+
     @GET("api/mobile/containers/{uuid}/delivery-qr")
     suspend fun deliveryHandoffQr(@Path("uuid") uuid: String): ApiEnvelope<DriverDeliveryHandoffQrDto>
 
@@ -51,6 +66,31 @@ interface AgriCheckApiService {
         @Path("uuid") uuid: String,
         @Body request: RecordContainerLocationRequest,
     ): ApiEnvelope<Map<String, Boolean>>
+
+    @POST("api/mobile/containers/{uuid}/locations/batch")
+    suspend fun recordLocationsBatch(
+        @Path("uuid") uuid: String,
+        @Body request: RecordContainerLocationsBatchRequest,
+    ): ApiEnvelope<Map<String, Int>>
+
+    @POST("api/mobile/containers/{uuid}/compliance-events")
+    suspend fun reportCompliance(
+        @Path("uuid") uuid: String,
+        @Body request: ReportDeliveryComplianceRequest,
+    ): ApiEnvelope<Map<String, Boolean>>
+
+    @Multipart
+    @POST("api/mobile/containers/{uuid}/driver-incident-report")
+    suspend fun submitDriverIncidentReport(
+        @Path("uuid") uuid: String,
+        @Part photo1: MultipartBody.Part,
+        @Part photo2: MultipartBody.Part,
+        @Part("category") category: RequestBody,
+        @Part("notes") notes: RequestBody,
+        @Part("latitude") latitude: RequestBody,
+        @Part("longitude") longitude: RequestBody,
+        @Part("capturedAt") capturedAt: RequestBody,
+    ): ApiEnvelope<DriverIncidentReportResultDto>
 
     @GET("api/mobile/containers/{uuid}/track")
     suspend fun containerTrack(@Path("uuid") uuid: String): ApiEnvelope<ContainerTrackDto>
@@ -66,6 +106,26 @@ interface AgriCheckApiService {
         @Path("uuid") uuid: String,
         @Body request: DriverWarehouseCheckInRequest,
     ): ApiEnvelope<DriverWarehouseCheckInResultDto>
+
+    @Multipart
+    @POST("api/mobile/containers/{uuid}/check-in")
+    suspend fun checkInAtWarehouseWithGeotag(
+        @Path("uuid") uuid: String,
+        @Part photo: MultipartBody.Part,
+        @Part("latitude") latitude: RequestBody,
+        @Part("longitude") longitude: RequestBody,
+        @Part("capturedAt") capturedAt: RequestBody,
+    ): ApiEnvelope<DriverWarehouseCheckInResultDto>
+
+    @Multipart
+    @POST("api/mobile/containers/{uuid}/empty-container-geotag")
+    suspend fun submitEmptyContainerGeotag(
+        @Path("uuid") uuid: String,
+        @Part photo: MultipartBody.Part,
+        @Part("latitude") latitude: RequestBody,
+        @Part("longitude") longitude: RequestBody,
+        @Part("capturedAt") capturedAt: RequestBody,
+    ): ApiEnvelope<ContainerListItemDto>
 
     @Multipart
     @POST("api/mobile/driver/documents/{documentType}")
@@ -121,6 +181,18 @@ interface AgriCheckApiService {
         @Path("uuid") uuid: String,
         @Body request: AssignDriverRequest,
     ): ApiEnvelope<ContainerListItemDto>
+
+    @GET("api/mobile/operator/containers/claimed")
+    suspend fun claimedContainers(): ApiEnvelope<List<ContainerListItemDto>>
+
+    @GET("api/mobile/operator/containers/{uuid}/delivery-stops")
+    suspend fun getOperatorDeliveryStops(@Path("uuid") uuid: String): ApiEnvelope<OperatorDeliveryStopsDto>
+
+    @PUT("api/mobile/operator/containers/{uuid}/delivery-stops")
+    suspend fun bookOperatorDeliveryStops(
+        @Path("uuid") uuid: String,
+        @Body request: BookOperatorDeliveryStopsRequest,
+    ): ApiEnvelope<OperatorDeliveryStopsDto>
 
     @POST("api/mobile/push/register")
     suspend fun registerPush(@Body request: RegisterMobilePushDeviceRequest): ApiEnvelope<Map<String, Boolean>>

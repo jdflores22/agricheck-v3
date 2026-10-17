@@ -86,13 +86,20 @@ After rotation, old signed QRs fail verification until refreshed.
 
 **API (Railway):** push `main` — service rebuilds from repo (confirm Railway watches `main`).
 
-**SPA (Hostinger):**
+**SPA (Hostinger — SSH/SFTP, recommended):**
+
+1. hPanel → **SSH Access** (host `82.25.100.95`, port **65002**, user + password).
+2. Copy `scripts/hostinger.deploy.example.json` → `scripts/hostinger.deploy.local.json` (gitignored).
+3. Fill `sshHost`, `sshPort`, `sshUser`, `sshPassword`, and `remotePath` (see example).
+4. Run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/deploy-frontend-hostinger.ps1
 ```
 
-Requires `scripts/hostinger.deploy.local.json` (not in git). Without FTP config, script still runs `npm run build`; upload `frontend/dist/` manually.
+Or env-only: `HOSTINGER_SSH_HOST`, `HOSTINGER_SSH_PORT`, `HOSTINGER_SSH_USER`, `HOSTINGER_SSH_PASSWORD`, then `node scripts/deploy-hostinger-sftp.mjs` (after `npm run build` in `frontend/`).
+
+Without local config, the script still builds; upload `frontend/dist/` manually to `public_html`.
 
 **Verify production API** (example):
 

@@ -680,6 +680,13 @@ public class DriverOpsService : IDriverOpsService
         var container = await _db.Containers.FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
 
+        if (container.Status is ContainerStatus.UnderInspection
+            or ContainerStatus.Inspected
+            or ContainerStatus.Released)
+        {
+            return;
+        }
+
         _db.ContainerLocations.Add(new ContainerLocation
         {
             ContainerId = container.Id,
@@ -709,6 +716,13 @@ public class DriverOpsService : IDriverOpsService
         var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
         var container = await _db.Containers.FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
             ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
+
+        if (container.Status is ContainerStatus.UnderInspection
+            or ContainerStatus.Inspected
+            or ContainerStatus.Released)
+        {
+            return 0;
+        }
 
         foreach (var point in request.Points.OrderBy(p => p.RecordedAt))
         {
@@ -1095,11 +1109,51 @@ public class DriverOpsService : IDriverOpsService
         {
             container.WarehouseHandoffEligibleAt = DateTime.UtcNow;
             container.ArrivalTime ??= DateTime.UtcNow;
+            container.Status = ContainerStatus.AtWarehouse;
+            if (container.Entry.CompliancePhase < EntryCompliancePhase.AtWarehouse)
+            {
+                container.Entry.CompliancePhase = EntryCompliancePhase.AtWarehouse;
+            }
         }
 
         await _db.SaveChangesAsync(cancellationToken);
         var mapped = await MapDriverContainerAsync(container, cancellationToken);
         return new DriverWarehouseCheckInResultDto(withinGeofence, distance, mapped);
+    }
+
+    public async Task<ContainerListItemDto> SubmitEmptyContainerGeotagAsync(
+        Guid containerUuid,
+        ConfirmContainerPickupRequest request,
+        Stream geotagPhoto,
+        string geotagFileName,
+        DateTime? capturedAtUtc = null,
+        CancellationToken cancellationToken = default)
+    {
+        var driver = await OpsContextHelper.RequireDriverAsync(_db, _currentUser, cancellationToken);
+        var container = await _db.Containers
+            .Include(c => c.Entry)
+            .Include(c => c.Locations)
+            .FirstOrDefaultAsync(c => c.Uuid == containerUuid && c.AssignedDriverUserId == driver.Id, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Assigned container not found.");
+
+        if (container.Status is not ContainerStatus.Inspected and not ContainerStatus.Released)
+        {
+            throw new ClientPortalException(
+                "INVALID_STATUS",
+                "Empty container proof is only required after NMIS/Doctor inspection is complete.");
+        }
+
+        await SaveDriverGeotagProofAsync(
+            container,
+            ContainerInspectionPhotoType.DriverEmptyContainerGeotag,
+            geotagPhoto,
+            geotagFileName,
+            request.Latitude,
+            request.Longitude,
+            capturedAtUtc ?? DateTime.UtcNow,
+            cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        return await MapDriverContainerAsync(container, cancellationToken);
     }
 
     public async Task ReportDeliveryComplianceAsync(
@@ -1817,7 +1871,11 @@ public class DriverOpsService : IDriverOpsService
                 warehouseArrived,
                 null,
                 warehousePhoto is null ? null : DriverGeotagPhotoRelativeUrl(container.Uuid, warehousePhoto.Uuid),
-                container.WarehouseHandoffEligibleAt is null ? "Not arrived" : "Arrived — present delivery QR",
+                container.WarehouseHandoffEligibleAt is null
+                    ? "Not arrived"
+                    : container.Status is ContainerStatus.AtWarehouse
+                        ? "Driver at warehouse — present delivery QR for NMIS/Doctor"
+                        : "Arrived — present delivery QR",
                 warehousePhoto?.CaptureLatitude,
                 warehousePhoto?.CaptureLongitude),
         };

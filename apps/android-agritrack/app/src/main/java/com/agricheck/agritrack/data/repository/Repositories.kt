@@ -217,6 +217,25 @@ class DriverRepository(private val container: AppContainer) {
         longitude.toString().toRequestBody("text/plain".toMediaType()),
         capturedAt.toString().toRequestBody("text/plain".toMediaType()),
     ).requireData()
+
+    suspend fun submitEmptyContainerGeotag(
+        uuid: String,
+        latitude: Double,
+        longitude: Double,
+        jpeg: ByteArray,
+        capturedAt: Instant,
+    ) = api().submitEmptyContainerGeotag(
+        uuid,
+        MultipartBody.Part.createFormData(
+            "photo",
+            "empty-container-geotag.jpg",
+            jpeg.toRequestBody("image/jpeg".toMediaType()),
+        ),
+        latitude.toString().toRequestBody("text/plain".toMediaType()),
+        longitude.toString().toRequestBody("text/plain".toMediaType()),
+        capturedAt.toString().toRequestBody("text/plain".toMediaType()),
+    ).requireData()
+
     suspend fun uploadDocument(documentType: String, bytes: ByteArray, fileName: String) {
         val part = MultipartBody.Part.createFormData(
             "file",

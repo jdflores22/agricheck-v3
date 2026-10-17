@@ -89,12 +89,15 @@ object UiStrings {
         const val pickupContainer = "Confirm pickup"
         const val pickupContainerSub = ""
         const val arrivedAtWarehouse = "Arrived at warehouse"
+        const val emptyContainerProof = "Empty container photo"
         const val arrivedAtWarehouseSub = ""
         const val nearStopHint = "Move closer to %s (%s) to enable."
         const val locationAccuracyPoor = "Waiting for a more accurate GPS fix. Try outdoors or enable high accuracy location."
         const val mustBeAtPickupForWarehouse = "You must be at the pickup point (accurate GPS) before navigating to the warehouse."
         const val waitingForQrScan = "Waiting for NMIS/Doctor to scan delivery QR."
         const val tripCompleted = "This delivery is completed. No further navigation is needed."
+        const val tripEndedUnderInspection =
+            "Trip ended — NMIS/Doctor confirmed arrival. Navigation and GPS tracking are stopped while inspection is in progress."
         const val tripSummaryTitle = "Trip summary"
         const val tripSummarySubtitle = "Here's the status of your current trip."
         const val bookingId = "Booking ID"
@@ -188,6 +191,9 @@ object UiStrings {
         const val warehouseTitle = "Warehouse geotag photo"
         const val pickupHint = "Take a clear photo. Brand and GPS details are added in one bar at the bottom when you tap Capture."
         const val warehouseHint = "Take a clear photo. Brand and GPS details are added in one bar at the bottom when you tap Capture."
+        const val emptyContainerTitle = "Empty container geotag"
+        const val emptyContainerHint =
+            "Photograph the empty container after unload. GPS and timestamp are stamped on the image."
         const val useMapForPickup = "Open the delivery map to confirm pickup with a geotag photo."
         const val incidentPhotoTitle = "Incident geotag photo"
         fun incidentPhotoHint(step: Int) =
@@ -227,6 +233,7 @@ object UiStrings {
         const val locationRequired = "Location required"
         const val pickupConfirmed = "Pickup confirmed. Start navigation to the warehouse."
         const val arrivalConfirmed = "Arrival recorded. Waiting for QR scan."
+        const val emptyContainerProofSaved = "Empty container proof saved."
         const val arrivalOutsideGeofence = "Recorded, but still far from warehouse (%s)."
         const val wrongWarehouseAlert =
             "Wrong warehouse — this is not your assigned destination. DA is alerted. Trip cannot end until DA clears the delivery."
@@ -360,8 +367,8 @@ object UiStrings {
         DeliveryPhase.AwaitingPickup -> "Awaiting pickup"
         DeliveryPhase.PickedUp -> "Picked up"
         DeliveryPhase.InTransit -> "In transit"
-        DeliveryPhase.AtWarehouse -> "At destination"
-        DeliveryPhase.UnderInspection -> "Awaiting scan"
+        DeliveryPhase.AtWarehouse -> "At warehouse — awaiting doctor QR"
+        DeliveryPhase.UnderInspection -> "Under NMIS inspection"
         DeliveryPhase.Completed -> "Completed"
         DeliveryPhase.Assigned -> "Assigned"
     }

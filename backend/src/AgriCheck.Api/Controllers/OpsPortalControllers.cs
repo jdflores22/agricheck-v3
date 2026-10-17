@@ -540,6 +540,36 @@ public class MobileContainersController : OpsPortalControllerBase
         [FromBody] ResetDriverDeliveryTestRequest? request,
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.ResetDeliveryTestAsync(uuid, request, cancellationToken));
+
+    [HttpPost("{uuid:guid}/empty-container-geotag")]
+    [Authorize(Roles = "ROLE_DRIVER,ROLE_ADMIN")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(12 * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> SubmitEmptyContainerGeotag(
+        Guid uuid,
+        [FromForm] decimal latitude,
+        [FromForm] decimal longitude,
+        [FromForm] string? capturedAt,
+        IFormFile photo,
+        CancellationToken cancellationToken)
+    {
+        if (photo is null || photo.Length == 0)
+        {
+            return BadRequest(ApiResponse<ContainerListItemDto>.Fail("FILE_REQUIRED", "Geotagged photo is required."));
+        }
+
+        var capturedUtc = ParseCapturedAtUtc(capturedAt);
+        await using var stream = photo.OpenReadStream();
+        var request = new ConfirmContainerPickupRequest(latitude, longitude);
+        return await ExecuteAsync(() =>
+            _service.SubmitEmptyContainerGeotagAsync(
+                uuid,
+                request,
+                stream,
+                photo.FileName,
+                capturedUtc,
+                cancellationToken));
+    }
 }
 
 [ApiController]

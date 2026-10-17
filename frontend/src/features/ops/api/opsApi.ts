@@ -478,6 +478,26 @@ export const opsApi = createApi({
       query: (body) => ({ url: '/ops/doctor/containers/scan-handoff', method: 'POST', body }),
       invalidatesTags: ['DoctorContainers'],
     }),
+    getDoctorBorderPhotoCount: builder.query<ApiEnvelope<number>, string>({
+      query: (uuid) => `/ops/doctor/containers/${uuid}/border-inspection-photos/count`,
+    }),
+    uploadDoctorBorderInspectionPhoto: builder.mutation<
+      ApiEnvelope<{ photoUuid: string; totalUploaded: number; minimumRequired: number }>,
+      { uuid: string; file: File; latitude: number; longitude: number }
+    >({
+      query: ({ uuid, file, latitude, longitude }) => {
+        const body = new FormData()
+        body.append('photo', file)
+        body.append('latitude', String(latitude))
+        body.append('longitude', String(longitude))
+        return {
+          url: `/ops/doctor/containers/${uuid}/border-inspection-photos`,
+          method: 'POST',
+          body,
+        }
+      },
+      invalidatesTags: ['DoctorContainers'],
+    }),
     completeDoctorInspection: builder.mutation<
       ApiEnvelope<OpsContainerListItem>,
       { uuid: string; decision: 'Approved' | 'Rejected'; findings?: string }
@@ -531,5 +551,7 @@ export const {
   useGetDoctorContainersQuery,
   useClaimDoctorContainerMutation,
   useScanDoctorHandoffQrMutation,
+  useGetDoctorBorderPhotoCountQuery,
+  useUploadDoctorBorderInspectionPhotoMutation,
   useCompleteDoctorInspectionMutation,
 } = opsApi

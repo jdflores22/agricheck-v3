@@ -59,6 +59,13 @@ public interface IDriverOpsService
         string? geotagFileName = null,
         DateTime? capturedAtUtc = null,
         CancellationToken cancellationToken = default);
+    Task<ContainerListItemDto> SubmitEmptyContainerGeotagAsync(
+        Guid containerUuid,
+        ConfirmContainerPickupRequest request,
+        Stream geotagPhoto,
+        string geotagFileName,
+        DateTime? capturedAtUtc = null,
+        CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> ResetDeliveryTestAsync(Guid containerUuid, ResetDriverDeliveryTestRequest? request, CancellationToken cancellationToken = default);
     Task<DriverDocumentDto> UploadDocumentAsync(string documentType, Stream fileStream, string fileName, CancellationToken cancellationToken = default);
     Task<DriverDocumentFileDto> DownloadDocumentAsync(string documentType, CancellationToken cancellationToken = default);
@@ -103,4 +110,18 @@ public interface IDoctorInspectionService
     Task<ContainerListItemDto> ClaimContainerAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> CompleteInspectionAsync(Guid containerUuid, CompleteDoctorInspectionRequest request, CancellationToken cancellationToken = default);
     Task<ContainerListItemDto> ScanDeliveryHandoffQrAsync(ScanTransportQrRequest request, CancellationToken cancellationToken = default);
+    Task<DoctorBorderInspectionPhotoDto> UploadBorderInspectionPhotoAsync(
+        Guid containerUuid,
+        Stream photoStream,
+        string fileName,
+        decimal latitude,
+        decimal longitude,
+        DateTime? capturedAtUtc = null,
+        CancellationToken cancellationToken = default);
+    Task<int> CountBorderInspectionPhotosAsync(Guid containerUuid, CancellationToken cancellationToken = default);
 }
+
+public record DoctorBorderInspectionPhotoDto(
+    Guid PhotoUuid,
+    int TotalUploaded,
+    int MinimumRequired);

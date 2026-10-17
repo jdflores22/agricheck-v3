@@ -6,6 +6,7 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
+  DialogContentText,
   DialogTitle,
   Tab,
   Tabs,
@@ -44,10 +45,12 @@ export function PortalQrScanDialog({
   const [pasteValue, setPasteValue] = useState('')
   const [localError, setLocalError] = useState<string | null>(null)
   const [scannerKey, setScannerKey] = useState(0)
+  const [pendingQr, setPendingQr] = useState<string | null>(null)
 
   const handleClose = () => {
     if (busy) return
     setLocalError(null)
+    setPendingQr(null)
     onClose()
   }
 
@@ -58,6 +61,10 @@ export function PortalQrScanDialog({
     if (typeError) {
       setLocalError(typeError)
       setScannerKey((k) => k + 1)
+      return
+    }
+    if (preset.confirmBeforeSubmit) {
+      setPendingQr(qrData)
       return
     }
     setLocalError(null)
@@ -145,6 +152,44 @@ export function PortalQrScanDialog({
           </Button>
         )}
       </DialogActions>
+
+      {preset.confirmBeforeSubmit && (
+        <Dialog open={pendingQr != null} onClose={() => !busy && setPendingQr(null)} maxWidth="xs" fullWidth>
+          <DialogTitle>{preset.confirmBeforeSubmit.title}</DialogTitle>
+          <DialogContent>
+            <DialogContentText>{preset.confirmBeforeSubmit.body}</DialogContentText>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={() => setPendingQr(null)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              sx={portalPrimaryButtonSx}
+              disabled={busy || !pendingQr}
+              onClick={() => {
+                const qr = pendingQr
+                if (!qr) return
+                void (async () => {
+                  setLocalError(null)
+                  const ok = await onSubmit(qr)
+                  if (ok) {
+                    setPasteValue('')
+                    setPendingQr(null)
+                    onClose()
+                  } else {
+                    setLocalError(preset.failureMessage)
+                    setPendingQr(null)
+                    setScannerKey((k) => k + 1)
+                  }
+                })()
+              }}
+            >
+              {preset.confirmBeforeSubmit.confirmLabel}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
     </Dialog>
   )
 }

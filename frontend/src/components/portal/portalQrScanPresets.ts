@@ -7,6 +7,12 @@ export type PortalQrScanRole = 'operator_client' | 'doctor_driver'
 export type PortalQrScanPreset = {
   role: PortalQrScanRole
   dialogTitle: string
+  /** When set, show a confirmation step before calling the API (doctor end-trip). */
+  confirmBeforeSubmit?: {
+    title: string
+    body: string
+    confirmLabel: string
+  }
   cameraHint: string
   pasteHelper: string
   pastePlaceholder: string
@@ -41,6 +47,12 @@ export const operatorClientTransportQrPreset: PortalQrScanPreset = {
 export const doctorDriverHandoffQrPreset: PortalQrScanPreset = {
   role: 'doctor_driver',
   dialogTitle: 'Scan driver delivery QR',
+  confirmBeforeSubmit: {
+    title: 'End driver trip?',
+    body:
+      'Confirm that the driver is physically at the assigned warehouse. This ends their AgriTrack transit (navigation and GPS trail) and moves the container to Under Inspection for NMIS border inspection.',
+    confirmLabel: 'Yes — end trip & start inspection',
+  },
   cameraHint:
     'Point the camera at the driver’s live AgriTrack delivery QR on their phone (warehouse handoff screen). ' +
     'The code refreshes about every 90 seconds — keep it in frame until accepted.',

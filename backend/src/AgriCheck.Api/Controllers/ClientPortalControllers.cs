@@ -990,6 +990,40 @@ public class DoctorContainersController : OpsPortalControllerBase
         CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _service.ScanDeliveryHandoffQrAsync(request, cancellationToken));
 
+    [HttpGet("{uuid:guid}/border-inspection-photos/count")]
+    public async Task<ActionResult<ApiResponse<int>>> CountBorderInspectionPhotos(
+        Guid uuid,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _service.CountBorderInspectionPhotosAsync(uuid, cancellationToken));
+
+    [HttpPost("{uuid:guid}/border-inspection-photos")]
+    [RequestSizeLimit(12 * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<DoctorBorderInspectionPhotoDto>>> UploadBorderInspectionPhoto(
+        Guid uuid,
+        [FromForm] decimal latitude,
+        [FromForm] decimal longitude,
+        [FromForm] string? capturedAt,
+        IFormFile photo,
+        CancellationToken cancellationToken)
+    {
+        if (photo is null || photo.Length == 0)
+        {
+            return BadRequest(ApiResponse<DoctorBorderInspectionPhotoDto>.Fail("FILE_REQUIRED", "Geotagged photo is required."));
+        }
+
+        var capturedUtc = ParseCapturedAtUtc(capturedAt);
+        await using var stream = photo.OpenReadStream();
+        return await ExecuteAsync(() =>
+            _service.UploadBorderInspectionPhotoAsync(
+                uuid,
+                stream,
+                photo.FileName,
+                latitude,
+                longitude,
+                capturedUtc,
+                cancellationToken));
+    }
+
     [HttpPost("{uuid:guid}/complete")]
     public async Task<ActionResult<ApiResponse<ContainerListItemDto>>> Complete(
         Guid uuid,

@@ -85,7 +85,11 @@ fun MapTripPanel(
     waitingAtWarehouse: Boolean,
     pickupBusy: Boolean,
     arriveBusy: Boolean,
+    showEmptyContainerButton: Boolean = false,
+    emptyContainerEnabled: Boolean = true,
+    emptyContainerBusy: Boolean = false,
     tripCompleted: Boolean = false,
+    tripEndedMessage: String? = null,
     startNavigationBusy: Boolean,
     startNavigationEnabled: Boolean,
     startNavigationHint: String?,
@@ -98,6 +102,7 @@ fun MapTripPanel(
     onStartNavigation: () -> Unit,
     onConfirmPickup: () -> Unit,
     onArrivedAtWarehouse: () -> Unit,
+    onEmptyContainerProof: () -> Unit = {},
     onOpenQr: () -> Unit,
     trafficJamMinutes: Int = 0,
     trafficSlowMinutes: Int = 0,
@@ -171,9 +176,9 @@ fun MapTripPanel(
             }
 
             if (!drivingMode) {
-                if (tripCompleted) {
+                if (tripCompleted && tripEndedMessage != null) {
                     Text(
-                        UiStrings.Map.tripCompleted,
+                        tripEndedMessage,
                         style = MaterialTheme.typography.bodyMedium,
                         color = RouteGreen,
                         fontWeight = FontWeight.SemiBold,
@@ -256,6 +261,21 @@ fun MapTripPanel(
                             Icon(Icons.Default.Place, contentDescription = null, tint = Color.White)
                             Spacer(Modifier.width(8.dp))
                             Text(UiStrings.Map.arrivedAtWarehouse, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                if (showEmptyContainerButton) {
+                    Spacer(Modifier.height(6.dp))
+                    Button(
+                        onClick = onEmptyContainerProof,
+                        enabled = emptyContainerEnabled && !emptyContainerBusy,
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AgriColors.PrimaryDark),
+                    ) {
+                        if (emptyContainerBusy) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(22.dp))
+                        } else {
+                            Text(UiStrings.Map.emptyContainerProof, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

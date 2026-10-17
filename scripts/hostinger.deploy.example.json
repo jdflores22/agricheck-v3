@@ -1,9 +1,10 @@
 {
-  "ftpHost": "ftp.dimgrey-hummingbird-677957.hostingersite.com",
-  "ftpUser": "YOUR_HOSTINGER_FTP_USERNAME",
-  "ftpPassword": "YOUR_HOSTINGER_FTP_PASSWORD",
   "remotePath": "/home/u910121167/websites/cVDFfe0wZ/public_html",
   "sshHost": "82.25.100.95",
   "sshPort": 65002,
-  "sshUser": "YOUR_SSH_USERNAME"
+  "sshUser": "YOUR_SSH_USERNAME_FROM_HPanel",
+  "sshPassword": "YOUR_SSH_PASSWORD",
+  "ftpHost": "ftp.dimgrey-hummingbird-677957.hostingersite.com",
+  "ftpUser": "OPTIONAL_FTP_USERNAME",
+  "ftpPassword": "OPTIONAL_FTP_PASSWORD"
 }

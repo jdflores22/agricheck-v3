@@ -30,9 +30,16 @@ fun canConfirmPickup(phase: DeliveryPhase) =
 
 fun canStartTransit(phase: DeliveryPhase) = phase == DeliveryPhase.PickedUp
 
-/** Leg 2: driver confirms physical arrival at warehouse (trip ends only when NMIS/Doctor scans QR). */
+/** Leg 2: driver confirms physical arrival at warehouse (trip ends when NMIS/Doctor scans delivery QR). */
 fun canConfirmWarehouseArrival(phase: DeliveryPhase) =
     phase == DeliveryPhase.InTransit || phase == DeliveryPhase.PickedUp
+
+/** Transit navigation and GPS trail end after doctor handoff scan (UnderInspection) or final release. */
+fun isDriverTransitEnded(phase: DeliveryPhase?) =
+    phase == DeliveryPhase.UnderInspection || phase == DeliveryPhase.Completed
+
+fun canSubmitEmptyContainerProof(phase: DeliveryPhase?) =
+    phase == DeliveryPhase.Completed
 
 /** Max distance from pickup / warehouse to enable confirm actions (matches API `DeliveryStopGeofenceMeters`). */
 const val DELIVERY_STOP_GEOFENCE_METERS = 100.0
@@ -52,9 +59,10 @@ fun requiresPickupGeofenceToStartWarehouseNavigation(phase: DeliveryPhase): Bool
 
 /** QR is for warehouse handoff — only after driver confirms arrival at the assigned warehouse. */
 fun canShowDeliveryQr(phase: DeliveryPhase, handoffQrAvailable: Boolean = false) =
-    handoffQrAvailable ||
-        phase == DeliveryPhase.AtWarehouse ||
-        phase == DeliveryPhase.UnderInspection
+    !isDriverTransitEnded(phase) &&
+        (handoffQrAvailable || phase == DeliveryPhase.AtWarehouse)
+
+fun isDeliveryTripComplete(phase: DeliveryPhase?) = phase == DeliveryPhase.Completed
 
 fun warehouseArrivalConfirmed(track: com.agricheck.agritrack.data.model.ContainerTrackDto?): Boolean {
     val leg = track?.deliverySummary?.firstOrNull { it.leg == "warehouse" } ?: return false
