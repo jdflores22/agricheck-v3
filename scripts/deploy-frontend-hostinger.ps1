@@ -24,7 +24,7 @@ if (-not $SkipBuild) {
         node $prepareApk
     }
     Push-Location $frontend
-    npm run build
+    npm run build:ci
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Pop-Location
 }
@@ -37,10 +37,28 @@ if (-not (Test-Path $dist)) {
 #   window.__AGRICHECK_GOOGLE_MAPS_API_KEY__ = 'your-browser-restricted-key';
 
 if (-not (Test-Path $configPath)) {
+    $hasEnv = -not [string]::IsNullOrWhiteSpace($env:HOSTINGER_SSH_HOST) `
+        -and -not [string]::IsNullOrWhiteSpace($env:HOSTINGER_SSH_USER) `
+        -and -not [string]::IsNullOrWhiteSpace($env:HOSTINGER_SSH_PASSWORD)
+    if ($hasEnv) {
+        Write-Host 'Using HOSTINGER_SSH_* environment variables for deploy.'
+        if (-not $env:HOSTINGER_SSH_PORT) { $env:HOSTINGER_SSH_PORT = '65002' }
+        $sftpScript = Join-Path $PSScriptRoot 'deploy-hostinger-sftp.mjs'
+        Push-Location $repoRoot
+        if (-not (Test-Path (Join-Path $repoRoot 'node_modules\ssh2-sftp-client'))) {
+            npm install --no-audit --no-fund 2>$null | Out-Null
+        }
+        node $sftpScript
+        Pop-Location
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Write-Host 'Deploy complete (SFTP via env).'
+        exit 0
+    }
     Write-Host ''
     Write-Host 'Deploy config not found.' -ForegroundColor Yellow
     Write-Host "Copy scripts/hostinger.deploy.example.json to scripts/hostinger.deploy.local.json"
     Write-Host 'Set sshHost, sshPort, sshUser, sshPassword (Hostinger hPanel -> SSH Access).'
+    Write-Host 'Or set env: HOSTINGER_SSH_HOST, HOSTINGER_SSH_USER, HOSTINGER_SSH_PASSWORD (port 65002).'
     Write-Host ''
     Write-Host 'Build is ready at:' $dist
     Write-Host 'Manual: upload ALL files inside dist/ to Hostinger File Manager -> public_html'
@@ -71,7 +89,12 @@ if ($useSsh) {
     if ($remotePath) { $env:HOSTINGER_SSH_REMOTE_DIR = $remotePath }
     $sftpScript = Join-Path $PSScriptRoot 'deploy-hostinger-sftp.mjs'
     Write-Host "Uploading via SFTP (SSH) to ${sshHost}:${sshPort} ..."
+    Push-Location $repoRoot
+    if (-not (Test-Path (Join-Path $repoRoot 'node_modules\ssh2-sftp-client'))) {
+        npm install --no-audit --no-fund 2>$null | Out-Null
+    }
     node $sftpScript
+    Pop-Location
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Write-Host ''
     Write-Host 'Deploy complete (SFTP).'

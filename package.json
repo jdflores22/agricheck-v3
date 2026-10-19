@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Repo-root tooling (Hostinger SFTP deploy script)",
+  "dependencies": {
+    "ssh2-sftp-client": "^12.1.1"
+  }
+}

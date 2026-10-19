@@ -16,6 +16,7 @@ import SftpClient from 'ssh2-sftp-client'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(__dirname, '..')
 const localDist = path.join(repoRoot, 'frontend', 'dist')
+const skipApkUpload = process.env.SKIP_APK_UPLOAD === '1' || process.env.SKIP_APK_UPLOAD === 'true'
 
 const host = process.env.HOSTINGER_SSH_HOST
 const port = Number(process.env.HOSTINGER_SSH_PORT || '22')
@@ -33,16 +34,48 @@ if (!fs.existsSync(localDist)) {
   process.exit(1)
 }
 
+function sortUploadEntries(names) {
+  return [...names].sort((a, b) => {
+    const aApk = a.toLowerCase().endsWith('.apk')
+    const bApk = b.toLowerCase().endsWith('.apk')
+    if (aApk && !bApk) return 1
+    if (!aApk && bApk) return -1
+    return a.localeCompare(b)
+  })
+}
+
+async function putWithRetry(sftp, localPath, remotePath) {
+  const max = 5
+  for (let attempt = 1; attempt <= max; attempt++) {
+    try {
+      await sftp.put(localPath, remotePath)
+      return
+    } catch (err) {
+      const msg = String(err?.message ?? err)
+      const reset = err?.code === 'ECONNRESET' || msg.includes('ECONNRESET')
+      if (!reset || attempt === max) throw err
+      console.warn(`ECONNRESET uploading ${path.basename(localPath)}, retry ${attempt}/${max - 1}...`)
+      await new Promise((r) => setTimeout(r, 5000 * attempt))
+    }
+  }
+}
+
 async function uploadDir(sftp, local, remote) {
   await sftp.mkdir(remote, true)
-  for (const name of fs.readdirSync(local)) {
+  for (const name of sortUploadEntries(fs.readdirSync(local))) {
     const localPath = path.join(local, name)
     const remotePath = `${remote}/${name}`
     const stat = fs.statSync(localPath)
     if (stat.isDirectory()) {
       await uploadDir(sftp, localPath, remotePath)
+    } else if (skipApkUpload && localPath.toLowerCase().endsWith('.apk')) {
+      console.log(`skipped ${remotePath} (SKIP_APK_UPLOAD)`)
+    } else if (name === 'config.js') {
+      console.log(`skipped ${remotePath} (preserve server config.js — API URL & Google Maps key)`)
     } else {
-      await sftp.put(localPath, remotePath)
+      const mb = stat.size / (1024 * 1024)
+      if (mb > 20) console.log(`uploading ${remotePath} (${mb.toFixed(1)} MB)...`)
+      await putWithRetry(sftp, localPath, remotePath)
       console.log(`uploaded ${remotePath}`)
     }
   }
@@ -79,7 +112,15 @@ async function detectPublicHtml(sftp) {
 
 const sftp = new SftpClient()
 try {
-  await sftp.connect({ host, port, username, password, readyTimeout: 30000 })
+  await sftp.connect({
+    host,
+    port,
+    username,
+    password,
+    readyTimeout: 30000,
+    keepaliveInterval: 8000,
+    keepaliveCountMax: 12,
+  })
   const target = await detectPublicHtml(sftp)
   console.log(`Deploying to ${target}`)
   await uploadDir(sftp, localDist, target)

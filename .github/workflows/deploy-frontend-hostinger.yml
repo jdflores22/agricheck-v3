@@ -6,7 +6,11 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'scripts/deploy-hostinger-sftp.mjs'
+      - 'scripts/deploy-frontend-hostinger.ps1'
       - '.github/workflows/deploy-frontend-hostinger.yml'
+      - 'package.json'
+      - 'package-lock.json'
 
 jobs:
   deploy:
@@ -18,16 +22,32 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: |
+            frontend/package-lock.json
+            package-lock.json
 
       - name: Build SPA
         working-directory: frontend
         run: |
           npm ci --no-audit
           npm rebuild esbuild
-          npm run build
+          npm run build:ci
 
-      - name: FTP deploy
+      - name: Install SFTP deploy dependency
+        run: npm ci --no-audit
+
+      - name: SFTP deploy (SSH)
+        if: ${{ secrets.HOSTINGER_SSH_PASSWORD != '' }}
+        env:
+          HOSTINGER_SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          HOSTINGER_SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
+          HOSTINGER_SSH_USER: ${{ secrets.HOSTINGER_SSH_USER }}
+          HOSTINGER_SSH_PASSWORD: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+          HOSTINGER_SSH_REMOTE_DIR: ${{ secrets.HOSTINGER_SSH_REMOTE_DIR }}
+        run: node scripts/deploy-hostinger-sftp.mjs
+
+      - name: FTP deploy (fallback)
+        if: ${{ secrets.HOSTINGER_SSH_PASSWORD == '' && secrets.HOSTINGER_FTP_PASSWORD != '' }}
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.HOSTINGER_FTP_SERVER }}
@@ -35,3 +55,12 @@ jobs:
           password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
           local-dir: frontend/dist/
           server-dir: ${{ secrets.HOSTINGER_FTP_REMOTE_DIR || '/public_html/' }}
+          exclude: |
+            **/config.js
+
+      - name: No deploy credentials
+        if: ${{ secrets.HOSTINGER_SSH_PASSWORD == '' && secrets.HOSTINGER_FTP_PASSWORD == '' }}
+        run: |
+          echo "::error::Set GitHub repo secrets: HOSTINGER_SSH_HOST, HOSTINGER_SSH_PORT, HOSTINGER_SSH_USER, HOSTINGER_SSH_PASSWORD (and optional HOSTINGER_SSH_REMOTE_DIR)."
+          echo "Or use FTP secrets HOSTINGER_FTP_* — see scripts/hostinger.deploy.example.json"
+          exit 1
