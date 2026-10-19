@@ -217,6 +217,17 @@ public class DaPortalController : AgencyPortalControllerBase
     public async Task<ActionResult<ApiResponse<DaLiveLogisticsSnapshotDto>>> LogisticsLive(CancellationToken cancellationToken) =>
         await ExecuteAsync(() => _logisticsLiveService.GetLiveSnapshotAsync(cancellationToken));
 
+    [HttpGet("logistics/alerts")]
+    public async Task<ActionResult<ApiResponse<DaLogisticsAlertsSnapshotDto>>> LogisticsAlerts(CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _logisticsLiveService.GetAlertsSnapshotAsync(cancellationToken));
+
+    [HttpPost("logistics/compliance-alerts/{alertId:long}/acknowledge")]
+    public async Task<ActionResult<ApiResponse<DaDeliveryComplianceAlertDto>>> AcknowledgeComplianceAlert(
+        long alertId,
+        [FromBody] DaAcknowledgeComplianceAlertRequest request,
+        CancellationToken cancellationToken) =>
+        await ExecuteAsync(() => _logisticsLiveService.AcknowledgeComplianceAlertAsync(alertId, request, cancellationToken));
+
     [HttpGet("logistics/containers/{uuid:guid}/actual-route")]
     public async Task<ActionResult<ApiResponse<DaContainerActualRouteDto>>> ContainerActualRoute(
         Guid uuid,

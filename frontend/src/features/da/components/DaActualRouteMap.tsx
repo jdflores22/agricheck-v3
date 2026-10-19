@@ -1,11 +1,11 @@
 import { Box } from '@mui/material'
 import L from 'leaflet'
-import { useEffect, useMemo } from 'react'
-import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet'
+import { useEffect } from 'react'
+import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { portalColors } from '../../../components/portal/portalTheme'
 import type { DaContainerActualRoute, DaDeliveryProofPhoto } from '../api/daApi'
-import { buildGpsTrailMapSegments } from '../utils/daGpsTrailSegments'
+import { DaGpsTrailMapLayers } from './DaGpsTrailMapLayers'
 import {
   isUsablePhilippinesCoordinate,
   PHILIPPINES_BOUNDS,
@@ -25,9 +25,6 @@ function pinIcon(color: string, label: string) {
 const pickupIcon = pinIcon('#15803D', 'P')
 const warehouseIcon = pinIcon('#F97316', 'W')
 const proofIcon = pinIcon('#7C3AED', '📷')
-const noSignalIcon = pinIcon('#DC2626', 'GAP')
-const queuedOfflineIcon = pinIcon('#EA580C', 'Q')
-
 function FitRoute({ route }: { route: DaContainerActualRoute }) {
   const map = useMap()
   useEffect(() => {
@@ -64,11 +61,6 @@ interface DaActualRouteMapProps {
 }
 
 export function DaActualRouteMap({ route, height = 360 }: DaActualRouteMapProps) {
-  const { online, offlineBuffered, noSignal } = useMemo(
-    () => buildGpsTrailMapSegments(route.trail),
-    [route.trail],
-  )
-
   return (
     <Box
       sx={{
@@ -92,62 +84,7 @@ export function DaActualRouteMap({ route, height = 360 }: DaActualRouteMapProps)
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <FitRoute route={route} />
-        {online.map((segment, i) =>
-          segment.positions.length >= 2 ? (
-            <Polyline
-              key={`online-${i}`}
-              positions={segment.positions}
-              pathOptions={{ color: '#2563EB', weight: 5, opacity: 0.9 }}
-            />
-          ) : null,
-        )}
-        {offlineBuffered.map((segment, i) => (
-          <Polyline
-            key={`queued-${i}`}
-            positions={segment.positions}
-            pathOptions={{
-              color: '#EA580C',
-              weight: 5,
-              opacity: 0.9,
-              dashArray: '8, 10',
-            }}
-          />
-        ))}
-        {noSignal.map((segment, i) => (
-          <Polyline
-            key={`gap-${segment.gapIndex ?? i}`}
-            positions={segment.positions}
-            pathOptions={{
-              color: '#DC2626',
-              weight: 5,
-              opacity: 0.85,
-              dashArray: '10, 14',
-            }}
-          />
-        ))}
-        {noSignal.map((segment, i) => {
-          if (!segment.offlineStartedAt || !segment.backOnlineAt) return null
-          const [lat, lng] = segment.positions[0]
-          return (
-            <Marker key={`gap-m-${segment.gapIndex ?? i}`} position={[lat, lng]} icon={noSignalIcon}>
-              <Popup>
-                No GPS fix · {segment.durationMinutes} min
-                <br />
-                Last ping {new Date(segment.offlineStartedAt).toLocaleString()}
-                <br />
-                Next ping {new Date(segment.backOnlineAt).toLocaleString()}
-              </Popup>
-            </Marker>
-          )
-        })}
-        {offlineBuffered.slice(0, 12).map((segment, i) => {
-          const [lat, lng] = segment.positions[0]
-          return (
-            <Marker key={`queued-m-${i}`} position={[lat, lng]} icon={queuedOfflineIcon}>
-              <Popup>Coordinate queued on device (no network when captured)</Popup>
-            </Marker>
-          )
-        })}
+        <DaGpsTrailMapLayers trail={route.trail} layerKey={route.containerUuid} />
         <Marker position={[Number(route.pickup.latitude), Number(route.pickup.longitude)]} icon={pickupIcon}>
           <Popup>Pickup · {route.pickup.label}</Popup>
         </Marker>

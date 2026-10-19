@@ -599,14 +599,22 @@ export interface DaLiveDelivery {
   recentTrail: DaContainerTrailPoint[]
   driverGpsOffline?: boolean
   driverOfflineMinutes?: number | null
+  departureTime?: string | null
 }
 
 export interface DaDeliveryComplianceAlert {
+  alertId: number
   containerUuid: string
   containerNumber: string
+  entryReference: string
   eventType: string
   details?: string | null
   recordedAt: string
+  driverName?: string | null
+  driverPhone?: string | null
+  isOpen: boolean
+  daReviewedAtUtc?: string | null
+  daReviewNotes?: string | null
 }
 
 export interface DaDeliveryComplianceHold {
@@ -621,10 +629,15 @@ export interface DaDeliveryComplianceHold {
 
 export interface DaLiveLogisticsSnapshot {
   serverTime: string
-  activeDeliveries: DaLiveDelivery[]
-  recentlyArrived: DaLiveDelivery[]
-  complianceAlerts: DaDeliveryComplianceAlert[]
+  inTransitDeliveries: DaLiveDelivery[]
+}
+
+export interface DaLogisticsAlertsSnapshot {
+  serverTime: string
+  openAlerts: DaDeliveryComplianceAlert[]
+  alertHistory: DaDeliveryComplianceAlert[]
   activeComplianceHolds: DaDeliveryComplianceHold[]
+  recentlyArrived: DaLiveDelivery[]
 }
 
 export interface DaDeliveryProofPhoto {
@@ -837,6 +850,21 @@ export const daApi = createApi({
       query: () => '/da/logistics/live',
       providesTags: ['DaLogistics'],
     }),
+    getDaLogisticsAlerts: builder.query<ApiEnvelope<DaLogisticsAlertsSnapshot>, void>({
+      query: () => '/da/logistics/alerts',
+      providesTags: ['DaLogistics'],
+    }),
+    acknowledgeDaComplianceAlert: builder.mutation<
+      ApiEnvelope<DaDeliveryComplianceAlert>,
+      { alertId: number; daReviewNotes: string }
+    >({
+      query: ({ alertId, daReviewNotes }) => ({
+        url: `/da/logistics/compliance-alerts/${alertId}/acknowledge`,
+        method: 'POST',
+        body: { daReviewNotes },
+      }),
+      invalidatesTags: ['DaLogistics'],
+    }),
     getDaContainerActualRoute: builder.query<ApiEnvelope<DaContainerActualRoute>, string>({
       query: (uuid) => `/da/logistics/containers/${uuid}/actual-route`,
       providesTags: (_result, _error, uuid) => [{ type: 'DaLogistics', id: uuid }],
@@ -879,6 +907,8 @@ export const {
   useGetDaImporterProfileQuery,
   useGetDaImporterEntriesQuery,
   useGetDaLogisticsLiveQuery,
+  useGetDaLogisticsAlertsQuery,
+  useAcknowledgeDaComplianceAlertMutation,
   useGetDaContainerActualRouteQuery,
   useClearDaDeliveryComplianceHoldMutation,
 } = daApi

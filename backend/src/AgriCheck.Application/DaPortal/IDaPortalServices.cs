@@ -67,6 +67,11 @@ public interface IDaImporterProfileService
 public interface IDaLogisticsLiveService
 {
     Task<DaLiveLogisticsSnapshotDto> GetLiveSnapshotAsync(CancellationToken cancellationToken = default);
+    Task<DaLogisticsAlertsSnapshotDto> GetAlertsSnapshotAsync(CancellationToken cancellationToken = default);
+    Task<DaDeliveryComplianceAlertDto> AcknowledgeComplianceAlertAsync(
+        long alertId,
+        DaAcknowledgeComplianceAlertRequest request,
+        CancellationToken cancellationToken = default);
     Task<DaContainerActualRouteDto> GetActualRouteAsync(Guid containerUuid, CancellationToken cancellationToken = default);
     Task<AgriCheck.Application.ClientPortal.Dtos.StoredFileDownload> DownloadDeliveryProofPhotoAsync(
         Guid photoUuid,

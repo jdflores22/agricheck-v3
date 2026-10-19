@@ -1,12 +1,12 @@
-import { Box } from '@mui/material'
+import { Box, Stack, Typography } from '@mui/material'
 import L from 'leaflet'
-import { Fragment, useEffect, useMemo, useState } from 'react'
-import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet'
+import { Fragment, useEffect, useMemo } from 'react'
+import { CircleMarker, MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { portalColors } from '../../../components/portal/portalTheme'
-import type { DaContainerTrailPoint, DaLiveDelivery } from '../api/daApi'
+import type { DaContainerTrailPoint, DaDeliveryProofPhoto, DaLiveDelivery } from '../api/daApi'
+import { DaGpsTrailMapLayers } from './DaGpsTrailMapLayers'
 import { resolveDriverGpsDisplay } from '../utils/daDriverGpsStatus'
-import { fetchOsrmDrivingRoute, type LatLng } from '../utils/daOsrmRoute'
 import {
   isUsablePhilippinesCoordinate,
   PHILIPPINES_BOUNDS,
@@ -51,22 +51,18 @@ const pickupIcon = pinIcon('#15803D', 'P')
 const warehouseIcon = pinIcon('#F97316', 'W')
 const driverLiveIcon = pinIcon('#2563EB', '●')
 const driverOfflineIcon = pinIcon('#94A3B8', '●')
-
-type DeliveryRoutes = {
-  navigation: LatLng[] | null
-  overview: LatLng[] | null
-}
+const proofIcon = pinIcon('#7C3AED', '📷')
 
 function FitAllDeliveries({
   deliveries,
   selectedUuid,
-  routes,
   fullTrailByUuid,
+  proofPhotosByUuid,
 }: {
   deliveries: DaLiveDelivery[]
   selectedUuid: string | null
-  routes: Record<string, DeliveryRoutes>
   fullTrailByUuid?: Record<string, DaContainerTrailPoint[]>
+  proofPhotosByUuid?: Record<string, DaDeliveryProofPhoto[]>
 }) {
   const map = useMap()
   useEffect(() => {
@@ -90,13 +86,11 @@ function FitAllDeliveries({
       const dLat = Number(d.destination.latitude)
       const dLng = Number(d.destination.longitude)
       if (isUsablePhilippinesCoordinate(dLat, dLng)) points.push([dLat, dLng])
-      const r = routes[d.containerUuid]
-      r?.navigation?.forEach(([lat, lng]) => {
-        if (isUsablePhilippinesCoordinate(lat, lng)) points.push([lat, lng])
-      })
-      r?.overview?.forEach(([lat, lng]) => {
-        if (isUsablePhilippinesCoordinate(lat, lng)) points.push([lat, lng])
-      })
+      for (const photo of proofPhotosByUuid?.[d.containerUuid] ?? []) {
+        if (photo.captureLatitude != null && photo.captureLongitude != null) {
+          points.push([Number(photo.captureLatitude), Number(photo.captureLongitude)])
+        }
+      }
     }
     if (points.length === 0) {
       map.setView(PHILIPPINES_MAP_CENTER, 6)
@@ -104,7 +98,7 @@ function FitAllDeliveries({
     }
     const bounds = L.latLngBounds(points)
     map.fitBounds(bounds.pad(0.15), { maxZoom: selectedUuid ? 15 : 12, animate: true })
-  }, [deliveries, map, selectedUuid, routes, fullTrailByUuid])
+  }, [deliveries, map, selectedUuid, fullTrailByUuid, proofPhotosByUuid])
   return null
 }
 
@@ -114,6 +108,7 @@ interface DaLiveLogisticsMapProps {
   serverTime?: string | null
   /** Full GPS history for selected delivery (from actual-route API). */
   fullTrailByUuid?: Record<string, DaContainerTrailPoint[]>
+  proofPhotosByUuid?: Record<string, DaDeliveryProofPhoto[]>
   height?: number
 }
 
@@ -122,42 +117,13 @@ export function DaLiveLogisticsMap({
   selectedUuid,
   serverTime,
   fullTrailByUuid,
+  proofPhotosByUuid,
   height = 520,
 }: DaLiveLogisticsMapProps) {
   const visible = useMemo(() => {
     if (!selectedUuid) return deliveries
     return deliveries.filter((d) => d.containerUuid === selectedUuid)
   }, [deliveries, selectedUuid])
-
-  const [routes, setRoutes] = useState<Record<string, DeliveryRoutes>>({})
-
-  useEffect(() => {
-    let cancelled = false
-    async function loadRoutes() {
-      const next: Record<string, DeliveryRoutes> = {}
-      await Promise.all(
-        visible.map(async (d) => {
-          const pLat = Number(d.pickup.latitude)
-          const pLng = Number(d.pickup.longitude)
-          const wLat = Number(d.destination.latitude)
-          const wLng = Number(d.destination.longitude)
-          const hasDriver = d.currentLatitude != null && d.currentLongitude != null
-          const fromLat = hasDriver ? Number(d.currentLatitude) : pLat
-          const fromLng = hasDriver ? Number(d.currentLongitude) : pLng
-          const [navigation, overview] = await Promise.all([
-            fetchOsrmDrivingRoute(fromLat, fromLng, wLat, wLng),
-            fetchOsrmDrivingRoute(pLat, pLng, wLat, wLng),
-          ])
-          next[d.containerUuid] = { navigation, overview }
-        }),
-      )
-      if (!cancelled) setRoutes(next)
-    }
-    loadRoutes()
-    return () => {
-      cancelled = true
-    }
-  }, [visible])
 
   const center = useMemo((): [number, number] => {
     const first = visible.find((d) => d.currentLatitude != null && d.currentLongitude != null)
@@ -169,105 +135,144 @@ export function DaLiveLogisticsMap({
     return PHILIPPINES_MAP_CENTER
   }, [visible])
 
+  const usingFullTrail = Boolean(selectedUuid && fullTrailByUuid?.[selectedUuid]?.length)
+
   return (
-    <Box
-      sx={{
-        borderRadius: 2,
-        overflow: 'hidden',
-        border: `1px solid ${portalColors.border}`,
-        height,
-      }}
-    >
-      <MapContainer
-        center={center}
-        zoom={6}
-        minZoom={PHILIPPINES_MAP_MIN_ZOOM}
-        maxBounds={PHILIPPINES_BOUNDS}
-        maxBoundsViscosity={1}
-        style={{ height: '100%', width: '100%' }}
-        scrollWheelZoom
+    <Box sx={{ position: 'relative' }}>
+      <Box
+        sx={{
+          borderRadius: 2,
+          overflow: 'hidden',
+          border: `1px solid ${portalColors.border}`,
+          height,
+        }}
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        <PhilippinesDefaultView />
-        <FitAllDeliveries
-          deliveries={visible}
-          selectedUuid={selectedUuid}
-          routes={routes}
-          fullTrailByUuid={fullTrailByUuid}
-        />
-        {visible.map((d) => {
-          const full = fullTrailByUuid?.[d.containerUuid]
-          const source = full && full.length > 0 ? full : d.recentTrail
-          const trail = source
-            .map((p) => [Number(p.latitude), Number(p.longitude)] as [number, number])
-            .filter(([lat, lng]) => isUsablePhilippinesCoordinate(lat, lng))
-          const lat = d.currentLatitude != null ? Number(d.currentLatitude) : null
-          const lng = d.currentLongitude != null ? Number(d.currentLongitude) : null
-          const gps = resolveDriverGpsDisplay(d, serverTime)
-          const route = routes[d.containerUuid]
-          return (
-            <Fragment key={d.containerUuid}>
-              {route?.overview && route.overview.length >= 2 && (
-                <Polyline
-                  positions={route.overview}
-                  pathOptions={{ color: '#86EFAC', weight: 5, opacity: 0.55, dashArray: '10 8' }}
-                />
-              )}
-              {route?.navigation && route.navigation.length >= 2 && (
-                <Polyline
-                  positions={route.navigation}
-                  pathOptions={{ color: '#15803D', weight: 6, opacity: 0.9 }}
-                />
-              )}
-              {trail.length >= 2 && (
-                <Polyline positions={trail} pathOptions={{ color: '#2563EB', weight: 4, opacity: 0.85 }} />
-              )}
-              {isUsablePhilippinesCoordinate(Number(d.pickup.latitude), Number(d.pickup.longitude)) && (
-                <Marker position={[Number(d.pickup.latitude), Number(d.pickup.longitude)]} icon={pickupIcon}>
-                  <Popup>Pickup · {d.pickup.label}</Popup>
-                </Marker>
-              )}
-              {isUsablePhilippinesCoordinate(
-                Number(d.destination.latitude),
-                Number(d.destination.longitude),
-              ) && (
-                <Marker
-                  position={[Number(d.destination.latitude), Number(d.destination.longitude)]}
-                  icon={warehouseIcon}
-                >
-                  <Popup>Warehouse · {d.destination.label}</Popup>
-                </Marker>
-              )}
-              {lat != null && lng != null && (
-                <Marker position={[lat, lng]} icon={gps.offline ? driverOfflineIcon : driverLiveIcon}>
-                  <Popup>
-                    {d.containerNumber} · {d.driverName ?? 'Driver'}
-                    <br />
-                    {gps.label}
-                    <br />
-                    {d.status}
-                  </Popup>
-                </Marker>
-              )}
-              {lat != null && lng != null && (
-                <CircleMarker
-                  center={[lat, lng]}
-                  radius={10}
-                  pathOptions={{
-                    color: gps.offline ? '#94A3B8' : '#2563EB',
-                    fillColor: gps.offline ? '#CBD5E1' : '#3B82F6',
-                    fillOpacity: 0.35,
-                    weight: 2,
-                  }}
-                />
-              )}
-            </Fragment>
-          )
-        })}
-      </MapContainer>
+        <MapContainer
+          center={center}
+          zoom={6}
+          minZoom={PHILIPPINES_MAP_MIN_ZOOM}
+          maxBounds={PHILIPPINES_BOUNDS}
+          maxBoundsViscosity={1}
+          style={{ height: '100%', width: '100%' }}
+          scrollWheelZoom
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <PhilippinesDefaultView />
+          <FitAllDeliveries
+            deliveries={visible}
+            selectedUuid={selectedUuid}
+            fullTrailByUuid={fullTrailByUuid}
+            proofPhotosByUuid={proofPhotosByUuid}
+          />
+          {visible.map((d) => {
+            const full = fullTrailByUuid?.[d.containerUuid]
+            const trail = full && full.length > 0 ? full : d.recentTrail
+            const lat = d.currentLatitude != null ? Number(d.currentLatitude) : null
+            const lng = d.currentLongitude != null ? Number(d.currentLongitude) : null
+            const gps = resolveDriverGpsDisplay(d, serverTime)
+            const proofs = proofPhotosByUuid?.[d.containerUuid] ?? []
+            return (
+              <Fragment key={d.containerUuid}>
+                {trail.length >= 1 && (
+                  <DaGpsTrailMapLayers
+                    trail={trail}
+                    layerKey={d.containerUuid}
+                    showGapMarkers={selectedUuid === d.containerUuid}
+                    gapMarkerLimit={selectedUuid === d.containerUuid ? 12 : 4}
+                  />
+                )}
+                {isUsablePhilippinesCoordinate(Number(d.pickup.latitude), Number(d.pickup.longitude)) && (
+                  <Marker position={[Number(d.pickup.latitude), Number(d.pickup.longitude)]} icon={pickupIcon}>
+                    <Popup>Pickup · {d.pickup.label}</Popup>
+                  </Marker>
+                )}
+                {isUsablePhilippinesCoordinate(
+                  Number(d.destination.latitude),
+                  Number(d.destination.longitude),
+                ) && (
+                  <Marker
+                    position={[Number(d.destination.latitude), Number(d.destination.longitude)]}
+                    icon={warehouseIcon}
+                  >
+                    <Popup>Warehouse · {d.destination.label}</Popup>
+                  </Marker>
+                )}
+                {proofs.map((photo) => {
+                  if (photo.captureLatitude == null || photo.captureLongitude == null) return null
+                  return (
+                    <Marker
+                      key={photo.photoUuid}
+                      position={[Number(photo.captureLatitude), Number(photo.captureLongitude)]}
+                      icon={proofIcon}
+                    >
+                      <Popup>{photo.label}</Popup>
+                    </Marker>
+                  )
+                })}
+                {lat != null && lng != null && (
+                  <Marker position={[lat, lng]} icon={gps.offline ? driverOfflineIcon : driverLiveIcon}>
+                    <Popup>
+                      {d.containerNumber} · {d.driverName ?? 'Driver'}
+                      <br />
+                      {gps.label}
+                      <br />
+                      {d.status}
+                    </Popup>
+                  </Marker>
+                )}
+                {lat != null && lng != null && (
+                  <CircleMarker
+                    center={[lat, lng]}
+                    radius={10}
+                    pathOptions={{
+                      color: gps.offline ? '#94A3B8' : '#2563EB',
+                      fillColor: gps.offline ? '#CBD5E1' : '#3B82F6',
+                      fillOpacity: 0.35,
+                      weight: 2,
+                    }}
+                  />
+                )}
+              </Fragment>
+            )
+          })}
+        </MapContainer>
+      </Box>
+      <Stack
+        direction="row"
+        spacing={1.5}
+        sx={{
+          position: 'absolute',
+          bottom: 10,
+          left: 10,
+          zIndex: 1000,
+          px: 1.25,
+          py: 0.75,
+          borderRadius: 1,
+          bgcolor: 'rgba(255,255,255,0.92)',
+          border: `1px solid ${portalColors.border}`,
+          fontSize: '0.7rem',
+          flexWrap: 'wrap',
+        }}
+      >
+        <Typography component="span" sx={{ fontSize: 'inherit', fontWeight: 700 }}>
+          {usingFullTrail ? 'Actual GPS trail' : 'Recent GPS pings'}
+        </Typography>
+        <Typography component="span" sx={{ fontSize: 'inherit' }}>
+          <span style={{ color: '#2563EB' }}>━</span> live sync
+        </Typography>
+        <Typography component="span" sx={{ fontSize: 'inherit' }}>
+          <span style={{ color: '#EA580C' }}>┄</span> queued offline
+        </Typography>
+        <Typography component="span" sx={{ fontSize: 'inherit' }}>
+          <span style={{ color: '#DC2626' }}>┄</span> no signal gap
+        </Typography>
+        <Typography component="span" sx={{ fontSize: 'inherit' }}>
+          <span style={{ color: '#7C3AED' }}>📷</span> geotag proof
+        </Typography>
+      </Stack>
     </Box>
   )
 }

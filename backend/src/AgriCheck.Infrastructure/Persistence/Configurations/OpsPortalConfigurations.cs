@@ -57,11 +57,14 @@ public class DeliveryComplianceEventConfiguration : IEntityTypeConfiguration<Del
         builder.HasKey(x => x.Id);
         builder.Property(x => x.EventType).HasMaxLength(64).IsRequired();
         builder.Property(x => x.Details).HasMaxLength(2000);
+        builder.Property(x => x.DaReviewNotes).HasMaxLength(2000);
         builder.Property(x => x.Latitude).HasPrecision(10, 7);
         builder.Property(x => x.Longitude).HasPrecision(10, 7);
         builder.HasIndex(x => new { x.ContainerId, x.RecordedAt });
+        builder.HasIndex(x => x.DaReviewedAtUtc);
         builder.HasOne(x => x.Container).WithMany().HasForeignKey(x => x.ContainerId);
         builder.HasOne(x => x.DriverUser).WithMany().HasForeignKey(x => x.DriverUserId);
+        builder.HasOne(x => x.DaReviewedByUser).WithMany().HasForeignKey(x => x.DaReviewedByUserId);
     }
 }
 

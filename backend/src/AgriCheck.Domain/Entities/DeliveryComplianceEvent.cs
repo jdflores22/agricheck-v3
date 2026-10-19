@@ -11,7 +11,11 @@ public class DeliveryComplianceEvent : BaseEntity
     public decimal? Longitude { get; set; }
     public string? Details { get; set; }
     public DateTime RecordedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? DaReviewedAtUtc { get; set; }
+    public long? DaReviewedByUserId { get; set; }
+    public string? DaReviewNotes { get; set; }
 
     public Container Container { get; set; } = null!;
     public User? DriverUser { get; set; }
+    public User? DaReviewedByUser { get; set; }
 }

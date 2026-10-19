@@ -16,7 +16,7 @@ import {
 import { Link as RouterLink } from 'react-router-dom'
 import { PortalPageHeader } from '../../../components/portal/PortalPageHeader'
 import { portalColors } from '../../../components/portal/portalTheme'
-import { useGetDaLogisticsLiveQuery } from '../api/daApi'
+import { useGetDaLogisticsAlertsQuery, useGetDaLogisticsLiveQuery } from '../api/daApi'
 import { resolveDriverGpsDisplay } from '../utils/daDriverGpsStatus'
 
 function reportHref(containerUuid: string) {
@@ -27,8 +27,13 @@ export function DaDeliveryReportsListPage() {
   const { data, isLoading, isFetching, refetch } = useGetDaLogisticsLiveQuery(undefined, {
     pollingInterval: 30_000,
   })
+  const { data: alertsData } = useGetDaLogisticsAlertsQuery(undefined, { pollingInterval: 30_000 })
   const snapshot = data?.data
-  const rows = [...(snapshot?.activeDeliveries ?? []), ...(snapshot?.recentlyArrived ?? [])]
+  const alertsSnapshot = alertsData?.data
+  const rows = [
+    ...(snapshot?.inTransitDeliveries ?? []),
+    ...(alertsSnapshot?.recentlyArrived ?? []),
+  ]
 
   if (isLoading && !snapshot) {
     return (

@@ -518,14 +518,22 @@ public record DaLiveDeliveryDto(
     DateTime? LastLocationAt,
     IReadOnlyList<DaContainerTrailPointDto> RecentTrail,
     bool DriverGpsOffline = false,
-    int? DriverOfflineMinutes = null);
+    int? DriverOfflineMinutes = null,
+    DateTime? DepartureTime = null);
 
 public record DaDeliveryComplianceAlertDto(
+    long AlertId,
     Guid ContainerUuid,
     string ContainerNumber,
+    string EntryReference,
     string EventType,
     string? Details,
-    DateTime RecordedAt);
+    DateTime RecordedAt,
+    string? DriverName,
+    string? DriverPhone,
+    bool IsOpen,
+    DateTime? DaReviewedAtUtc,
+    string? DaReviewNotes);
 
 public record DaDeliveryComplianceHoldDto(
     Guid ContainerUuid,
@@ -538,12 +546,18 @@ public record DaDeliveryComplianceHoldDto(
 
 public record DaClearDeliveryComplianceHoldRequest(string ClearanceNotes);
 
+public record DaAcknowledgeComplianceAlertRequest(string DaReviewNotes);
+
 public record DaLiveLogisticsSnapshotDto(
     DateTime ServerTime,
-    IReadOnlyList<DaLiveDeliveryDto> ActiveDeliveries,
-    IReadOnlyList<DaLiveDeliveryDto> RecentlyArrived,
-    IReadOnlyList<DaDeliveryComplianceAlertDto> ComplianceAlerts,
-    IReadOnlyList<DaDeliveryComplianceHoldDto> ActiveComplianceHolds);
+    IReadOnlyList<DaLiveDeliveryDto> InTransitDeliveries);
+
+public record DaLogisticsAlertsSnapshotDto(
+    DateTime ServerTime,
+    IReadOnlyList<DaDeliveryComplianceAlertDto> OpenAlerts,
+    IReadOnlyList<DaDeliveryComplianceAlertDto> AlertHistory,
+    IReadOnlyList<DaDeliveryComplianceHoldDto> ActiveComplianceHolds,
+    IReadOnlyList<DaLiveDeliveryDto> RecentlyArrived);
 
 public record DaDeliveryProofPhotoDto(
     Guid PhotoUuid,

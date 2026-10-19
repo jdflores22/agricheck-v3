@@ -10,13 +10,13 @@ import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined'
-import MapOutlinedIcon from '@mui/icons-material/MapOutlined'
 import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined'
 import PeopleOutlinedIcon from '@mui/icons-material/PeopleOutlined'
 import PersonOutlineOutlinedIcon from '@mui/icons-material/PersonOutlineOutlined'
 import PlaylistAddCheckOutlinedIcon from '@mui/icons-material/PlaylistAddCheckOutlined'
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined'
 import ReportOutlinedIcon from '@mui/icons-material/ReportOutlined'
+import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined'
 import VerifiedOutlinedIcon from '@mui/icons-material/VerifiedOutlined'
 import WarehouseOutlinedIcon from '@mui/icons-material/WarehouseOutlined'
 import type { PortalNavItem } from './PortalShell'
@@ -95,6 +95,7 @@ const accreditationOfficerNavItems: PortalNavItem[] = [
 const daNavItems: PortalNavItem[] = [
   { label: 'Dashboard', path: '/da', icon: <DashboardOutlinedIcon /> },
   { label: 'Live delivery map', path: '/da/logistics/live', icon: <LocalShippingOutlinedIcon /> },
+  { label: 'Delivery alerts', path: '/da/logistics/alerts', icon: <ReportProblemOutlinedIcon /> },
   { label: 'News & announcements', path: '/agency/news', icon: <ArticleOutlinedIcon /> },
   { label: 'Agencies', path: '/da/agencies', icon: <BusinessOutlinedIcon /> },
   { label: 'Warehouses', path: '/da/warehouses', icon: <WarehouseOutlinedIcon /> },
@@ -254,8 +255,8 @@ const driverNavItems: PortalNavItem[] = [
 ]
 
 const operatorNavItems: PortalNavItem[] = [
-  { label: 'Containers', path: '/operator/containers', icon: <Inventory2OutlinedIcon /> },
-  { label: 'Route test', path: '/operator/route-test', icon: <MapOutlinedIcon /> },
+  { label: 'Dashboard', path: '/operator', icon: <DashboardOutlinedIcon /> },
+  { label: 'Containers & claim', path: '/operator/containers', icon: <Inventory2OutlinedIcon /> },
   { label: 'Drivers', path: '/operator/drivers', icon: <LocalShippingOutlinedIcon /> },
   { label: 'Vehicles', path: '/operator/vehicles', icon: <LocalShippingOutlinedIcon /> },
   { label: 'Driver Invites', path: '/operator/invites', icon: <LocalShippingOutlinedIcon /> },

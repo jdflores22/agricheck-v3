@@ -13,13 +13,10 @@ namespace AgriCheck.Infrastructure.Services;
 
 public class DaLogisticsLiveService : IDaLogisticsLiveService
 {
-    private static readonly ContainerStatus[] ActiveStatuses =
+    private static readonly ContainerStatus[] InTransitMapStatuses =
     {
-        ContainerStatus.Assigned,
         ContainerStatus.PickedUp,
         ContainerStatus.InTransit,
-        ContainerStatus.UnderInspection,
-        ContainerStatus.Inspected
     };
 
     /// <summary>No GPS ping within this window is treated as offline (AgriTrack foreground service target ~2–4 min).</summary>
@@ -51,7 +48,31 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
     {
         await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
 
-        var active = await LoadDeliveriesAsync(ActiveStatuses, recentTrailLimit: 400, cancellationToken);
+        var inTransit = await LoadDeliveriesAsync(
+            InTransitMapStatuses,
+            recentTrailLimit: 400,
+            liveMapTrailOnly: true,
+            cancellationToken);
+
+        return new DaLiveLogisticsSnapshotDto(DateTime.UtcNow, inTransit);
+    }
+
+    public async Task<DaLogisticsAlertsSnapshotDto> GetAlertsSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
+
+        var alertCutoff = DateTime.UtcNow.AddHours(-72);
+        var alertRows = await _db.DeliveryComplianceEvents
+            .AsNoTracking()
+            .Where(e => e.RecordedAt >= alertCutoff)
+            .OrderByDescending(e => e.RecordedAt)
+            .Take(80)
+            .ToListAsync(cancellationToken);
+
+        var alertDtos = await MapComplianceAlertsAsync(alertRows, cancellationToken);
+        var openAlerts = alertDtos.Where(a => a.IsOpen).ToList();
+        var alertHistory = alertDtos.Where(a => !a.IsOpen).Take(40).ToList();
+
         var arrivedCutoff = DateTime.UtcNow.AddHours(-48);
         var recentlyArrived = await _db.Containers
             .AsNoTracking()
@@ -66,65 +87,47 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
 
         var arrivedDtos = recentlyArrived.Count == 0
             ? Array.Empty<DaLiveDeliveryDto>()
-            : await LoadDeliveriesByIdsAsync(recentlyArrived, recentTrailLimit: 200, cancellationToken);
+            : await LoadDeliveriesByIdsAsync(recentlyArrived, recentTrailLimit: 0, liveMapTrailOnly: false, cancellationToken);
 
-        var alerts = await _db.DeliveryComplianceEvents
-            .AsNoTracking()
-            .Where(e => e.RecordedAt >= DateTime.UtcNow.AddHours(-24))
-            .OrderByDescending(e => e.RecordedAt)
-            .Take(40)
-            .Select(e => new
-            {
-                e.ContainerId,
-                e.EventType,
-                e.Details,
-                e.RecordedAt,
-            })
-            .ToListAsync(cancellationToken);
+        var holdDtos = await LoadActiveComplianceHoldsAsync(cancellationToken);
 
-        var containerIds = alerts.Select(a => a.ContainerId).Distinct().ToList();
-        var containerMap = await _db.Containers
-            .AsNoTracking()
-            .Where(c => containerIds.Contains(c.Id))
-            .Select(c => new { c.Id, c.Uuid, c.ContainerNumber })
-            .ToDictionaryAsync(c => c.Id, cancellationToken);
+        return new DaLogisticsAlertsSnapshotDto(
+            DateTime.UtcNow,
+            openAlerts,
+            alertHistory,
+            holdDtos,
+            arrivedDtos);
+    }
 
-        var alertDtos = alerts
-            .Where(a => containerMap.ContainsKey(a.ContainerId))
-            .Select(a =>
-            {
-                var c = containerMap[a.ContainerId];
-                return new DaDeliveryComplianceAlertDto(c.Uuid, c.ContainerNumber, a.EventType, a.Details, a.RecordedAt);
-            })
-            .ToList();
+    public async Task<DaDeliveryComplianceAlertDto> AcknowledgeComplianceAlertAsync(
+        long alertId,
+        DaAcknowledgeComplianceAlertRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await DaContextHelper.RequireDaLeadershipAsync(_db, _currentUser, cancellationToken);
 
-        var holdContainers = await _db.Containers
-            .AsNoTracking()
-            .Include(c => c.Entry)
-            .Include(c => c.AssignedDriver).ThenInclude(u => u!.Profile)
-            .Include(c => c.AssignedOperatorVehicle)
-            .Where(c => c.DeliveryComplianceHoldReason != null && c.DeliveryComplianceClearedAt == null)
-            .OrderByDescending(c => c.DeliveryComplianceHoldAt)
-            .Take(50)
-            .ToListAsync(cancellationToken);
+        var notes = request.DaReviewNotes?.Trim();
+        if (string.IsNullOrWhiteSpace(notes))
+        {
+            throw new ClientPortalException("NOTES_REQUIRED", "Enter DA remarks before clearing the alert.");
+        }
 
-        var holdDtos = holdContainers
-            .Where(c => c.DeliveryComplianceHoldAt is not null && c.DeliveryComplianceHoldReason is not null)
-            .Select(c =>
-            {
-                var driverName = FormatDriverName(c.AssignedDriver);
-                return new DaDeliveryComplianceHoldDto(
-                    c.Uuid,
-                    c.ContainerNumber,
-                    c.Entry.ReferenceNo,
-                    c.DeliveryComplianceHoldReason!,
-                    c.DeliveryComplianceHoldAt!.Value,
-                    driverName,
-                    c.AssignedOperatorVehicle?.PlateNumber);
-            })
-            .ToList();
+        var alert = await _db.DeliveryComplianceEvents
+            .FirstOrDefaultAsync(e => e.Id == alertId, cancellationToken)
+            ?? throw new ClientPortalException("NOT_FOUND", "Compliance alert not found.");
 
-        return new DaLiveLogisticsSnapshotDto(DateTime.UtcNow, active, arrivedDtos, alertDtos, holdDtos);
+        if (alert.DaReviewedAtUtc is not null)
+        {
+            throw new ClientPortalException("ALREADY_REVIEWED", "This alert was already reviewed.");
+        }
+
+        alert.DaReviewedAtUtc = DateTime.UtcNow;
+        alert.DaReviewedByUserId = user.Id;
+        alert.DaReviewNotes = notes;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var mapped = await MapComplianceAlertsAsync(new[] { alert }, cancellationToken);
+        return mapped[0];
     }
 
     public async Task<DaDeliveryComplianceHoldDto> ClearComplianceHoldAsync(
@@ -230,9 +233,95 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
             photo.OriginalFileName);
     }
 
+    private async Task<IReadOnlyList<DaDeliveryComplianceHoldDto>> LoadActiveComplianceHoldsAsync(
+        CancellationToken cancellationToken)
+    {
+        var holdContainers = await _db.Containers
+            .AsNoTracking()
+            .Include(c => c.Entry)
+            .Include(c => c.AssignedDriver).ThenInclude(u => u!.Profile)
+            .Include(c => c.AssignedOperatorVehicle)
+            .Where(c => c.DeliveryComplianceHoldReason != null && c.DeliveryComplianceClearedAt == null)
+            .OrderByDescending(c => c.DeliveryComplianceHoldAt)
+            .Take(50)
+            .ToListAsync(cancellationToken);
+
+        return holdContainers
+            .Where(c => c.DeliveryComplianceHoldAt is not null && c.DeliveryComplianceHoldReason is not null)
+            .Select(c =>
+            {
+                var driverName = FormatDriverName(c.AssignedDriver);
+                return new DaDeliveryComplianceHoldDto(
+                    c.Uuid,
+                    c.ContainerNumber,
+                    c.Entry.ReferenceNo,
+                    c.DeliveryComplianceHoldReason!,
+                    c.DeliveryComplianceHoldAt!.Value,
+                    driverName,
+                    c.AssignedOperatorVehicle?.PlateNumber);
+            })
+            .ToList();
+    }
+
+    private async Task<IReadOnlyList<DaDeliveryComplianceAlertDto>> MapComplianceAlertsAsync(
+        IReadOnlyList<DeliveryComplianceEvent> alerts,
+        CancellationToken cancellationToken)
+    {
+        if (alerts.Count == 0)
+        {
+            return Array.Empty<DaDeliveryComplianceAlertDto>();
+        }
+
+        var containerIds = alerts.Select(a => a.ContainerId).Distinct().ToList();
+        var containers = await _db.Containers
+            .AsNoTracking()
+            .Include(c => c.Entry)
+            .Include(c => c.AssignedDriver).ThenInclude(u => u!.Profile)
+            .Where(c => containerIds.Contains(c.Id))
+            .ToListAsync(cancellationToken);
+        var containerMap = containers.ToDictionary(c => c.Id);
+
+        var driverUserIds = containers
+            .Where(c => c.AssignedDriverUserId is not null)
+            .Select(c => c.AssignedDriverUserId!.Value)
+            .Distinct()
+            .ToList();
+        var phoneByUserId = await _db.DriverProfiles
+            .AsNoTracking()
+            .Where(p => driverUserIds.Contains(p.UserId))
+            .Select(p => new { p.UserId, p.PhoneNumber })
+            .ToDictionaryAsync(p => p.UserId, p => p.PhoneNumber, cancellationToken);
+
+        return alerts
+            .Where(a => containerMap.ContainsKey(a.ContainerId))
+            .Select(a =>
+            {
+                var c = containerMap[a.ContainerId];
+                var driverName = FormatDriverName(c.AssignedDriver);
+                var phone = c.AssignedDriverUserId is long uid
+                    ? phoneByUserId.GetValueOrDefault(uid)
+                    : null;
+                return new DaDeliveryComplianceAlertDto(
+                    a.Id,
+                    c.Uuid,
+                    c.ContainerNumber,
+                    c.Entry.ReferenceNo,
+                    a.EventType,
+                    a.Details,
+                    a.RecordedAt,
+                    driverName,
+                    phone,
+                    a.DaReviewedAtUtc is null,
+                    a.DaReviewedAtUtc,
+                    a.DaReviewNotes);
+            })
+            .ToList();
+    }
+
     private async Task<IReadOnlyList<DaLiveDeliveryDto>> LoadDeliveriesAsync(
         ContainerStatus[] statuses,
         int recentTrailLimit,
+        bool liveMapTrailOnly,
         CancellationToken cancellationToken)
     {
         var ids = await _db.Containers
@@ -243,12 +332,13 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
             .Take(50)
             .ToListAsync(cancellationToken);
 
-        return await LoadDeliveriesByIdsAsync(ids, recentTrailLimit, cancellationToken);
+        return await LoadDeliveriesByIdsAsync(ids, recentTrailLimit, liveMapTrailOnly, cancellationToken);
     }
 
     private async Task<IReadOnlyList<DaLiveDeliveryDto>> LoadDeliveriesByIdsAsync(
         IReadOnlyList<long> ids,
         int recentTrailLimit,
+        bool liveMapTrailOnly,
         CancellationToken cancellationToken)
     {
         if (ids.Count == 0)
@@ -274,6 +364,11 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
             var pickup = ContainerDeliveryPointHelper.ResolvePickup(container, container.Entry);
             var destination = await ResolveDestinationAsync(container, cancellationToken);
             var trail = BuildTrail(container.Locations, recentTrailLimit);
+            if (liveMapTrailOnly)
+            {
+                trail = FilterTrailForLiveNavigation(trail, container.DepartureTime);
+            }
+
             var last = trail.LastOrDefault();
             var driverName = FormatDriverName(container.AssignedDriver);
             var (gpsOffline, offlineMinutes) = ResolveDriverGpsOffline(container.Status, last?.RecordedAt);
@@ -292,7 +387,8 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
                 last?.RecordedAt,
                 trail,
                 gpsOffline,
-                offlineMinutes));
+                offlineMinutes,
+                container.DepartureTime));
         }
 
         return results;
@@ -385,8 +481,48 @@ public class DaLogisticsLiveService : IDaLogisticsLiveService
                 ? $"container-delivery-geotag/{containerUuid}"
                 : $"container-inspection/{containerUuid}";
 
+    private static List<DaContainerTrailPointDto> FilterTrailForLiveNavigation(
+        List<DaContainerTrailPointDto> trail,
+        DateTime? departureTimeUtc)
+    {
+        if (trail.Count == 0)
+        {
+            return trail;
+        }
+
+        if (departureTimeUtc is null)
+        {
+            return trail.Count <= 1 ? trail : trail.Skip(trail.Count - 1).ToList();
+        }
+
+        var departure = departureTimeUtc.Value.Kind switch
+        {
+            DateTimeKind.Utc => departureTimeUtc.Value,
+            DateTimeKind.Local => departureTimeUtc.Value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(departureTimeUtc.Value, DateTimeKind.Utc),
+        };
+
+        var filtered = trail.Where(p =>
+        {
+            var recorded = p.RecordedAt.Kind switch
+            {
+                DateTimeKind.Utc => p.RecordedAt,
+                DateTimeKind.Local => p.RecordedAt.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(p.RecordedAt, DateTimeKind.Utc),
+            };
+            return recorded >= departure.AddMinutes(-2);
+        }).ToList();
+
+        return filtered.Count > 0 ? filtered : trail.Skip(Math.Max(0, trail.Count - 1)).ToList();
+    }
+
     private static List<DaContainerTrailPointDto> BuildTrail(IEnumerable<ContainerLocation> locations, int limit)
     {
+        if (limit <= 0)
+        {
+            return new List<DaContainerTrailPointDto>();
+        }
+
         var ordered = locations
             .Where(l => l.Latitude is not null && l.Longitude is not null)
             .OrderBy(l => l.RecordedAt)

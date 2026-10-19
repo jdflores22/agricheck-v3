@@ -134,7 +134,7 @@ import { DriverDashboardPage } from '../features/ops/pages/DriverDashboardPage'
 import { DriverContainersPage } from '../features/ops/pages/DriverContainersPage'
 import { DriverProfilePage } from '../features/ops/pages/DriverProfilePage'
 import { OperatorContainersPage } from '../features/ops/pages/OperatorContainersPage'
-import { OperatorRouteTestPage } from '../features/ops/pages/OperatorRouteTestPage'
+import { OperatorContainerDetailPage } from '../features/ops/pages/OperatorContainerDetailPage'
 import { OperatorDriversPage } from '../features/ops/pages/OperatorDriversPage'
 import { OperatorVehiclesPage } from '../features/ops/pages/OperatorVehiclesPage'
 import { OperatorInvitesPage } from '../features/ops/pages/OperatorInvitesPage'
@@ -145,6 +145,7 @@ import { DaDashboardPage } from '../features/da/pages/DaDashboardPage'
 import { DaDeliveryReportPage } from '../features/da/pages/DaDeliveryReportPage'
 import { DaDeliveryReportsListPage } from '../features/da/pages/DaDeliveryReportsListPage'
 import { DaLiveLogisticsPage } from '../features/da/pages/DaLiveLogisticsPage'
+import { DaLogisticsAlertsPage } from '../features/da/pages/DaLogisticsAlertsPage'
 import { DaAgenciesPage } from '../features/da/pages/DaAgenciesPage'
 import { DaAgencyOversightPage } from '../features/da/pages/DaAgencyOversightPage'
 import { DaReportsPage } from '../features/da/pages/DaReportsPage'
@@ -355,6 +356,7 @@ export const router = createBrowserRouter([
                   { index: true, element: <DaDashboardPage /> },
 
                   { path: 'logistics/live', element: <DaLiveLogisticsPage /> },
+                  { path: 'logistics/alerts', element: <DaLogisticsAlertsPage /> },
                   { path: 'logistics/reports', element: <DaDeliveryReportsListPage /> },
                   { path: 'logistics/containers/:containerUuid/report', element: <DaDeliveryReportPage /> },
 
@@ -596,7 +598,7 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <Navigate to="/operator/containers" replace /> },
               { path: 'containers', element: <OperatorContainersPage /> },
-              { path: 'route-test', element: <OperatorRouteTestPage /> },
+              { path: 'containers/:haulUuid', element: <OperatorContainerDetailPage /> },
               { path: 'drivers', element: <OperatorDriversPage /> },
               { path: 'vehicles', element: <OperatorVehiclesPage /> },
               { path: 'invites', element: <OperatorInvitesPage /> },
