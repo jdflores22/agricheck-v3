@@ -1169,7 +1169,11 @@ public class DriverOpsService : IDriverOpsService
         var eventType = request.EventType.Trim().ToLowerInvariant();
         if (eventType is not DeliveryComplianceEventTypes.Misroute
             and not DeliveryComplianceEventTypes.WrongWarehouse
-            and not DeliveryComplianceEventTypes.OffRouteBlocked)
+            and not DeliveryComplianceEventTypes.OffRouteBlocked
+            and not DeliveryComplianceEventTypes.NavigationNotStarted
+            and not DeliveryComplianceEventTypes.RouteDistanceRegression
+            and not DeliveryComplianceEventTypes.DriverStationary15
+            and not DeliveryComplianceEventTypes.DriverStationary30)
         {
             throw new ClientPortalException("INVALID_EVENT", "Unsupported compliance event type.");
         }
