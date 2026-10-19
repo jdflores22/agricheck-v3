@@ -33,6 +33,9 @@ if (-not (Test-Path $dist)) {
     throw "Missing build output: $dist"
 }
 
+# dist/config.js is copied from frontend/public/config.js (no secrets). After upload, re-apply on the server:
+#   window.__AGRICHECK_GOOGLE_MAPS_API_KEY__ = 'your-browser-restricted-key';
+
 if (-not (Test-Path $configPath)) {
     Write-Host ''
     Write-Host 'Deploy config not found.' -ForegroundColor Yellow

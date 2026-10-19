@@ -550,7 +550,17 @@ public record DaAcknowledgeComplianceAlertRequest(string DaReviewNotes);
 
 public record DaLiveLogisticsSnapshotDto(
     DateTime ServerTime,
-    IReadOnlyList<DaLiveDeliveryDto> InTransitDeliveries);
+    IReadOnlyList<DaLiveDeliveryDto> InTransitDeliveries)
+{
+    /// <summary>Legacy SPA field — same data as <see cref="InTransitDeliveries"/> until Hostinger deploy catches up.</summary>
+    public IReadOnlyList<DaLiveDeliveryDto> ActiveDeliveries => InTransitDeliveries;
+
+    public IReadOnlyList<DaLiveDeliveryDto> RecentlyArrived => Array.Empty<DaLiveDeliveryDto>();
+
+    public IReadOnlyList<DaDeliveryComplianceAlertDto> ComplianceAlerts => Array.Empty<DaDeliveryComplianceAlertDto>();
+
+    public IReadOnlyList<DaDeliveryComplianceHoldDto> ActiveComplianceHolds => Array.Empty<DaDeliveryComplianceHoldDto>();
+};
 
 public record DaLogisticsAlertsSnapshotDto(
     DateTime ServerTime,
